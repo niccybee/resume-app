@@ -10,10 +10,11 @@ const showList = ref(true);
 // Search Vars
 let searchInput = ref("");
 
+// Builder Vars
+let addedItems = ref([]);
 // Search functions
 function filtered() {
   let filteredItems = props.listItems;
-
   return filteredItems.filter(
     (i) =>
       i.item.toLowerCase().includes(searchInput.value) ||
@@ -21,26 +22,23 @@ function filtered() {
       i.employer.toLowerCase().includes(searchInput.value)
   );
 }
-function employerSelected(employer) {
-  console.log("employer selected: ", employer);
-}
-function employers() {
-  let employerList = props.listItems.map((a) => a.employer);
-  return [...new Set(employerList)];
-}
+
 // Add items functions
+function initAddedItems() {
+  console.log("init", addedItems);
+  addedItems.map((i) => i);
+}
 function addItem(resumeItem) {
-  console.log("caught it!");
-  // addedItems.value.push(resumeItem);
+  addedItems.value.push(resumeItem);
 }
 </script>
 <template>
-  <h2>CV Items</h2>
-  <Builder @addToResume="addItem" />
+  <h2>List</h2>
+  <Builder :selectedItems="addedItems" />
   <input
     placeholder="Search"
     @input=""
-    type="text"
+    type="search"
     name="search"
     id=""
     v-model="searchInput"
@@ -50,6 +48,8 @@ function addItem(resumeItem) {
     {{ showList ? "- Hide List" : "+ Show List " }}
   </button>
   <div v-if="showList" class="grid">
-    <div><Item v-for="i in filtered()" :key="i.id" :item="i" /></div>
+    <div>
+      <Item v-for="i in filtered()" :key="i.id" :item="i" @addToResume="addItem" />
+    </div>
   </div>
 </template>

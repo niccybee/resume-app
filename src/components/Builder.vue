@@ -1,31 +1,51 @@
 <script setup>
 import { ref } from "vue";
+
 const props = defineProps({
   selectedItems: Array,
 });
-const addedItems = ref([]);
-const showBuilder = ref(true);
 
-function addItem(item) {
-  console.log("caught it!");
-  addedItems.value.push(item);
-}
+const showBuilder = ref(true);
 </script>
 <template>
   <article class="card builder" @addToResume="addItem(item)">
-    <a href="#" role="button" class="secondary" @click="showBuilder = !showBuilder">
-      {{ showBuilder ? "-" : "+" }}
-    </a>
+    <div class="grid">
+      <div>
+        <a href="#" role="button" class="secondary" @click="showBuilder = !showBuilder">
+          {{ showBuilder ? "-" : "+" }}
+        </a>
+      </div>
+      <div>
+        <p>{{ selectedItems.length }}{{ showBuilder ? " items" : "" }}</p>
+      </div>
+    </div>
     <div>
       <div v-if="showBuilder">
-        <header><h2>Active List</h2></header>
-        <figure>
+        <header>
+          <!-- <hgroup> -->
+          <h2>Active List</h2>
           <h4>Included:</h4>
-          <article v-for="item in addedItems">{{ item }}</article>
+          <!-- </hgroup> -->
+        </header>
+        <figure>
+          <ul>
+            <li v-for="item in selectedItems">
+              <!-- <hgroup> -->
+              <span
+                ><b>{{ item.employer }}</b></span
+              ><span> - </span>
+              <!-- </hgroup> -->
+              <span>{{ item.item }}</span>
+            </li>
+          </ul>
         </figure>
         <footer>
-          <button>Upload Resume</button>
-          <button class="contrast">Clear Resume</button>
+          <div class="grid">
+            <button>Edit Resume</button>
+          </div>
+          <div>
+            <button class="contrast">Clear Resume</button>
+          </div>
         </footer>
       </div>
     </div>
@@ -36,15 +56,11 @@ function addItem(item) {
   position: fixed;
   right: 0;
   bottom: 0;
-  max-width: 33%;
+  max-width: 90%;
 }
-@media only screen and (max-width: 600px) {
+@media screen (max-width: 600px) {
   .builder {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
+    max-width: 100%;
   }
 }
 </style>

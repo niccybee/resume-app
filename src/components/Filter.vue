@@ -1,6 +1,7 @@
 <script setup>
 import ref from "vue";
 const activeEmployerFilter = ref("");
+
 function filtered() {
   if (activeEmployerFilter.value.length > 0) {
     let employerFilter = props.listItems.filter((i) => {

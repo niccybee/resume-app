@@ -8,6 +8,8 @@
 - [ ] Add details at the top of the resume
 [ ] Switch between table and list view
 [ ] Add local storage for offline use
+[ ] Create items
+[ ] Toggle create item box, add multiple items without refresh
 
 
 # Initial Template: 

@@ -1,14 +1,18 @@
 <script setup>
-import { ref, reactive, defineProps, onMounted } from "vue";
+import { ref, reactive, defineProps, watch, onMounted } from "vue";
 import dayjs from "dayjs";
 import { supabase } from "../supabase";
+// props
+const props = defineProps({
+  itemsList: Array,
+  showModalProp: Boolean,
+  // closeModalProp: Boolean,
+});
 // Vars
-const props = defineProps(["itemsList"]);
-const headers = ref(Object.keys(props.itemsList[0]));
 let listLength = props.itemsList.length;
-let showModal = ref(true);
 let loading = ref(false);
 let submitted = ref(false);
+let showModal = ref(false);
 const displayedDate = ref("");
 const newItem = reactive({
   id: listLength + 1,
@@ -17,7 +21,22 @@ const newItem = reactive({
   item: "",
   created: displayedDate.value,
 });
-
+// watch(( props.showModalProp), (thisOne, previousOne) {
+//   if (props.showModalProp) {
+//     console.log(thisOne, previousOne);
+//     displayModal();
+//   } else {
+//     closeModal();
+//   }
+// });
+// show / close modal
+function displayModal() {
+  showModal.value = true;
+}
+function closeModal() {
+  showModal.value = false;
+  console.log(showModal);
+}
 // filters
 function employers() {
   let employerList = props.itemsList.map((a) => a.employer);
@@ -61,14 +80,14 @@ const createNewResumeItem = async () => {
   <dialog :open="showModal" v-if="showModal">
     <article>
       <a href="#close" aria-label="close" @click="showModal()"></a>
-      <header>
-        <hgroup>
-          <h2>Create Item</h2>
-          <p>
-            {{ newItem }}
-          </p>
-        </hgroup>
-      </header>
+
+      <hgroup>
+        <h2>Create Item</h2>
+        <p>
+          {{ newItem }}
+        </p>
+      </hgroup>
+
       <div class="card">
         <summary>
           <h6>id:</h6>
@@ -117,11 +136,11 @@ const createNewResumeItem = async () => {
       <footer>
         <div>
           <a
-            href="#cancel"
+            href="#"
             role="button"
             :class="!submitted ? 'secondary' : 'contrast'"
             data-target="modal-example"
-            @click="showModal = !showModal"
+            @click="closeModal()"
           >
             {{ !submitted ? "Cancel" : "Close" }}
           </a>
@@ -136,7 +155,7 @@ const createNewResumeItem = async () => {
           >
             Confirm
           </a>
-          <a v-else href="#confirm" class="secondary" role="button"> ✔ </a>
+          <a v-else href="#" class="secondary" role="button">✔</a>
         </div>
       </footer>
     </article>

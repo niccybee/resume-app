@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 
 const props = defineProps({
   selectedItems: Array,
@@ -22,22 +22,23 @@ const showBuilder = ref(true);
     <div>
       <div v-if="showBuilder">
         <header>
-          <!-- <hgroup> -->
-          <h2>Active List</h2>
-          <h4>Included:</h4>
-          <!-- </hgroup> -->
+          <hgroup>
+            <h2>Active List</h2>
+            <h4>Included:</h4>
+            <p>{{ collectedItems }}</p>
+          </hgroup>
         </header>
         <figure>
-          <ul>
-            <li v-for="item in selectedItems">
+          <table>
+            <tr v-for="item in selectedItems">
               <!-- <hgroup> -->
-              <span
-                ><b>{{ item.employer }}</b></span
-              ><span> - </span>
+              <td>
+                <b>{{ item.employer }}</b>
+              </td>
               <!-- </hgroup> -->
-              <span>{{ item.item }}</span>
-            </li>
-          </ul>
+              <td>{{ item.item }}</td>
+            </tr>
+          </table>
         </figure>
         <footer>
           <div class="grid">
@@ -58,7 +59,7 @@ const showBuilder = ref(true);
   bottom: 0;
   max-width: 90%;
 }
-@media screen (max-width: 600px) {
+@media only screen and (max-width: 600px) {
   .builder {
     max-width: 100%;
   }

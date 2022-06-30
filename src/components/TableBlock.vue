@@ -16,7 +16,7 @@ const showTable = ref(true);
     <tbody>
       <tr v-for="item in items">
         <td v-for="i in item">{{ i }}</td>
-        <td><button role="button" class="secondary">+</button></td>
+        <!-- <td><button role="button" class="secondary">+</button></td> -->
       </tr>
     </tbody>
   </table>

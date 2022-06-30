@@ -1,5 +1,9 @@
+<script>
+import CreateItem from "./CreateItem.vue";
+</script>
 <template>
   <div>
+    <CreateItem :showModalProp="showModal" :itemsList="items" />
     <nav>
       <ul>
         <li><a href="https://nicbenson.com.au">⬅ Back to NicBenson.com.au</a></li>

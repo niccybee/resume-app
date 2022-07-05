@@ -1,23 +1,30 @@
-<script>
-import CreateItem from "./CreateItem.vue";
+<script setup>
+// import CreateItem from "./CreateItem.vue";
+import { useSettingStore } from "../stores/appSettingsStore";
+
+// // stores
+const settings = useSettingStore();
+
+function showCreateItemModal() {
+  settings.showItemModal = true;
+}
 </script>
 <template>
-  <div>
-    <CreateItem :showModalProp="showModal" :itemsList="items" />
+  <header>
     <nav>
       <ul>
         <li><a href="https://nicbenson.com.au">⬅ Back to NicBenson.com.au</a></li>
       </ul>
       <ul>
-        <li>List</li>
-        <li>Table</li>
-        <li><a href="#" @click="$emit('showCreateEvent')">Create Item +</a></li>
+        <li>
+          <a href="#" @click="settings.showCreateItemModal = true">Create Item +</a>
+        </li>
       </ul>
     </nav>
+    <hr />
     <hgroup>
       <h1>Resume Builder</h1>
       <h3>Create a custom resume from your previously saved items</h3>
     </hgroup>
-    <hr />
-  </div>
+  </header>
 </template>

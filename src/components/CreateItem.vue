@@ -2,18 +2,21 @@
 import { ref, reactive, defineProps, watch, onMounted } from "vue";
 import dayjs from "dayjs";
 import { supabase } from "../supabase";
-// props
-const props = defineProps({
-  itemsList: Array,
-  showModalProp: Boolean,
-  // closeModalProp: Boolean,
-});
+import { useItemsStore } from "../stores/itemStore";
+import { useSettingStore } from "../stores/appSettingsStore";
+// stores
+const settings = useSettingStore();
+const items = useItemsStore();
+
+const itemsList = ref(items.items);
+
 // Vars
-let listLength = props.itemsList.length;
+let listLength = itemsList.length;
 let loading = ref(false);
 let submitted = ref(false);
-let showModal = ref(false);
+
 const displayedDate = ref("");
+
 const newItem = reactive({
   id: listLength + 1,
   employer: "",
@@ -21,30 +24,12 @@ const newItem = reactive({
   item: "",
   created: displayedDate.value,
 });
-// watch(( props.showModalProp), (thisOne, previousOne) {
-//   if (props.showModalProp) {
-//     console.log(thisOne, previousOne);
-//     displayModal();
-//   } else {
-//     closeModal();
-//   }
-// });
-// show / close modal
+
 function displayModal() {
-  showModal.value = true;
+  settings.showCreateItemModal = true;
 }
 function closeModal() {
-  showModal.value = false;
-  console.log(showModal);
-}
-// filters
-function employers() {
-  let employerList = props.itemsList.map((a) => a.employer);
-  return [...new Set(employerList)];
-}
-function roles() {
-  let employerList = props.itemsList.map((a) => a.role);
-  return [...new Set(employerList)];
+  settings.showCreateItemModal = true;
 }
 // helper functions
 function createDate() {
@@ -77,18 +62,23 @@ const createNewResumeItem = async () => {
 };
 </script>
 <template>
-  <dialog :open="showModal" v-if="showModal">
+  <dialog :open="settings.showCreateItemModal">
     <article>
-      <a href="#close" aria-label="close" @click="showModal()"></a>
-
-      <hgroup>
-        <h2>Create Item</h2>
-        <p>
-          {{ newItem }}
-        </p>
-      </hgroup>
+      <header>
+        <a
+          href="#close"
+          aria-label="Close"
+          class="close"
+          @click="settings.showCreateItemModal = false"
+        ></a>
+        <hgroup>
+          <h2>Create Item</h2>
+          <p>Create a new item to add to CV</p>
+        </hgroup>
+      </header>
 
       <div class="card">
+        <p>{{ newItem }}</p>
         <summary>
           <h6>id:</h6>
           <input type="number" name="" id="" :value="createID()" disabled />
@@ -103,7 +93,7 @@ const createNewResumeItem = async () => {
           v-model="newItem.employer"
         />
         <datalist id="employer-list">
-          <option :value="e" v-for="e in employers()">{{ e }}</option>
+          <option :value="e" v-for="e in items.employers">{{ e }}</option>
         </datalist>
         <!-- <h6>roles:</h6> -->
         <input
@@ -115,7 +105,7 @@ const createNewResumeItem = async () => {
           v-model="newItem.role"
         />
         <datalist id="role-list">
-          <option :value="r" v-for="r in roles()">{{ r }}</option>
+          <option :value="r" v-for="r in items.roles">{{ r }}</option>
         </datalist>
         <input
           type="text"
@@ -140,7 +130,7 @@ const createNewResumeItem = async () => {
             role="button"
             :class="!submitted ? 'secondary' : 'contrast'"
             data-target="modal-example"
-            @click="closeModal()"
+            @click="settings.showCreateItemModal = false"
           >
             {{ !submitted ? "Cancel" : "Close" }}
           </a>

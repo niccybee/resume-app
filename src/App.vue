@@ -14,12 +14,7 @@ let showT;
 <template>
   <div class="container">
     <AppHeader @showCreateEvent="handleShowCreate" />
-    <Suspense>
-      <AppBody :createItemModal="showCreateBox" />
-      <template #fallback>
-        <progress indeterminant></progress>
-      </template>
-    </Suspense>
+    <AppBody :createItemModal="showCreateBox" />
   </div>
 </template>
 

@@ -6,17 +6,17 @@ The beginnings of a resume builder project using Supabase, Vuejs, Pinia, Picocss
 
 [ ] Filter items through button inputs
 
-- [/] Later: SearchBox refactor - (docs)[https://vuejs.org/guide/components/events.html#usage-with-v-model]
-  [ ] Build Resume
-- [/] Add items to a json list, upload to supabase
-- [ ] Add details at the top of the resume
-- [ ] Create resume json file and upload to supabase
-- [ ] Show list of CV's - if authenticated
-- [ ] Print styling for PDF
-      [/] Switch between table and list view
-      [ ] Add local storage for offline use
-      [/] Create items
-      [/] Toggle create item box, add multiple items without refresh
+- [ / ] Later: SearchBox refactor - (docs)[https://vuejs.org/guide/components/events.html#usage-with-v-model]
+- [ ] Build Resume
+  - [ / ] Add items to a json list, upload to supabase
+  - [ ] Add details at the top of the resume
+  - [ ] Create resume json file and upload to supabase
+  - [ ] Show list of CV's - if authenticated
+  - [ ] Print styling for PDF
+    - [ / ] Switch between table and list view 
+    - [ ] Add local storage for offline use 
+    - [ / ] Create items 
+    - [ / ] Toggle create item box, add multiple items without refresh
 
 [ ] Add auth to only show create item and builder when logged in
 [ ]

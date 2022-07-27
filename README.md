@@ -2,6 +2,8 @@
 
 The beginnings of a resume builder project using Supabase, Vuejs, Pinia, Picocss.
 
+The goal behind this project is to be able to quickly store and retrieve Cv line items, and add them to a [JSONResume Format](https://jsonresume.org) with a unique link to share when needed.
+
 ### Tasks:
 
 [ ] Filter items through button inputs
@@ -19,7 +21,7 @@ The beginnings of a resume builder project using Supabase, Vuejs, Pinia, Picocss
     - [ / ] Toggle create item box, add multiple items without refresh
 
 [ ] Add auth to only show create item and builder when logged in
-[ ]
+[ ] Unifying CV components into singular sidebar with list/span option
 
 # Initial Template:
 

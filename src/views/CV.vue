@@ -10,17 +10,20 @@ import Skills from "../components/CV/Skills.vue";
 // TODO: fix this naming scheme wtf
 const resume = useCvStore();
 const cv = resume.blankSlate;
+const relevantExp = resume.relevantExp;
 </script>
 <template>
   <div id="cv" class="container">
-    <Profile :profileInfo="[cv.basics, cv.skills]" />
+    <Profile class="side-content" :profileInfo="[cv.basics, cv.skills, relevantExp]" />
     <div id="body" class="grid">
-      <div id="main"><Work :workInfo="cv.work" /></div>
+      <div id="main">
+        <Work class="side-content" :workInfo="cv.work" />
+      </div>
       <div id="sidebar">
-        <Skills :skills="cv.skills" />
-        <Certifications :certificates="cv.certificates" />
-        <Languages :languages="cv.languages" />
-        <Interests :interests="cv.interests" />
+        <Skills class="side-content" :skills="cv.skills" />
+        <Certifications class="side-content" :certificates="cv.certificates" />
+        <Languages class="side-content" :languages="cv.languages" />
+        <Interests class="side-content" :interests="cv.interests" />
       </div>
     </div>
   </div>
@@ -30,6 +33,14 @@ const cv = resume.blankSlate;
   </div> -->
 </template>
 <style scoped>
+hgroup > h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  --sidebarhead: 1.1rem;
+}
 @media print {
   .grid {
     grid-template-columns: 1fr 1fr 1fr;
@@ -37,12 +48,19 @@ const cv = resume.blankSlate;
   article {
     page-break-inside: avoid;
   }
-  article > p,
+  p,
   span,
   ul,
   li {
     font-size: 0.7rem;
   }
+}
+
+.side-content {
+  font-size: 0.8rem !important;
+}
+.side-content hgroup:last-child {
+  font-size: 0.8rem !important;
 }
 #body {
   grid-template-columns: 1fr 1fr 1fr;

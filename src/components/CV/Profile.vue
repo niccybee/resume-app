@@ -3,6 +3,7 @@ import { defineProps } from "vue";
 
 const props = defineProps(["profileInfo"]);
 const profile = props.profileInfo;
+const relevantExp = props.profileInfo[2];
 
 // TODO: proper destructure here to clean up code
 </script>
@@ -12,21 +13,22 @@ const profile = props.profileInfo;
     <div id="basics">
       <div class="flex">
         <div>
-          <h3>Summary</h3>
+          <h3 style="margin-bottom: 1rem">Summary</h3>
           <p>{{ profile[0].summary }}</p>
         </div>
       </div>
       <div></div>
-    </div>
-    <div id="basics">
       <div class="flex">
         <div>
-          <h3>Relevant Experience</h3>
-          <p>{{ profile[0].summary }}</p>
+          <h3 style="margin-bottom: 1rem">Relevant Experience</h3>
+          <ul>
+            <!-- TODO: Fix this inline style -->
+            <li style="font-size: 1rem" v-for="r in relevantExp">{{ r }}</li>
+          </ul>
         </div>
       </div>
-      <div></div>
     </div>
+
     <article>
       <div>
         <hgroup>

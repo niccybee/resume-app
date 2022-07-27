@@ -62,11 +62,12 @@ function showCreateItemModal() {
     display: block;
   }
 }
-@media scree {
+@media screen {
   #site-header {
     display: block;
   }
   #print-header {
+    display: none;
     display: none;
   }
 }

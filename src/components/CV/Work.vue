@@ -7,7 +7,7 @@ const work = props.workInfo;
 </script>
 <template>
   <div id="work">
-    <h3>Past Experience</h3>
+    <h3 style="margin-bottom: 1rem">Past Experience</h3>
     <div id="work-item" class="container" v-for="w in work">
       <hgroup>
         <h5>
@@ -33,5 +33,10 @@ a[target="_blank"]::after {
 }
 li {
   font-size: 0.8rem;
+}
+@media print {
+  .work-item {
+    page-break-inside: avoid;
+  }
 }
 </style>

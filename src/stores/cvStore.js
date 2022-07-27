@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 
 export const useCvStore = defineStore("cvs", {
   state: () => ({
+    relevantExp: ["one peice of exp", "second peice of exp"],
     blankSlate: {
       basics: {
         name: "Nicholas Benson",
@@ -40,24 +41,57 @@ export const useCvStore = defineStore("cvs", {
             "Introduction of internal BI tools for SEM, SEO, Social, and App Performance analytics and reporting capabilities ",
             "A/B Testing of Site Enhancements with Google Optimize",
             "Designing and leading the creation of E2 English, E2 Platform, and E2 Ed Tech websites (Figma)",
-            "Leading implementation of headless CMS across multiple product sites",
+            "Leading implementation of headless CMS (Strapi) across multiple product sites",
           ],
         },
         {
           name: "The Development Studio",
           position: "Digital Marketing Manager",
           url: "https://www.tds-group.com",
-          startDate: "2021-03-01",
-          endDate: "",
+          startDate: "2021-01-01",
+          endDate: "2021-03-01",
           summary: "Description…",
           highlights: [
-            "Managing a team running multiple digital channels",
-            "CRM migration project across multiple teams (Hubspot to ActiveCampaign)",
-            "SEM and SEO campaigns across E2 Test Prep and E2 English brands",
-            "Introduction of internal BI tools for SEM, SEO, Social, and App Performance analytics and reporting capabilities ",
-            "A/B Testing of Site Enhancements with Google Optimize",
-            "Designing and leading the creation of E2 English, E2 Platform, and E2 Ed Tech websites (Figma)",
-            "Leading implementation of headless CMS across multiple product sites",
+            "Collaborate with internal and external stakeholders to ensure effective execution of marketing campaigns",
+            "CRM management (Hubspot) and migration of CRM and marketing automations to ActiveCampaign",
+            "Build new data visualisations and automated reporting with PowerBi and Google Data Studio",
+            "Design and project manage the creation of new product site (AssureSuite)",
+
+            "Create SEO analysis and execution strategies for on-page SEO, backlinks, keyword research, schema optimisation, etc.",
+          ],
+        },
+        {
+          name: "The Development Studio",
+          position: "Digital Marketing Specialist",
+          url: "https://www.tds-group.com",
+          startDate: "2019-08-01",
+          endDate: "2021-03-01",
+          summary: "Description…",
+          highlights: [
+            "Build and identify new target audiences and grow email list through lead generation campaigns",
+            "Plan, build, implement and optimise direct email marketing campaigns",
+            "Build workflows, segments, and map customer touch points using the CRM",
+            "Manage WordPress blogs and collaborate with writers for 20% organic search boost",
+            "Help optimise multimedia channels such as YouTube and Podcast",
+            "Pull raw CSV data, analyse, and submit reports on campaign progress and provide recommendations for campaign optimisation.",
+            "Automate reporting process through Google Data Studio",
+            "Create and SEM, and social ads(FB, Instagram) to effectively reach a bigger audience and generate quality leads",
+          ],
+        },
+        {
+          name: "Ipsos Australia (I-View)",
+          position: "Team Leader",
+          url: "https://www.ipsos.com/en-au",
+          startDate: "2016-04-01",
+          endDate: "2019-08-01",
+          summary: "Description…",
+          highlights: [
+            "Coordinating up to 40 team members in telephone data collection (CATI) callroom.",
+            "Rostering and administration of phone interviewers",
+            "Built systems to improve workplace efficiency with Excel creating Macros with VBA",
+            "Managing interviewer performance through statistical analysis and audio monitoring",
+            "Reporting using Excel  from data collected in the SPSS environment to Project Managers",
+            "High-intensity environment, where an eye for detail and quick problem solving were needed",
           ],
         },
       ],
@@ -174,7 +208,11 @@ export const useCvStore = defineStore("cvs", {
       interests: [
         {
           name: "Sports",
-          keywords: ["AFL", "Boxing"],
+          keywords: ["AFL", "Basketball"],
+        },
+        {
+          name: "Leisure",
+          keywords: ["Quizzes", "Puzzles"],
         },
         {
           name: "Web Design",

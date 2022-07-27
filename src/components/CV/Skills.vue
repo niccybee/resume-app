@@ -9,6 +9,8 @@ const props = defineProps({
     <hgroup v-for="s in props.skills">
       <h6>{{ s.name }}:</h6>
       <span v-for="k in s.keywords">{{ k + ", " }}</span>
+      <!-- TODO: Amend this hacky CSS Specificty fix -->
+      <span></span>
     </hgroup>
   </article>
 </template>

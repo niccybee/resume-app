@@ -1,4 +1,6 @@
 .env
+.gitignore
+
 # Logs
 logs
 *.log

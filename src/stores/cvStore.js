@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 export const useCvStore = defineStore("cvs", {
   state: () => ({
     relevantExp: ["one peice of exp", "second peice of exp"],
+    showImage: false,
     blankSlate: {
       basics: {
         name: "Nicholas Benson",
@@ -110,8 +111,8 @@ export const useCvStore = defineStore("cvs", {
         {
           institution: "Monash University",
           url: "https://www.monash.edu/",
-          area: "Business (Marketing)",
-          studyType: "Bachelor",
+          area: "Bachelor Business (Marketing)",
+          studyType: "University",
           startDate: "2014",
           endDate: "2018",
           score: "",

@@ -10,4 +10,15 @@ import AppHeader from "./components/AppHeader.vue";
   </main>
 </template>
 
-<style></style>
+<style>
+.cv-sidebar-content {
+  font-size: 0.8rem !important;
+}
+.cv-sidebar-article {
+  margin: 0.8rem 0 !important;
+  padding-bottom: 0.2rem !important;
+}
+.cv-sidebar-header {
+  margin-bottom: 1rem !important;
+}
+</style>

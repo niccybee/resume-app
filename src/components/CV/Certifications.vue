@@ -7,12 +7,12 @@ const props = defineProps({
 </script>
 
 <template>
-  <article>
-    <h3>Certifications</h3>
+  <article class="cv-sidebar-article">
+    <h4 class="cv-sidebar-header">Certifications</h4>
     <div v-for="(c, i) in certificates">
       <hgroup>
         <h6>{{ c.name }}</h6>
-        <p>
+        <p class="cv-sidebar-content">
           <span>{{ c.issuer }}</span> <span>{{ c.date ? ` - ${c.date}` : "" }}</span>
         </p>
       </hgroup>

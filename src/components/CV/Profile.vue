@@ -4,6 +4,7 @@ import { defineProps } from "vue";
 const props = defineProps(["profileInfo"]);
 const profile = props.profileInfo;
 const relevantExp = props.profileInfo[2];
+const showImage = props.profileInfo[3];
 
 // TODO: proper destructure here to clean up code
 </script>
@@ -29,28 +30,33 @@ const relevantExp = props.profileInfo[2];
       </div>
     </div>
 
-    <article>
+    <article class="cv-sidebar-article" style="padding-bottom:1rem;">
       <div>
         <hgroup>
           <img
+            v-if="showImage"
             style="max-width: 100px; border-radius: 0.2rem"
             src="https://media-exp2.licdn.com/dms/image/C4D03AQGYansPbCidug/profile-displayphoto-shrink_400_400/0/1530152793273?e=1662595200&v=beta&t=f0eFX2t8gi6QGS2EtJejvAh80bTgBdhS1y2zOnB-rc0"
             alt=""
           />
-          <h3>Personal Details</h3>
-          <p>
+          <h4 class="cv-sidebar-header">Personal Details</h4>
+          <p >
+            <span>{{ profile[0].name }},</span> <br />
+            <span>{{ profile[0].label }}</span> <br />
+            <hr>
             📍
-            <span v-for="(l, i) in profile[0].location"> {{ l + " " }} </span> <br />
-            <a :href="'mailto:' + profile[0].email">📧</a> |
-            <span
+            <span class="cv-sidebar-content" v-for="(l, i) in profile[0].location"> {{ l + " " }} </span> <br />
+            <a class="cv-sidebar-content" :href="'mailto:' + profile[0].email">📧</a>
+            |
+            <a class="cv-sidebar-content" :href="profile[0].url"> <span>🌐 | </span></a>
+            <a class="cv-sidebar-content" href="p.url" v-for="p in profile[0].profiles"
+              ><span class="cv-sidebar-content">{{ p.network }} </span></a
+            >
+            | <br>
+            <span class="cv-sidebar-content"
               ><a :href="'tel:' + profile[0].phone">{{ profile[0].phone }}</a></span
             >
-            |
-            <a :href="profile[0].url"> <span>🌐 </span></a>
-            |
-            <a href="p.url" v-for="p in profile[0].profiles"
-              ><span>{{ p.network }} </span></a
-            >
+   
           </p>
         </hgroup>
         <div></div>

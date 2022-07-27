@@ -6,11 +6,11 @@ const props = defineProps({
 });
 </script>
 <template>
-  <article>
-    <h3>Interests</h3>
+  <article class="cv-sidebar-article">
+    <h4 class="cv-sidebar-header">Interests</h4>
     <hgroup v-for="i in props.interests">
       <h6>{{ i.name }}</h6>
-      <p>
+      <p class="cv-sidebar-content">
         <span v-for="k in i.keywords">{{ k ? `${k}, ` : "" }} </span>
       </p>
     </hgroup>

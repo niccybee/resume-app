@@ -6,10 +6,12 @@ const props = defineProps({
 });
 </script>
 <template>
-  <article>
+  <article class="cv-sidebar-article">
     <hgroup>
-      <h3>Languages</h3>
-      <p v-for="l in props.languages">{{ l.language }}: {{ l.fluency }}</p>
+      <h4 class="cv-sidebar-header">Languages</h4>
+      <p class="cv-sidebar-content" v-for="l in props.languages">
+        {{ l.language }}: {{ l.fluency }}
+      </p>
     </hgroup>
   </article>
 </template>

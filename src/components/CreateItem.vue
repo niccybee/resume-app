@@ -11,14 +11,14 @@ const items = useItemsStore();
 const itemsList = ref(items.items);
 
 // Vars
-let listLength = itemsList.length;
+let listLength = items.itemListLength;
 let loading = ref(false);
 let submitted = ref(false);
 
 const displayedDate = ref("");
 
 const newItem = reactive({
-  id: listLength + 1,
+  id: items.itemListLength + 1,
   employer: "",
   role: "",
   item: "",
@@ -73,12 +73,12 @@ const createNewResumeItem = async () => {
         ></a>
         <hgroup>
           <h2>Create Item</h2>
-          <p>Create a new item to add to CV</p>
+          <p>Create a new item to add to CV <br /></p>
         </hgroup>
       </header>
 
       <div class="card">
-        <p>{{ newItem }}</p>
+        <!-- <p>{{ newItem }}</p> -->
         <summary>
           <h6>id:</h6>
           <input type="number" name="" id="" :value="createID()" disabled />

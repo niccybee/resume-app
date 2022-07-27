@@ -40,3 +40,17 @@
 //   return [...new Set(employerList)];
 // }
 </script>
+<template>
+  <div>
+    <!-- CV
+         <div v-for="(section, i) in cv">
+    <h3>{{ i }}</h3>
+
+    <ul v-if="i === 'work'" v-for="(item, index) in section[0]">
+      <li>{{ index }}</li>
+    </ul>
+    <sub>{{ section }}</sub>
+    <hr />
+  </div> -->
+  </div>
+</template>

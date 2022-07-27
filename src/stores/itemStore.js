@@ -7,6 +7,7 @@ export const useItemsStore = defineStore("items", {
       searchInput: "",
       itemsLoading: false,
       addedItems: [],
+      // TODO add item types, to be able to add skills etc
       items: [
         {
           id: 1,
@@ -39,6 +40,7 @@ export const useItemsStore = defineStore("items", {
           i.employer.toLowerCase().includes(state.searchInput)
       );
     },
+    itemListLength: (state) => state.items.length,
   },
   actions: {
     async getItems() {

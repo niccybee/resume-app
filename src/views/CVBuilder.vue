@@ -1,10 +1,10 @@
 <script setup>
-import List from "./List.vue";
-import Builder from "./Builder.vue";
-import TableBlock from "./TableBlock.vue";
-import SearchBar from "./SearchBar.vue";
-import Filter from "./Filter.vue";
-import CreateItem from "./CreateItem.vue";
+import List from "../components/List.vue";
+import Builder from "../components/Builder.vue";
+import TableBlock from "../components/TableBlock.vue";
+import SearchBar from "../components/SearchBar.vue";
+import Filter from "../components/Filter.vue";
+import CreateItem from "../components/CreateItem.vue";
 // import Builder from "./Builder.vue";
 import { useItemsStore } from "../stores/itemStore";
 import { useSettingStore } from "../stores/appSettingsStore";

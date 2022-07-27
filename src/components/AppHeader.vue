@@ -1,6 +1,8 @@
 <script setup>
 // import CreateItem from "./CreateItem.vue";
 import { useSettingStore } from "../stores/appSettingsStore";
+import { useRoute } from "vue-router";
+const route = useRoute();
 
 // // stores
 const settings = useSettingStore();
@@ -10,12 +12,26 @@ function showCreateItemModal() {
 }
 </script>
 <template>
-  <header>
+  <header id="site-header">
     <nav>
       <ul>
         <li><a href="https://nicbenson.com.au">⬅ Back to NicBenson.com.au</a></li>
       </ul>
       <ul>
+        <li>
+          <!-- TODO: Fix this crazy naming convention -->
+          <!-- TODO: Figure out the URL schema: 
+          Home:     https://nicbenson.com.au/cv/
+          Display:  https://nicbenson.com.au/cv/[cv-item-number] 
+
+          OR 
+
+          Home:     https://cv.nicbenson.com.au/
+          Display:  https://cv.nicbenson.com.au/[cv-item-number] 
+          -->
+          <router-link to="/build"> Builder</router-link>
+        </li>
+        <li><router-link to="/">CV</router-link></li>
         <li>
           <a href="#" @click="settings.showCreateItemModal = true">Create Item +</a>
         </li>
@@ -23,8 +39,35 @@ function showCreateItemModal() {
     </nav>
     <hr />
     <hgroup>
-      <h1>Resume Builder</h1>
-      <h3>Create a custom resume from your previously saved items</h3>
+      <h1>{{ route.name }}</h1>
+      <h3>
+        {{
+          route.path == "/build"
+            ? "Create a custom resume from your previously saved items"
+            : ""
+        }}
+      </h3>
     </hgroup>
   </header>
+  <header id="print-header">
+    <h2>Nicholas Benson CV</h2>
+  </header>
 </template>
+<style>
+@media print {
+  #site-header {
+    display: none;
+  }
+  #print-header {
+    display: block;
+  }
+}
+@media scree {
+  #site-header {
+    display: block;
+  }
+  #print-header {
+    display: none;
+  }
+}
+</style>

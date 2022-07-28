@@ -16,6 +16,7 @@ import AppHeader from "./components/AppHeader.vue";
 }
 .cv-sidebar-article {
   margin: 0.8rem 0 !important;
+  padding-top: 0.8rem !important;
   padding-bottom: 0.2rem !important;
 }
 .cv-sidebar-header {

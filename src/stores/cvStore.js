@@ -2,7 +2,11 @@ import { defineStore } from "pinia";
 
 export const useCvStore = defineStore("cvs", {
   state: () => ({
-    relevantExp: ["one peice of exp", "second peice of exp"],
+    relevantExp: [
+      "Managing SEM, SEO and Social ad campaigns for multiple products",
+      "Project managing team of internal employees and freelancers",
+      "Automating reporting using BI tools to internal and external stakeholders ",
+    ],
     showImage: false,
     blankSlate: {
       basics: {
@@ -186,7 +190,7 @@ export const useCvStore = defineStore("cvs", {
         {
           name: "Web Design",
           level: "Intermediate",
-          keywords: ["Figma", "CSS", "HTML"],
+          keywords: ["Figma", "CSS", "HTML", "WordPress", "Elementor"],
         },
         {
           name: "Development",

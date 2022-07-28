@@ -15,22 +15,22 @@ const showImage = props.profileInfo[3];
       <div class="flex">
         <div>
           <h3 style="margin-bottom: 1rem">Summary</h3>
-          <p>{{ profile[0].summary }}</p>
+          <p style="font-size: 0.8rem">{{ profile[0].summary }}</p>
         </div>
       </div>
       <div></div>
       <div class="flex">
-        <div>
+        <div >
           <h3 style="margin-bottom: 1rem">Relevant Experience</h3>
           <ul>
             <!-- TODO: Fix this inline style -->
-            <li style="font-size: 1rem" v-for="r in relevantExp">{{ r }}</li>
+            <li style="font-size: 0.8rem" v-for="r in relevantExp">{{ r }}</li>
           </ul>
         </div>
       </div>
     </div>
 
-    <article class="cv-sidebar-article" style="padding-bottom:1rem;">
+    <article class="cv-sidebar-article" style="padding-top:0.6rem;padding-bottom:0.4rem;box-shadow: 0 0 0;border: lightgray solid 1px;">
       <div>
         <hgroup>
           <img

@@ -47,6 +47,10 @@ h5,
 h6 {
   --sidebarhead: 1.1rem;
 }
+article {
+  box-shadow: 0 0 0;
+  border: lightgray solid 1px;
+}
 @media print {
   .grid {
     grid-template-columns: 1fr 1fr 1fr;

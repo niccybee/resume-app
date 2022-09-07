@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { supabase } from "../supabase";
 
 export const useCvStore = defineStore("cvs", {
   state: () => ({
@@ -8,6 +9,9 @@ export const useCvStore = defineStore("cvs", {
       "Automating reporting using BI tools to internal and external stakeholders ",
     ],
     showImage: false,
+    activeCV: {},
+    cvs: [],
+    CVsLoading: true,
     blankSlate: {
       basics: {
         name: "Nicholas Benson",
@@ -267,4 +271,14 @@ export const useCvStore = defineStore("cvs", {
       ],
     },
   }),
+  actions: {
+    async getCVs() {
+      this.CVsLoading = true;
+      const { data, error } = await supabase.from("CVs").select();
+      console.log("from pinia: ", data);
+      if (error) throw error;
+      this.cvs = data;
+      this.CVsLoading = false;
+    },
+  },
 });

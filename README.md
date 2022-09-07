@@ -14,7 +14,8 @@ The goal behind this project is to be able to quickly store and retrieve Cv line
   - [ ] Add details at the top of the resume
   - [ ] Create resume json file and upload to supabase
   - [ ] Show list of CV's - if authenticated
-  - [ ] Print styling for PDF
+  - [ / ] Print styling for PDF
+  - [ ] Show CV per email domain
     - [ / ] Switch between table and list view 
     - [ ] Add local storage for offline use 
     - [ / ] Create items 

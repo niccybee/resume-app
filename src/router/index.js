@@ -1,13 +1,25 @@
 import { createWebHistory, createRouter } from "vue-router";
-import CV from "../views/CV.vue";
+import Home from "../views/Home.vue";
 import CVBuilder from "../views/CVBuilder.vue";
+import CVList from "../views/CVList.vue";
+import CVCustom from "../views/CVCustom.vue";
 import NotFound from "../views/NotFound.vue";
 
 const routes = [
   {
     path: "/",
-    name: "CV",
-    component: CV,
+    name: "Home",
+    component: Home,
+  },
+  {
+    path: "/cv",
+    name: "List",
+    component: CVList,
+  },
+  {
+    path: "/cv/:resume_name",
+    name: "Resume",
+    component: CVCustom,
   },
   {
     path: "/build",

@@ -21,6 +21,12 @@ function showCreateItemModal() {
         <li>
           <!-- TODO: Fix this crazy naming convention -->
           <!-- TODO: Figure out the URL schema: 
+
+        Currently I'm thinking /cv/[resume-name]
+        and then cv.nicbenson.com.au for the standard.
+
+        
+
           Home:     https://nicbenson.com.au/cv/
           Display:  https://nicbenson.com.au/cv/[cv-item-number] 
 
@@ -29,11 +35,11 @@ function showCreateItemModal() {
           Home:     https://cv.nicbenson.com.au/
           Display:  https://cv.nicbenson.com.au/[cv-item-number] 
           -->
-          <router-link to="/build"> Builder</router-link>
+          <!-- <router-link to="/build"> Builder</router-link> -->
         </li>
-        <li><router-link to="/">CV</router-link></li>
+        <!-- <li><router-link to="/cv/">CV</router-link></li> -->
         <li>
-          <a href="#" @click="settings.showCreateItemModal = true">Create Item +</a>
+          <!-- <a href="#" @click="settings.showCreateItemModal = true">Create Item +</a> -->
         </li>
       </ul>
     </nav>

@@ -5,7 +5,7 @@ import { createPinia } from "pinia";
 import { useCvStore } from "./stores/cvStore";
 
 // `export const createApp` is required instead of the original `createApp(App).mount('#app')`
-export const createApp = ViteSSG(App, ({ app, intiialState }) => {
+export const createApp = ViteSSG(App, ({ app, intialState }) => {
   const pinia = createPinia();
   app.use(pinia);
   const cvs = useCvStore(pinia);
@@ -13,6 +13,6 @@ export const createApp = ViteSSG(App, ({ app, intiialState }) => {
   if (import.meta.env.SSR) {
     intialState.pinia = pinia.state.value;
   } else {
-    console.log(intiialState);
+    console.log(intialState);
   }
 });

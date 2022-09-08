@@ -304,7 +304,7 @@ const useCvStore = defineStore("cvs", {
     async getCVs() {
       this.CVsLoading = true;
       const { data, error } = await supabase.from("CVs").select();
-      console.log("from pinia: ", data);
+      console.log("from pinia get CVS function: ", data);
       if (error)
         throw error;
       this.cvs = data;
@@ -774,7 +774,7 @@ _sfc_main.setup = (props, ctx) => {
   (ssrContext.modules || (ssrContext.modules = /* @__PURE__ */ new Set())).add("src/App.vue");
   return _sfc_setup ? _sfc_setup(props, ctx) : void 0;
 };
-const createApp = ViteSSG(_sfc_main, ({ app, intiialState }) => {
+const createApp = ViteSSG(_sfc_main, ({ app, intialState }) => {
   const pinia = createPinia();
   app.use(pinia);
   const cvs = useCvStore(pinia);

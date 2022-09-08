@@ -5,15 +5,17 @@ import { createPinia } from "pinia";
 import { useCvStore } from "./stores/cvStore";
 
 // `export const createApp` is required instead of the original `createApp(App).mount('#app')`
-export const createApp = ViteSSG(App, ({ app, intialState }) => {
+export const createApp = ViteSSG(App, ({ app, initialState }) => {
   const pinia = createPinia();
   app.use(pinia);
 
   if (import.meta.env.SSR) {
-    intialState.pinia = pinia.state.value;
+    // this will be stringified and set to window.__INITIAL_STATE__
+    initialState.pinia = pinia.state.value;
   } else {
-    pinia.state.value = initialState?.pinia || {};
-    console.log(intialState);
+    // on the client side, we restore the state
+    pinia.state.value = initialState.pinia || {};
   }
   const cvs = useCvStore(pinia);
+  cvs.getCVs();
 });

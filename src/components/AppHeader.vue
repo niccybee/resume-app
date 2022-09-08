@@ -2,7 +2,7 @@
 // import CreateItem from "./CreateItem.vue";
 import { useSettingStore } from "../stores/appSettingsStore";
 import { useRoute } from "vue-router";
-const route = useRoute();
+// const route = useRoute();
 
 // // stores
 const settings = useSettingStore();

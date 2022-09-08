@@ -8,11 +8,12 @@ import { useCvStore } from "./stores/cvStore";
 export const createApp = ViteSSG(App, ({ app, intialState }) => {
   const pinia = createPinia();
   app.use(pinia);
-  const cvs = useCvStore(pinia);
-  if (!cvs.ready) cvs.getCVs();
+
   if (import.meta.env.SSR) {
     intialState.pinia = pinia.state.value;
   } else {
+    pinia.state.value = initialState?.pinia || {};
     console.log(intialState);
   }
+  const cvs = useCvStore(pinia);
 });

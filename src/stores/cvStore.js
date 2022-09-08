@@ -275,7 +275,7 @@ export const useCvStore = defineStore("cvs", {
     async getCVs() {
       this.CVsLoading = true;
       const { data, error } = await supabase.from("CVs").select();
-      console.log("from pinia get CVS function: ", data);
+      // console.log("from pinia get CVS function: ", data);
       if (error) throw error;
       this.cvs = data;
       this.CVsLoading = false;

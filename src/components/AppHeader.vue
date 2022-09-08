@@ -18,6 +18,7 @@ function showCreateItemModal() {
         <li><a href="https://nicbenson.com.au">⬅ Back to NicBenson.com.au</a></li>
       </ul>
       <ul>
+        <li>Use File > Print > Save to PDF to download</li>
         <li>
           <!-- TODO: Fix this crazy naming convention -->
           <!-- TODO: Figure out the URL schema: 

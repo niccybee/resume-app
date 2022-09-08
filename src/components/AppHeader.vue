@@ -1,7 +1,7 @@
 <script setup>
 // import CreateItem from "./CreateItem.vue";
 import { useSettingStore } from "../stores/appSettingsStore";
-import { useRoute } from "vue-router";
+// import { useRoute } from "vue-router";
 // const route = useRoute();
 
 // // stores
@@ -44,7 +44,7 @@ function showCreateItemModal() {
       </ul>
     </nav>
     <hr />
-    <hgroup>
+    <!-- <hgroup>
       <h1>{{ route.name }}</h1>
       <h3>
         {{
@@ -53,7 +53,7 @@ function showCreateItemModal() {
             : ""
         }}
       </h3>
-    </hgroup>
+    </hgroup> -->
   </header>
   <header id="print-header">
     <h2>Nicholas Benson CV</h2>

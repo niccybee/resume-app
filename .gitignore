@@ -1,6 +1,10 @@
 .env
 .gitignore
 
+# vite temp
+.vite-ssg-temp/
+.vite-ssg-temp/*
+
 # Logs
 logs
 *.log

@@ -1,0 +1,21 @@
+import { defineStore } from "pinia";
+
+const useSearchStore = defineStore("search", {
+  state: () => ({
+    searchInput: "",
+  }),
+  getters: {
+    listItems() {},
+  },
+  actions: {
+    search(state) {
+      let filteredItems = props.listItems;
+      return filteredItems.filter(
+        (i) =>
+          i.item.toLowerCase().includes(state.searchInput) ||
+          i.role.toLowerCase().includes(state.searchInput) ||
+          i.employer.toLowerCase().includes(state.searchInput)
+      );
+    },
+  },
+});

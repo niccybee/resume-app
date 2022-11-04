@@ -13,6 +13,10 @@ function showCreateItemModal() {
 </script>
 <template>
   <header id="site-header">
+    <div class="container">
+      <p>Testing</p>
+      {{ $route }}
+    </div>
     <nav>
       <ul>
         <li><a href="https://nicbenson.com.au">⬅ Back to NicBenson.com.au</a></li>

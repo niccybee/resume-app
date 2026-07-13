@@ -66,7 +66,7 @@ function sidebarKey(kind) {
 }
 
 function buildCatalog(blocks) {
-  const companies = new Map();
+  const employers = new Map();
   const sidebar = createEmptySidebar();
 
   for (const block of blocks) {
@@ -74,13 +74,19 @@ function buildCatalog(blocks) {
       const context = block.contexts.find(
         (candidate) => candidate.type === "employment",
       );
-      const company = context?.metadata?.company || "Unassigned company";
+      const employerId = context?.metadata?.companyId || "unassigned-employer";
+      const employer = context?.metadata?.company || "Unassigned employer";
+      const roleId = context?.metadata?.roleId || "unassigned-role";
       const role = context?.metadata?.role || "Unassigned role";
 
-      if (!companies.has(company)) companies.set(company, new Map());
-      const roles = companies.get(company);
-      if (!roles.has(role)) roles.set(role, []);
-      roles.get(role).push(block);
+      if (!employers.has(employerId)) {
+        employers.set(employerId, { employerId, employer, roles: new Map() });
+      }
+      const employerGroup = employers.get(employerId);
+      if (!employerGroup.roles.has(roleId)) {
+        employerGroup.roles.set(roleId, { roleId, role, blocks: [] });
+      }
+      employerGroup.roles.get(roleId).blocks.push(block);
       continue;
     }
 
@@ -90,12 +96,11 @@ function buildCatalog(blocks) {
 
   return {
     blocks,
-    experience: [...companies.entries()].map(([company, roles]) => ({
-      company,
-      roles: [...roles.entries()].map(([role, roleBlocks]) => ({
-        role,
-        blocks: roleBlocks,
-      })),
+    experience: [...employers.values()].map((group) => ({
+      employerId: group.employerId,
+      employer: group.employer,
+      company: group.employer,
+      roles: [...group.roles.values()],
     })),
     sidebar,
   };

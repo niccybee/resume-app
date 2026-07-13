@@ -37,3 +37,49 @@ it("renders an unknown theme through the editorial fallback without changing con
   expect(wrapper.get(".cv-document").attributes("data-theme")).toBe("editorial");
   expect(wrapper.text()).toContain("Delivered measurable outcome 0.");
 });
+
+it("groups experience achievements under employer and role headings", () => {
+  const wrapper = mount(CvDocument, {
+    props: {
+      document: {
+        name: "Marketing CV",
+        profile: {},
+        selections: [
+          {
+            blockId: "block-1",
+            versionId: "version-1",
+            section: "experience",
+            order: 0,
+            group: { employerId: "e2", employer: "E2", roleId: "marketing", role: "Marketing Manager" },
+            content: { text: "Led the CRM migration." },
+          },
+          {
+            blockId: "block-2",
+            versionId: "version-2",
+            section: "experience",
+            order: 1,
+            group: { employerId: "e2", employer: "E2", roleId: "marketing", role: "Marketing Manager" },
+            content: { text: "Improved lifecycle conversion." },
+          },
+          {
+            blockId: "block-3",
+            versionId: "version-3",
+            section: "experience",
+            order: 2,
+            group: { employerId: "e2", employer: "E2", roleId: "product", role: "Product Manager" },
+            content: { text: "Launched the learner dashboard." },
+          },
+        ],
+      },
+    },
+  });
+
+  expect(wrapper.findAll(".cv-employer")).toHaveLength(1);
+  expect(wrapper.findAll(".cv-role")).toHaveLength(2);
+  expect(wrapper.get(".cv-employer > h3").text()).toBe("E2");
+  expect(wrapper.findAll(".cv-achievement").map((item) => item.text())).toEqual([
+    "Led the CRM migration.",
+    "Improved lifecycle conversion.",
+    "Launched the learner dashboard.",
+  ]);
+});

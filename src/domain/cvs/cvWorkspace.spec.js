@@ -5,6 +5,17 @@ import { createMemoryCvRepository } from "./createMemoryCvRepository";
 
 const employment = { blockId: "block-1", versionId: "version-1", section: "experience" };
 const skill = { blockId: "block-2", versionId: "version-2", section: "skills" };
+const employmentContext = {
+  type: "employment",
+  key: "e2-digital-marketing-manager",
+  label: "E2 · Digital Marketing Manager",
+  metadata: {
+    companyId: "e2",
+    company: "E2",
+    roleId: "digital-marketing-manager",
+    role: "Digital Marketing Manager",
+  },
+};
 
 describe("CV workspace boundary", () => {
   it("composes, saves, and reloads exact block versions", async () => {
@@ -19,6 +30,39 @@ describe("CV workspace boundary", () => {
     expect(await workspace.open(saved.id)).toMatchObject({
       name: "Product CV",
       selections: [{ ...skill, section: "experience", order: 0 }],
+    });
+  });
+
+  it("preserves employer grouping when an experience version is saved and reloaded", async () => {
+    const repository = createMemoryCvRepository();
+    const workspace = createCvWorkspace({ repository });
+    const draft = addSelection(
+      { name: "Marketing CV", selections: [] },
+      {
+        ...employment,
+        content: { text: "Led a cross-functional CRM migration." },
+        block: {
+          title: "CRM migration leadership",
+          contexts: [employmentContext],
+        },
+      },
+    );
+
+    const saved = await workspace.save(draft);
+
+    expect(await workspace.open(saved.id)).toMatchObject({
+      selections: [
+        {
+          blockId: "block-1",
+          versionId: "version-1",
+          group: {
+            employerId: "e2",
+            employer: "E2",
+            roleId: "digital-marketing-manager",
+            role: "Digital Marketing Manager",
+          },
+        },
+      ],
     });
   });
 

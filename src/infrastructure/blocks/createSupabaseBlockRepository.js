@@ -1,10 +1,10 @@
 import { BlockLibraryError } from "../../domain/blocks/blockLibrary";
 
 async function defaultGetActor(client) {
-  if (typeof client.auth?.getUser === "function") {
-    const { data, error } = await client.auth.getUser();
+  if (typeof client.auth?.getSession === "function") {
+    const { data, error } = await client.auth.getSession();
     if (error) throw error;
-    return data?.user || null;
+    return data?.session?.user || null;
   }
   return client.auth?.user?.() || null;
 }

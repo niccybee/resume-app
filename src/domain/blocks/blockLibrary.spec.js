@@ -23,7 +23,7 @@ const employmentContext = {
 };
 
 describe("BlockLibrary", () => {
-  it("groups experience blocks by company and role", async () => {
+  it("categorises experience by stable employer and role identities", async () => {
     const blocks = createTestLibrary();
 
     await blocks.saveVersion({
@@ -32,13 +32,36 @@ describe("BlockLibrary", () => {
       context: employmentContext,
       content: { text: "Led a cross-functional CRM migration." },
     });
+    await blocks.saveVersion({
+      kind: "experience",
+      title: "Unassigned achievement",
+      content: { text: "Improved a customer workflow." },
+    });
 
     const catalog = await blocks.browse();
 
-    expect(catalog.experience[0]).toMatchObject({
-      company: "E2",
-      roles: [{ role: "Digital Marketing Manager" }],
-    });
+    expect(catalog.experience).toEqual([
+      expect.objectContaining({
+        employerId: "e2",
+        employer: "E2",
+        roles: [
+          expect.objectContaining({
+            roleId: "digital-marketing-manager",
+            role: "Digital Marketing Manager",
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        employerId: "unassigned-employer",
+        employer: "Unassigned employer",
+        roles: [
+          expect.objectContaining({
+            roleId: "unassigned-role",
+            role: "Unassigned role",
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("appends immutable versions and rejects stale edits", async () => {

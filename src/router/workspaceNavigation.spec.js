@@ -5,6 +5,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory } from "vue-router";
 import { beforeEach, expect, it, vi } from "vitest";
 import App from "../App.vue";
+import { supabase } from "../supabase";
 import { createAppRouter } from "./index";
 
 vi.mock("../supabase", () => ({
@@ -17,6 +18,9 @@ vi.mock("../supabase", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  supabase.from.mockImplementation(() => ({
+    select: vi.fn().mockResolvedValue({ data: [], error: null }),
+  }));
 });
 
 async function mountWorkspace(path) {
@@ -72,4 +76,25 @@ it("keeps unknown workspace URLs inside the workspace shell", async () => {
     "The requested workspace page does not exist",
   );
   expect(wrapper.find('[data-layout="public-site"]').exists()).toBe(false);
+});
+
+it("shows unavailable data sources without an unhandled route failure", async () => {
+  supabase.from.mockImplementation((table) => ({
+    select: vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: `${table} is not available in PRM2` },
+    }),
+  }));
+
+  const { router, wrapper } = await mountWorkspace("/app/cvs");
+  await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toContain(
+    "Saved CVs are unavailable",
+  );
+
+  await router.push("/app/blocks");
+  await flushPromises();
+  expect(wrapper.get('[role="alert"]').text()).toContain(
+    "Reusable blocks are unavailable",
+  );
 });

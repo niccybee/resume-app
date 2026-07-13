@@ -19,6 +19,9 @@ store.getItems();
 
 <template>
   <main>
+    <p v-if="store.itemsError" role="alert">
+      Reusable blocks are unavailable: {{ store.itemsError }}
+    </p>
     <CreateItem />
     <SearchBar />
     <Filter />

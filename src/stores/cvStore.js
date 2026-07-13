@@ -12,6 +12,7 @@ export const useCvStore = defineStore("cvs", {
     activeCV: {},
     cvs: [],
     CVsLoading: true,
+    CVsError: null,
     blankSlate: {
       basics: {
         name: "Nicholas Benson",
@@ -274,10 +275,17 @@ export const useCvStore = defineStore("cvs", {
   actions: {
     async getCVs() {
       this.CVsLoading = true;
-      const { data, error } = await supabase.from("CVs").select();
-      if (error) throw error;
-      this.cvs = data;
-      this.CVsLoading = false;
+      this.CVsError = null;
+      try {
+        const { data, error } = await supabase.from("CVs").select();
+        if (error) throw error;
+        this.cvs = data;
+      } catch (error) {
+        this.cvs = [];
+        this.CVsError = error.message || "Unable to load saved CVs.";
+      } finally {
+        this.CVsLoading = false;
+      }
     },
   },
 });

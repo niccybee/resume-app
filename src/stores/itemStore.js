@@ -6,6 +6,7 @@ export const useItemsStore = defineStore("items", {
     return {
       searchInput: "",
       itemsLoading: false,
+      itemsError: null,
       addedItems: [],
       // TODO add item types, to be able to add skills etc
       items: [
@@ -44,9 +45,18 @@ export const useItemsStore = defineStore("items", {
   },
   actions: {
     async getItems() {
-      const { data, error } = await supabase.from("CV_Items").select();
-      if (error) throw error;
-      this.items = data;
+      this.itemsLoading = true;
+      this.itemsError = null;
+      try {
+        const { data, error } = await supabase.from("CV_Items").select();
+        if (error) throw error;
+        this.items = data;
+      } catch (error) {
+        this.items = [];
+        this.itemsError = error.message || "Unable to load reusable blocks.";
+      } finally {
+        this.itemsLoading = false;
+      }
     },
     addItemToBuilder(i) {
       this.addedItems.push(i);

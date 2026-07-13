@@ -3,7 +3,6 @@ import { useCvStore } from "../stores/cvStore";
 import { storeToRefs } from "pinia";
 
 const { cvs, CVsLoading } = storeToRefs(useCvStore());
-console.log("xvs? ", cvs);
 const { getCVs } = useCvStore();
 
 getCVs();

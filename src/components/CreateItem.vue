@@ -1,63 +1,40 @@
 <script setup>
-import { ref, reactive, defineProps, watch, onMounted } from "vue";
-import dayjs from "dayjs";
-import { supabase } from "../supabase";
+import { ref, reactive } from "vue";
 import { useItemsStore } from "../stores/itemStore";
 import { useSettingStore } from "../stores/appSettingsStore";
 // stores
 const settings = useSettingStore();
 const items = useItemsStore();
 
-const itemsList = ref(items.items);
-
 // Vars
-let listLength = items.itemListLength;
 let loading = ref(false);
 let submitted = ref(false);
-
-const displayedDate = ref("");
+let errorMessage = ref("");
 
 const newItem = reactive({
-  id: items.itemListLength + 1,
   employer: "",
   role: "",
   item: "",
-  created: displayedDate.value,
 });
 
 function displayModal() {
   settings.showCreateItemModal = true;
 }
-function closeModal() {
-  settings.showCreateItemModal = true;
-}
-// helper functions
-function createDate() {
-  let today = dayjs().format();
-  let createTodaysDisplayedDate = dayjs(today).format("YYYY-MM-DD");
-  let createItemDate = dayjs(today).format("DD-MM-YYYY");
-  displayedDate.value = createTodaysDisplayedDate;
-  newItem.created = createItemDate;
-}
-function createID() {
-  return listLength + 1;
-}
-// lifecycle hooks
-onMounted(() => {
-  createDate();
-});
-
 //  create item function
 const createNewResumeItem = async () => {
   loading.value = true;
-  const { data, error } = await supabase.from("CV_Items").insert([newItem]);
-
-  if (error) {
-    console.error(error);
-  } else {
-    console.log(data);
-    loading.value = false;
+  errorMessage.value = "";
+  try {
+    await items.createExperienceBlock({
+      employer: newItem.employer,
+      role: newItem.role,
+      text: newItem.item,
+    });
     submitted.value = true;
+  } catch (error) {
+    errorMessage.value = error.message;
+  } finally {
+    loading.value = false;
   }
 };
 </script>
@@ -78,12 +55,6 @@ const createNewResumeItem = async () => {
       </header>
 
       <div class="card">
-        <!-- <p>{{ newItem }}</p> -->
-        <summary>
-          <h6>id:</h6>
-          <input type="number" name="" id="" :value="createID()" disabled />
-        </summary>
-        <!-- <h6>employer:</h6> -->
         <input
           type="text"
           name="employer"
@@ -91,11 +62,11 @@ const createNewResumeItem = async () => {
           list="employer-list"
           placeholder="Enter your employer"
           v-model="newItem.employer"
+          required
         />
         <datalist id="employer-list">
           <option :value="e" v-for="e in items.employers">{{ e }}</option>
         </datalist>
-        <!-- <h6>roles:</h6> -->
         <input
           type="text"
           name="role"
@@ -103,6 +74,7 @@ const createNewResumeItem = async () => {
           list="role-list"
           placeholder="Enter your role"
           v-model="newItem.role"
+          required
         />
         <datalist id="role-list">
           <option :value="r" v-for="r in items.roles">{{ r }}</option>
@@ -113,15 +85,9 @@ const createNewResumeItem = async () => {
           id="item"
           placeholder="Enter your resume item"
           v-model="newItem.item"
+          required
         />
-        hello: {{ newItem.createdDate }}
-        <input
-          type="date"
-          name="create-date"
-          id="createDate"
-          v-model="displayedDate"
-          disabled
-        />
+        <p v-if="errorMessage" role="alert">{{ errorMessage }}</p>
       </div>
       <footer>
         <div>

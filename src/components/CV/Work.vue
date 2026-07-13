@@ -1,7 +1,4 @@
 <script setup>
-import { defineProps } from "vue";
-import dayjs from "dayjs";
-
 const props = defineProps(["workInfo"]);
 const work = props.workInfo;
 </script>

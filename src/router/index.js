@@ -1,37 +1,98 @@
-import { createWebHistory, createRouter } from "vue-router";
+import { createRouter, createWebHistory } from "vue-router";
 import Home from "../views/Home.vue";
 import CVBuilder from "../views/CVBuilder.vue";
 import CVList from "../views/CVList.vue";
 import CVCustom from "../views/CVCustom.vue";
 import NotFound from "../views/NotFound.vue";
+import WorkspaceNotFound from "../views/WorkspaceNotFound.vue";
+import PublicSiteLayout from "../layouts/PublicSiteLayout.vue";
+import WorkspaceLayout from "../layouts/WorkspaceLayout.vue";
 
-const routes = [
+export const routes = [
   {
     path: "/",
-    name: "Home",
-    component: Home,
+    component: PublicSiteLayout,
+    children: [
+      {
+        path: "",
+        name: "Public Home",
+        component: Home,
+      },
+      {
+        path: "cv/:resume_name",
+        name: "Public Resume",
+        component: CVCustom,
+      },
+    ],
+  },
+  {
+    path: "/app",
+    component: WorkspaceLayout,
+    children: [
+      {
+        path: "",
+        redirect: { name: "Workspace CVs" },
+      },
+      {
+        path: "cvs",
+        name: "Workspace CVs",
+        component: CVList,
+        meta: { title: "Saved CVs" },
+      },
+      {
+        path: "blocks",
+        name: "Workspace Blocks",
+        component: CVBuilder,
+        meta: {
+          title: "Reusable blocks",
+          description: "Find and select previously saved resume items",
+        },
+      },
+      {
+        path: "builder",
+        name: "Workspace Builder",
+        component: CVBuilder,
+        meta: {
+          title: "CV builder",
+          description: "Create a custom resume from your previously saved items",
+        },
+      },
+      {
+        path: ":pathMatch(.*)*",
+        name: "Workspace Not Found",
+        component: WorkspaceNotFound,
+        meta: { title: "Workspace page not found" },
+      },
+    ],
   },
   {
     path: "/cv",
-    name: "List",
-    component: CVList,
-  },
-  {
-    path: "/cv/:resume_name",
-    name: "Resume",
-    component: CVCustom,
+    redirect: { name: "Workspace CVs" },
   },
   {
     path: "/build",
-    name: "CV Builder",
-    component: CVBuilder,
+    redirect: { name: "Workspace Builder" },
   },
-  // { path: "/:pathMatch(.*)*", name: "NotFound", component: NotFound },
+  {
+    path: "/:pathMatch(.*)*",
+    component: PublicSiteLayout,
+    children: [
+      {
+        path: "",
+        name: "NotFound",
+        component: NotFound,
+      },
+    ],
+  },
 ];
 
-const router = createRouter({
-  history: createWebHistory(),
-  routes,
-});
+export function createAppRouter(history = createWebHistory()) {
+  return createRouter({
+    history,
+    routes,
+  });
+}
+
+const router = createAppRouter();
 
 export default router;

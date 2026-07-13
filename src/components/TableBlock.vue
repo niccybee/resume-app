@@ -14,7 +14,10 @@ const showTable = ref(true);
     </thead>
     <tbody>
       <tr v-for="item in items.searchItems">
-        <td v-for="i in item">{{ i }}</td>
+        <td>{{ item.employer }}</td>
+        <td>{{ item.role }}</td>
+        <td>{{ item.item }}</td>
+        <td>{{ item.created }}</td>
         <td>
           <button role="button" class="secondary" @click="items.addItemToBuilder(item)">
             <span>+</span>

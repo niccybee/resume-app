@@ -1,6 +1,4 @@
 <script setup>
-import { defineProps } from "vue";
-
 const props = defineProps(["profileInfo"]);
 const profile = props.profileInfo;
 const relevantExp = props.profileInfo[2];

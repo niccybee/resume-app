@@ -3,8 +3,6 @@
 </template>
 
 <style>
-:root { --primary: #37624e; --primary-hover: #294c3b; --primary-focus: rgba(55, 98, 78, .2); --background-color: #f6f8f6; }
-body { background: #f6f8f6; }
 .cv-sidebar-content {
   font-size: 0.8rem !important;
 }

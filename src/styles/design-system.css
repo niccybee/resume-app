@@ -1,0 +1,54 @@
+:root {
+  --paper: #f3ecdf;
+  --paper-light: #fffaf0;
+  --paper-deep: #dfd2bd;
+  --ink: #191713;
+  --muted: #645d52;
+  --marker: #f05a3d;
+  --marker-dark: #d7462c;
+  --marker-soft: #f7c6b8;
+  --success: #2f6b4f;
+
+  --font-editorial: Georgia, "Times New Roman", serif;
+  --font-ui: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  --font-label: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --primary: var(--marker);
+  --primary-hover: var(--marker-dark);
+  --primary-focus: rgb(240 90 61 / 22%);
+  --primary-inverse: var(--paper-light);
+  --background-color: var(--paper);
+  --color: var(--ink);
+  --muted-color: var(--muted);
+  --card-background-color: var(--paper-light);
+  --card-border-color: var(--paper-deep);
+  --form-element-background-color: var(--paper-light);
+  --form-element-border-color: #b9ab96;
+  --form-element-active-border-color: var(--marker);
+  --form-element-focus-color: rgb(240 90 61 / 18%);
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+button,
+[role="button"] {
+  border-radius: 0;
+}
+
+article {
+  border-radius: 0;
+}
+
+::selection {
+  background: var(--marker-soft);
+  color: var(--ink);
+}

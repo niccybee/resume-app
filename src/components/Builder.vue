@@ -53,7 +53,6 @@ function clearResume() {
           <hgroup>
             <h2>Active List</h2>
             <h4>Included:</h4>
-            <p>{{ collectedItems }}</p>
           </hgroup>
         </header>
         <figure>

@@ -18,12 +18,10 @@ const { getCVs } = useCvStore();
 getCVs();
 const route = useRoute();
 // variables
-console.log("cvs in the page: ", cvs);
-console.log("paraps: ", route.params);
 let resume = route.params.resume_name;
 //
 // TODO: the magic finishing piece: the
-const cv = computed(() => cvs.find((x) => x.id === parseInt(1)));
+const cv = computed(() => cvs.value.find((x) => x.id === 1));
 
 //  ---
 // const resume = computed(()=> this.)

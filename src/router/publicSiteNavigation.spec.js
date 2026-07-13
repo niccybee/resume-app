@@ -43,7 +43,7 @@ it("renders the public resume without workspace navigation", async () => {
   const { wrapper } = await mountPublicSite("/");
 
   expect(wrapper.get('[data-layout="public-site"]').text()).toContain(
-    "One career story",
+    "Write once",
   );
   expect(wrapper.find("[data-workspace-navigation]").exists()).toBe(false);
 });

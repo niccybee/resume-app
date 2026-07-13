@@ -7,11 +7,23 @@ import { beforeEach, expect, it, vi } from "vitest";
 import App from "../App.vue";
 import { createAppRouter } from "./index";
 
+vi.mock("../services/cvWorkspace", () => ({
+  cvWorkspace: {
+    list: vi.fn().mockResolvedValue([]),
+    open: vi.fn().mockResolvedValue(null),
+  },
+}));
+vi.mock("../services/blockLibrary", () => ({
+  blockLibrary: { browse: vi.fn().mockResolvedValue({ blocks: [], experience: [], sidebar: {} }) },
+}));
 vi.mock("../supabase", () => ({
+  isSupabaseConfigured: true,
   supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn().mockResolvedValue({ data: [], error: null }),
-    })),
+    auth: {
+      getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "owner" } } } }),
+      onAuthStateChange: vi.fn(),
+      signOut: vi.fn().mockResolvedValue({}),
+    },
   },
 }));
 
@@ -20,7 +32,9 @@ beforeEach(() => {
 });
 
 async function mountWorkspace(path) {
-  const router = createAppRouter(createMemoryHistory());
+  const router = createAppRouter(createMemoryHistory(), {
+    getSession: async () => ({ data: { session: { user: { id: "owner" } } } }),
+  });
   await router.push(path);
   await router.isReady();
 
@@ -51,13 +65,13 @@ it("navigates between saved CVs, blocks, and the builder", async () => {
 
   await wrapper.get('[data-nav="builder"]').trigger("click");
   await flushPromises();
-  expect(router.currentRoute.value.path).toBe("/app/builder");
-  expect(wrapper.get("h1").text()).toBe("CV builder");
+  expect(router.currentRoute.value.path).toBe("/app/cvs/new");
+  expect(wrapper.get("h1").text()).toBe("New CV");
 });
 
 it.each([
   ["/cv", "/app/cvs"],
-  ["/build", "/app/builder"],
+  ["/build", "/app/cvs/new"],
 ])("redirects the legacy %s route to %s", async (legacyPath, workspacePath) => {
   const { router } = await mountWorkspace(legacyPath);
 
@@ -72,4 +86,15 @@ it("keeps unknown workspace URLs inside the workspace shell", async () => {
     "The requested workspace page does not exist",
   );
   expect(wrapper.find('[data-layout="public-site"]').exists()).toBe(false);
+});
+
+it("redirects an unauthenticated workspace visitor to login", async () => {
+  const router = createAppRouter(createMemoryHistory(), {
+    getSession: async () => ({ data: { session: null } }),
+  });
+  await router.push("/app/cvs");
+  expect(router.currentRoute.value).toMatchObject({
+    name: "Login",
+    query: { redirect: "/app/cvs" },
+  });
 });

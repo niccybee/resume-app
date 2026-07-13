@@ -1,83 +1,18 @@
-<script setup>
-import { useCvStore } from "../stores/cvStore";
-import Profile from "../components/CV/Profile.vue";
-import Work from "../components/CV/Work.vue";
-import Certifications from "../components/CV/Certifications.vue";
-import Languages from "../components/CV/Languages.vue";
-import Interests from "../components/CV/Interests.vue";
-import Skills from "../components/CV/Skills.vue";
-import Education from "../components/CV/Education.vue";
-
-// TODO: fix this naming scheme wtf
-const resume = useCvStore();
-const cv = resume.blankSlate;
-const relevantExp = resume.relevantExp;
-const showImage = resume.showImage;
-</script>
 <template>
-  <div id="cv" class="container">
-    <Profile
-      class="side-content"
-      :profileInfo="[cv.basics, cv.skills, relevantExp, showImage]"
-    />
-    <div id="body" class="grid">
-      <div id="main">
-        <Work class="side-content" :workInfo="cv.work" />
-      </div>
-      <div id="sidebar">
-        <Education class="side-content" :education="cv.education" />
-        <Skills class="side-content" :skills="cv.skills" />
-        <Certifications class="side-content" :certificates="cv.certificates" />
-        <Languages class="side-content" :languages="cv.languages" />
-        <Interests class="side-content" :interests="cv.interests" />
-      </div>
+  <section class="home-hero">
+    <p class="eyebrow">Resume studio</p>
+    <h1>One career story.<br />A sharper CV for every role.</h1>
+    <p class="lede">Build a reusable library of career evidence, compose focused CVs from exact block versions, and share only the documents you choose to publish.</p>
+    <div class="actions">
+      <RouterLink role="button" to="/app/cvs">Open workspace</RouterLink>
+      <RouterLink class="secondary" role="button" to="/login">Owner sign in</RouterLink>
     </div>
-  </div>
-
-  <!-- <div>
-    <p v-for="(c, i) in cv">{{ i }}{{ c }}</p>
-  </div> -->
+  </section>
+  <section class="feature-grid">
+    <article><strong>Versioned blocks</strong><p>Keep company achievements and sidebar content reusable without losing earlier wording.</p></article>
+    <article><strong>Role-specific CVs</strong><p>Pin exact versions into each draft, reorder them, and preview before anything becomes public.</p></article>
+    <article><strong>Unlisted sharing</strong><p>Publish to a deliberate link, choose a theme, print cleanly, and withdraw access at any time.</p></article>
+  </section>
 </template>
-<style scoped>
-hgroup > h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  --sidebarhead: 1.1rem;
-}
-article {
-  box-shadow: 0 0 0;
-  border: lightgray solid 1px;
-}
-@media print {
-  .grid {
-    grid-template-columns: 1fr 1fr 1fr;
-  }
-  hgroup {
-    page-break-inside: avoid;
-  }
-  p,
-  span,
-  ul,
-  li {
-    font-size: 0.7rem;
-  }
-}
 
-.side-content {
-  font-size: 0.8rem !important;
-}
-.side-content hgroup:last-child {
-  font-size: 0.8rem !important;
-}
-#body {
-  grid-template-columns: 1fr 1fr 1fr;
-}
-#main {
-  grid-column-start: span 2;
-}
-#sidebar {
-}
-</style>
+<style scoped>.home-hero { padding: 10vh 0 8vh; max-width: 62rem; } .eyebrow { color: #37624e; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; } h1 { font-size: clamp(3rem, 8vw, 6.8rem); line-height: .88; letter-spacing: -.065em; } .lede { max-width: 46rem; font-size: 1.25rem; line-height: 1.6; } .actions { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 2rem; } .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; } .feature-grid article { border: 1px solid #dce3df; box-shadow: none; } @media(max-width: 700px){.feature-grid{grid-template-columns:1fr}}</style>

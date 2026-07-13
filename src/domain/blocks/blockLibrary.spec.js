@@ -151,4 +151,13 @@ describe("BlockLibrary", () => {
       source: { type: "import", legacyId: 42 },
     });
   });
+
+  it("composes search, kind, company, role, and sidebar filters", async () => {
+    const blocks = createTestLibrary();
+    await blocks.saveVersion({ kind: "experience", title: "CRM migration", context: employmentContext, content: { text: "Led a Salesforce migration." } });
+    await blocks.saveVersion({ kind: "skill", title: "Analytics", context: { type: "sidebar", key: "skills", label: "Skills" }, content: { name: "Product analytics" } });
+
+    await expect(blocks.browse({ search: "salesforce", kind: "experience", companyId: "e2", roleId: "digital-marketing-manager" })).resolves.toMatchObject({ blocks: [{ kind: "experience" }] });
+    await expect(blocks.browse({ section: "skills" })).resolves.toMatchObject({ blocks: [{ kind: "skill" }] });
+  });
 });

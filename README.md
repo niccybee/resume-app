@@ -1,39 +1,21 @@
-# Resume Builder
+# Resume Studio
 
-The beginnings of a resume builder project using Supabase, Vuejs, Pinia, Picocss.
+A Vue 3 workspace for maintaining versioned CV content, composing role-specific drafts, privately previewing them, and publishing unlisted public CV links from PRM2 Supabase.
 
-The goal behind this project is to be able to quickly store and retrieve Cv line items, and add them to a [JSONResume Format](https://jsonresume.org) with a unique link to share when needed.
+## Local setup
 
-### Tasks:
+1. Copy `.env.example` to `.env.local`.
+2. Add PRM2's publishable key. Never use a Supabase secret or service-role key in the browser.
+3. Install with `ni`, start with `nr dev`, test with `nr test`, and build with `nr build`.
 
-[ ] Filter items through button inputs
+The checked-in SQL in `database/` is the reproducible PRM2 schema. New public-schema objects use explicit Data API grants and row-level security.
 
-- [ / ] Later: SearchBox refactor - (docs)[https://vuejs.org/guide/components/events.html#usage-with-v-model]
-- [ ] Build Resume
-  - [ / ] Add items to a json list, upload to supabase
-  - [ ] Add details at the top of the resume
-  - [ ] Create resume json file and upload to supabase
-  - [ ] Show list of CV's - if authenticated
-  - [ / ] Print styling for PDF
-  - [ ] Show CV per email domain
-    - [ / ] Switch between table and list view 
-    - [ ] Add local storage for offline use 
-    - [ / ] Create items 
-    - [ / ] Toggle create item box, add multiple items without refresh
+## Access model
 
-[ ] Add auth to only show create item and builder when logged in
-[ ] Unifying CV components into singular sidebar with list/span option
+The owner workspace uses Supabase passwordless email magic links with account creation disabled. `/app/**` routes require a session, and PRM2 RLS enforces ownership for documents, compositions, blocks, versions, contexts, and generation records.
 
-# Initial Template:
+Shared CVs use an **unlisted public** model: a visitor who knows `/cv/:slug` can read a CV only while its document is marked `published`. Unpublishing immediately withdraws anonymous access without deleting the draft. Public queries can read only the document, composition rows, and exact immutable block versions referenced by that published document.
 
-## Vue 3 + Vite
+## Themes and printing
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
-
-## PicoCSS
-
-This project uses [Pico CSS](https://picocss.com/) for base styling.
-
-### Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar)
+Themes are registered in `src/domain/themes/themeRegistry.js`. `editorial` is the documented default for missing, unknown, or retired IDs; `modern` is the second supported theme. The same `CvDocument` renderer is used for workspace previews and public links. Both themes include A4 print rules, suppress application chrome, avoid preventable entry breaks, and preserve visible contact links.

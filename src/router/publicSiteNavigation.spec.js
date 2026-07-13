@@ -7,11 +7,17 @@ import { beforeEach, expect, it, vi } from "vitest";
 import App from "../App.vue";
 import { createAppRouter } from "./index";
 
+vi.mock("../services/cvWorkspace", () => ({
+  cvWorkspace: { getPublic: vi.fn().mockResolvedValue(null) },
+}));
 vi.mock("../supabase", () => ({
+  isSupabaseConfigured: true,
   supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn().mockResolvedValue({ data: [], error: null }),
-    })),
+    auth: {
+      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
+      onAuthStateChange: vi.fn(),
+      signInWithOtp: vi.fn(),
+    },
   },
 }));
 
@@ -37,7 +43,7 @@ it("renders the public resume without workspace navigation", async () => {
   const { wrapper } = await mountPublicSite("/");
 
   expect(wrapper.get('[data-layout="public-site"]').text()).toContain(
-    "Past Experience",
+    "One career story",
   );
   expect(wrapper.find("[data-workspace-navigation]").exists()).toBe(false);
 });
@@ -46,9 +52,6 @@ it("keeps a shared CV slug inside the public site shell", async () => {
   const { router, wrapper } = await mountPublicSite("/cv/example");
 
   expect(router.currentRoute.value.name).toBe("Public Resume");
-  expect(wrapper.get('[data-layout="public-site"]').text()).toContain(
-    "route: example",
-  );
   expect(wrapper.find("[data-workspace-navigation]").exists()).toBe(false);
 });
 

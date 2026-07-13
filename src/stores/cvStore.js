@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { supabase } from "../supabase";
+import { cvWorkspace } from "../services/cvWorkspace";
 
 export const useCvStore = defineStore("cvs", {
   state: () => ({
@@ -274,10 +274,11 @@ export const useCvStore = defineStore("cvs", {
   actions: {
     async getCVs() {
       this.CVsLoading = true;
-      const { data, error } = await supabase.from("CVs").select();
-      if (error) throw error;
-      this.cvs = data;
-      this.CVsLoading = false;
+      try {
+        this.cvs = await cvWorkspace.list();
+      } finally {
+        this.CVsLoading = false;
+      }
     },
   },
 });

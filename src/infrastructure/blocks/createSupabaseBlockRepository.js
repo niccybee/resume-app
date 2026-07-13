@@ -205,20 +205,16 @@ export function createSupabaseBlockRepository({
       const actor = await requireActor();
       const { data, error } = await client
         .from("cv_generation_runs")
-        .insert(
-          [
-            {
-              block_id: input.blockId,
-              owner_id: actor.id,
-              based_on_version_id: input.basedOnVersionId,
-              instruction: input.instruction,
-              provider: input.generator,
-              status: "draft",
-              output_content: input.content,
-            },
-          ],
-          { returning: "representation" },
-        )
+        .insert({
+          block_id: input.blockId,
+          owner_id: actor.id,
+          based_on_version_id: input.basedOnVersionId,
+          instruction: input.instruction,
+          provider: input.generator,
+          status: "draft",
+          output_content: input.content,
+        })
+        .select()
         .single();
       throwRepositoryError(error);
       return data;

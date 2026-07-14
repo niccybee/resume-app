@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from "vue";
 import { groupExperienceSelections } from "../domain/cvs/cvDraft";
+import { formatEmploymentPeriod } from "../domain/employment/occasion";
 import { resolveTheme } from "../domain/themes/themeRegistry";
 
 const props = defineProps({ document: { type: Object, required: true } });
@@ -41,10 +42,13 @@ function value(item) {
           <h2>Experience</h2>
           <article v-for="employer in experienceGroups" :key="employer.employerId" class="cv-employer">
             <h3>{{ employer.employer }}</h3>
-            <section v-for="role in employer.roles" :key="role.roleId" class="cv-role">
-              <h4>{{ role.role }}</h4>
+            <section v-for="occasion in employer.occasions" :key="occasion.occasionId" class="cv-role cv-occasion">
+              <div class="cv-occasion-heading">
+                <h4>{{ occasion.role }}</h4>
+                <p class="cv-period">{{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</p>
+              </div>
               <ul>
-                <li v-for="item in role.items" :key="item.versionId" class="cv-achievement cv-entry">
+                <li v-for="item in occasion.items" :key="item.versionId" class="cv-achievement cv-entry">
                   {{ value(item) }}
                 </li>
               </ul>
@@ -81,6 +85,8 @@ h3 { font-size: 1rem; margin-bottom: .35rem; }
 .cv-employer { padding: 0 0 1rem; margin: 0 0 1rem; border-bottom: 1px solid #dde2df; box-shadow: none; break-inside: avoid; }
 .cv-role { margin: .65rem 0 0; }
 .cv-role h4 { margin: 0 0 .3rem; font-size: .86rem; }
+.cv-occasion-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+.cv-period { margin: 0; color: #5c6964; font-size: .75rem; white-space: nowrap; }
 .cv-role ul { margin: 0; padding-left: 1.1rem; }
 .cv-entry { break-inside: avoid; }
 .cv-entry p, .cv-document li, .cv-document main > section > p { font-size: .86rem; line-height: 1.6; }

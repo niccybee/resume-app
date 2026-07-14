@@ -83,3 +83,59 @@ it("groups experience achievements under employer and role headings", () => {
     "Launched the learner dashboard.",
   ]);
 });
+
+it("renders repeated employment occasions as distinct dated sections", () => {
+  const wrapper = mount(CvDocument, {
+    props: {
+      document: {
+        name: "Marketing CV",
+        profile: {},
+        selections: [
+          {
+            blockId: "block-earlier",
+            versionId: "version-earlier",
+            section: "experience",
+            order: 0,
+            group: {
+              employerId: "e2",
+              employer: "E2",
+              roleId: "marketing-manager",
+              role: "Marketing Manager",
+              occasionId: "e2-marketing-manager-2021-03",
+              startDate: "2021-03",
+              endDate: "2022-06",
+            },
+            content: { text: "Led lifecycle reporting." },
+          },
+          {
+            blockId: "block-current",
+            versionId: "version-current",
+            section: "experience",
+            order: 1,
+            group: {
+              employerId: "e2",
+              employer: "E2",
+              roleId: "marketing-manager",
+              role: "Marketing Manager",
+              occasionId: "e2-marketing-manager-2024-02",
+              startDate: "2024-02",
+              endDate: "present",
+            },
+            content: { text: "Rebuilt acquisition planning." },
+          },
+        ],
+      },
+    },
+  });
+
+  expect(wrapper.findAll(".cv-employer")).toHaveLength(1);
+  expect(wrapper.findAll(".cv-occasion")).toHaveLength(2);
+  expect(wrapper.findAll(".cv-period").map((period) => period.text())).toEqual([
+    "Mar 2021 – Jun 2022",
+    "Feb 2024 – Present",
+  ]);
+  expect(wrapper.findAll(".cv-occasion").map((occasion) => occasion.text())).toEqual([
+    expect.stringContaining("Led lifecycle reporting."),
+    expect.stringContaining("Rebuilt acquisition planning."),
+  ]);
+});

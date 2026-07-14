@@ -1,3 +1,5 @@
+import { normalizeEmploymentGroup } from "../employment/occasion";
+
 export const BLOCK_KINDS = [
   "experience",
   "skill",
@@ -74,19 +76,23 @@ function buildCatalog(blocks) {
       const context = block.contexts.find(
         (candidate) => candidate.type === "employment",
       );
-      const employerId = context?.metadata?.companyId || "unassigned-employer";
-      const employer = context?.metadata?.company || "Unassigned employer";
-      const roleId = context?.metadata?.roleId || "unassigned-role";
-      const role = context?.metadata?.role || "Unassigned role";
+      const occasion = normalizeEmploymentGroup(context?.metadata);
 
-      if (!employers.has(employerId)) {
-        employers.set(employerId, { employerId, employer, roles: new Map() });
+      if (!employers.has(occasion.employerId)) {
+        employers.set(occasion.employerId, {
+          employerId: occasion.employerId,
+          employer: occasion.employer,
+          occasions: new Map(),
+        });
       }
-      const employerGroup = employers.get(employerId);
-      if (!employerGroup.roles.has(roleId)) {
-        employerGroup.roles.set(roleId, { roleId, role, blocks: [] });
+      const employerGroup = employers.get(occasion.employerId);
+      if (!employerGroup.occasions.has(occasion.occasionId)) {
+        employerGroup.occasions.set(occasion.occasionId, {
+          ...occasion,
+          blocks: [],
+        });
       }
-      employerGroup.roles.get(roleId).blocks.push(block);
+      employerGroup.occasions.get(occasion.occasionId).blocks.push(block);
       continue;
     }
 
@@ -100,7 +106,7 @@ function buildCatalog(blocks) {
       employerId: group.employerId,
       employer: group.employer,
       company: group.employer,
-      roles: [...group.roles.values()],
+      occasions: [...group.occasions.values()],
     })),
     sidebar,
   };

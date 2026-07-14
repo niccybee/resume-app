@@ -1,23 +1,21 @@
 import { defineStore } from "pinia";
 import { blockLibrary } from "../services/blockLibrary";
-
-function slugify(value) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+import { createEmploymentContext, formatEmploymentPeriod, normalizeEmploymentGroup } from "../domain/employment/occasion";
 
 function toLegacyItem(block) {
   const context = block.contexts.find(
     (candidate) => candidate.type === "employment",
   );
 
+  const employment = normalizeEmploymentGroup(context?.metadata);
   return {
     id: block.id,
-    employer: context?.metadata?.company || "Unassigned company",
-    role: context?.metadata?.role || "Unassigned role",
+    employer: employment.employer,
+    role: employment.role,
+    occasionId: employment.occasionId,
+    startDate: employment.startDate,
+    endDate: employment.endDate,
+    period: formatEmploymentPeriod(employment.startDate, employment.endDate),
     item: block.currentVersion?.content?.text || "",
     created: block.currentVersion?.createdAt || block.createdAt,
     block,
@@ -34,7 +32,7 @@ export const useItemsStore = defineStore("items", {
   }),
 
   getters: {
-    headers: () => ["employer", "role", "item", "created"],
+    headers: () => ["employer", "role", "period", "item", "created"],
     employers: (state) => [
       ...new Set(state.items.map((item) => item.employer)),
     ],
@@ -43,7 +41,7 @@ export const useItemsStore = defineStore("items", {
       const search = state.searchInput.trim().toLowerCase();
       if (!search) return state.items;
       return state.items.filter((item) =>
-        [item.item, item.role, item.employer].some((value) =>
+        [item.item, item.role, item.employer, item.period].some((value) =>
           value.toLowerCase().includes(search),
         ),
       );
@@ -66,27 +64,16 @@ export const useItemsStore = defineStore("items", {
       }
     },
 
-    async createExperienceBlock({ employer, role, text }) {
-      if (!employer?.trim() || !role?.trim() || !text?.trim()) {
-        throw new Error("Employer, role, and block text are required.");
+    async createExperienceBlock({ employer, role, startDate, endDate, text }) {
+      if (!employer?.trim() || !role?.trim() || !startDate?.trim() || !text?.trim()) {
+        throw new Error("Employer, role, start period, and block text are required.");
       }
-      const companyId = slugify(employer);
-      const roleId = slugify(role);
+      const context = createEmploymentContext({ employer, role, startDate, endDate: endDate || "present" });
       await blockLibrary.saveVersion({
         kind: "experience",
         title: `${role} at ${employer}`,
         content: { text },
-        context: {
-          type: "employment",
-          key: `${companyId}-${roleId}`,
-          label: `${employer} · ${role}`,
-          metadata: {
-            companyId,
-            company: employer.trim(),
-            roleId,
-            role: role.trim(),
-          },
-        },
+        context,
       });
       await this.getItems();
     },

@@ -18,8 +18,8 @@ function showTableView() {
     <nav>
       <ul></ul>
       <ul>
-        <li><a @click="showListView">List</a></li>
-        <li><a @click="showTableView">Table</a></li>
+        <li><a role="button" class="secondary control-compact" @click="showListView">List</a></li>
+        <li><a role="button" class="secondary control-compact" @click="showTableView">Table</a></li>
       </ul>
     </nav>
     <input

@@ -1,3 +1,5 @@
+import { createEmploymentContext } from "../domain/employment/occasion";
+
 const jobs = [
   {
     company: "E2",
@@ -94,26 +96,24 @@ function slug(value) {
 
 export function legacyHomepageBlockInputs() {
   const experience = jobs.flatMap((job) =>
-    job.highlights.map((text, index) => ({
-      legacyKey: `homepage:experience:${slug(job.company)}:${slug(job.role)}:${index + 1}`,
-      kind: "experience",
-      title: text,
-      content: { text },
-      contexts: [{
-        type: "employment",
-        key: `${slug(job.company)}-${slug(job.role)}`,
-        label: `${job.company} · ${job.role}`,
-        metadata: {
-          companyId: slug(job.company),
-          company: job.company,
-          roleId: slug(job.role),
+    job.highlights.map((text, index) => {
+      const context = createEmploymentContext(
+        {
+          employer: job.company,
           role: job.role,
-          url: job.url,
           startDate: job.startDate,
-          endDate: job.endDate,
+          endDate: job.endDate || "present",
         },
-      }],
-    })),
+        { url: job.url },
+      );
+      return {
+        legacyKey: `homepage:experience:${slug(job.company)}:${slug(job.role)}:${index + 1}`,
+        kind: "experience",
+        title: text,
+        content: { text },
+        contexts: [context],
+      };
+    }),
   );
 
   const sidebar = [
@@ -128,4 +128,3 @@ export function legacyHomepageBlockInputs() {
 
   return [...experience, ...sidebar];
 }
-

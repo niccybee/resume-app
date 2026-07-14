@@ -66,6 +66,64 @@ describe("CV workspace boundary", () => {
     });
   });
 
+  it("preserves separate employment occasions at the same employer", async () => {
+    const repository = createMemoryCvRepository();
+    const workspace = createCvWorkspace({ repository });
+    const earlierContext = {
+      ...employmentContext,
+      key: "e2-digital-marketing-manager-2021-03",
+      metadata: {
+        ...employmentContext.metadata,
+        occasionId: "e2-digital-marketing-manager-2021-03",
+        startDate: "2021-03",
+        endDate: "2022-06",
+      },
+    };
+    const currentContext = {
+      ...employmentContext,
+      key: "e2-digital-marketing-manager-2024-02",
+      metadata: {
+        ...employmentContext.metadata,
+        occasionId: "e2-digital-marketing-manager-2024-02",
+        startDate: "2024-02",
+        endDate: "present",
+      },
+    };
+    let draft = addSelection(
+      { name: "Marketing CV", selections: [] },
+      {
+        blockId: "block-earlier",
+        versionId: "version-earlier",
+        section: "experience",
+        block: { contexts: [earlierContext] },
+        content: { text: "Led lifecycle reporting." },
+      },
+    );
+    draft = addSelection(draft, {
+      blockId: "block-current",
+      versionId: "version-current",
+      section: "experience",
+      block: { contexts: [currentContext] },
+      content: { text: "Rebuilt acquisition planning." },
+    });
+
+    const saved = await workspace.save(draft);
+    const reopened = await workspace.open(saved.id);
+
+    expect(reopened.selections.map((selection) => selection.group)).toEqual([
+      expect.objectContaining({
+        occasionId: "e2-digital-marketing-manager-2021-03",
+        startDate: "2021-03",
+        endDate: "2022-06",
+      }),
+      expect.objectContaining({
+        occasionId: "e2-digital-marketing-manager-2024-02",
+        startDate: "2024-02",
+        endDate: "present",
+      }),
+    ]);
+  });
+
   it("previews a private draft without publishing it", async () => {
     const repository = createMemoryCvRepository([{ id: "cv-1", name: "Private", selections: [] }]);
     const workspace = createCvWorkspace({ repository });

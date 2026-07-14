@@ -16,10 +16,11 @@ const showTable = ref(true);
       <tr v-for="item in items.searchItems">
         <td>{{ item.employer }}</td>
         <td>{{ item.role }}</td>
+        <td>{{ item.period }}</td>
         <td>{{ item.item }}</td>
         <td>{{ item.created }}</td>
         <td>
-          <button role="button" class="secondary" @click="items.addItemToBuilder(item)">
+          <button role="button" class="secondary control-icon" aria-label="Add item to draft" @click="items.addItemToBuilder(item)">
             <span>+</span>
           </button>
         </td>

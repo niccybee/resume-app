@@ -1,3 +1,5 @@
+import { normalizeEmploymentGroup } from "../employment/occasion";
+
 export const CV_SECTIONS = [
   "experience",
   "skills",
@@ -63,38 +65,34 @@ export function normalizeSelections(selections) {
 
 function experienceGroup(selection) {
   if (selection.section !== "experience") return null;
-  if (selection.group) return selection.group;
+  if (selection.group) return normalizeEmploymentGroup(selection.group);
   const context = selection.block?.contexts?.find((item) => item.type === "employment");
   if (!context) return null;
-  return {
-    employerId: context.metadata?.companyId || "unassigned-employer",
-    employer: context.metadata?.company || "Unassigned employer",
-    roleId: context.metadata?.roleId || "unassigned-role",
-    role: context.metadata?.role || "Unassigned role",
-  };
+  return normalizeEmploymentGroup(context.metadata);
 }
 
 export function groupExperienceSelections(selections = []) {
   const employers = new Map();
   for (const item of selections) {
-    const group = experienceGroup({ ...item, section: "experience" }) || {
-      employerId: "unassigned-employer",
-      employer: "Unassigned employer",
-      roleId: "unassigned-role",
-      role: "Unassigned role",
-    };
+    const group =
+      experienceGroup({ ...item, section: "experience" }) ||
+      normalizeEmploymentGroup();
     if (!employers.has(group.employerId)) {
-      employers.set(group.employerId, { ...group, roles: new Map() });
+      employers.set(group.employerId, {
+        employerId: group.employerId,
+        employer: group.employer,
+        occasions: new Map(),
+      });
     }
     const employer = employers.get(group.employerId);
-    if (!employer.roles.has(group.roleId)) {
-      employer.roles.set(group.roleId, { roleId: group.roleId, role: group.role, items: [] });
+    if (!employer.occasions.has(group.occasionId)) {
+      employer.occasions.set(group.occasionId, { ...group, items: [] });
     }
-    employer.roles.get(group.roleId).items.push(item);
+    employer.occasions.get(group.occasionId).items.push(item);
   }
   return [...employers.values()].map((employer) => ({
     ...employer,
-    roles: [...employer.roles.values()],
+    occasions: [...employer.occasions.values()],
   }));
 }
 

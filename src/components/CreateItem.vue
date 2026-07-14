@@ -14,6 +14,8 @@ let errorMessage = ref("");
 const newItem = reactive({
   employer: "",
   role: "",
+  startDate: "",
+  endDate: "",
   item: "",
 });
 
@@ -28,6 +30,8 @@ const createNewResumeItem = async () => {
     await items.createExperienceBlock({
       employer: newItem.employer,
       role: newItem.role,
+      startDate: newItem.startDate,
+      endDate: newItem.endDate,
       text: newItem.item,
     });
     submitted.value = true;
@@ -79,6 +83,14 @@ const createNewResumeItem = async () => {
         <datalist id="role-list">
           <option :value="r" v-for="r in items.roles">{{ r }}</option>
         </datalist>
+        <label>
+          Start period
+          <input type="month" v-model="newItem.startDate" required />
+        </label>
+        <label>
+          End period <small>(blank means present)</small>
+          <input type="month" v-model="newItem.endDate" />
+        </label>
         <input
           type="text"
           name="item"

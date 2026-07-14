@@ -39,7 +39,7 @@ function clearResume() {
   <article v-else class="card builder" @addToResume="addItem(item)">
     <div class="grid">
       <div>
-        <a href="#" role="button" class="secondary" @click="showBuilder = !showBuilder">
+        <a href="#" role="button" class="secondary control-compact" @click="showBuilder = !showBuilder">
           {{ showBuilder ? "-" : "+" }}
         </a>
       </div>
@@ -61,6 +61,7 @@ function clearResume() {
               <!-- <hgroup> -->
               <td>
                 <b>{{ item.employer }}</b>
+                <small>{{ item.role }} · {{ item.period }}</small>
               </td>
               <!-- </hgroup> -->
               <td>{{ item.item }}</td>
@@ -72,7 +73,7 @@ function clearResume() {
             <button>Edit Resume</button>
           </div>
           <div>
-            <button class="contrast" @click="clearResume">Clear Resume</button>
+            <button class="contrast control-standard" @click="clearResume">Clear Resume</button>
           </div>
         </footer>
       </div>

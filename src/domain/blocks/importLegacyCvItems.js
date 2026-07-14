@@ -1,10 +1,4 @@
-function slugify(value) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+import { createEmploymentContext } from "../employment/occasion";
 
 export async function importLegacyCvItems({ items, blockLibrary }) {
   const imported = [];
@@ -13,25 +7,19 @@ export async function importLegacyCvItems({ items, blockLibrary }) {
     if (!item.employer?.trim() || !item.role?.trim() || !item.item?.trim()) {
       continue;
     }
-    const companyId = slugify(item.employer);
-    const roleId = slugify(item.role);
+    const context = createEmploymentContext({
+      employer: item.employer,
+      role: item.role,
+      startDate: item.startDate,
+      endDate: item.endDate,
+    });
     imported.push(
       await blockLibrary.saveVersion({
         kind: "experience",
         title: `${item.role.trim()} at ${item.employer.trim()}`,
         content: { text: item.item.trim() },
         source: { type: "import", legacyId: item.id },
-        context: {
-          type: "employment",
-          key: `${companyId}-${roleId}`,
-          label: `${item.employer.trim()} · ${item.role.trim()}`,
-          metadata: {
-            companyId,
-            company: item.employer.trim(),
-            roleId,
-            role: item.role.trim(),
-          },
-        },
+        context,
       }),
     );
   }

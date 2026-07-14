@@ -32,11 +32,13 @@ export function createMemoryBlockRepository() {
         .filter((block) => !query.kind || block.kind === query.kind)
         .map(blockView)
         .filter((block) => {
-          if (!query.companyId && !query.roleId) return true;
+          if (!query.companyId && !query.roleId && !query.occasionId) return true;
           return block.contexts.some(
             (context) =>
               (!query.companyId || context.metadata?.companyId === query.companyId) &&
-              (!query.roleId || context.metadata?.roleId === query.roleId),
+              (!query.roleId || context.metadata?.roleId === query.roleId) &&
+              (!query.occasionId ||
+                context.metadata?.occasionId === query.occasionId),
           );
         })
         .filter((block) => {

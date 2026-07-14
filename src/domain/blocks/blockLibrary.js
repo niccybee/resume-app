@@ -1,3 +1,5 @@
+import { normalizeEmploymentGroup } from "../employment/occasion";
+
 export const BLOCK_KINDS = [
   "experience",
   "skill",
@@ -66,7 +68,7 @@ function sidebarKey(kind) {
 }
 
 function buildCatalog(blocks) {
-  const companies = new Map();
+  const employers = new Map();
   const sidebar = createEmptySidebar();
 
   for (const block of blocks) {
@@ -74,13 +76,23 @@ function buildCatalog(blocks) {
       const context = block.contexts.find(
         (candidate) => candidate.type === "employment",
       );
-      const company = context?.metadata?.company || "Unassigned company";
-      const role = context?.metadata?.role || "Unassigned role";
+      const occasion = normalizeEmploymentGroup(context?.metadata);
 
-      if (!companies.has(company)) companies.set(company, new Map());
-      const roles = companies.get(company);
-      if (!roles.has(role)) roles.set(role, []);
-      roles.get(role).push(block);
+      if (!employers.has(occasion.employerId)) {
+        employers.set(occasion.employerId, {
+          employerId: occasion.employerId,
+          employer: occasion.employer,
+          occasions: new Map(),
+        });
+      }
+      const employerGroup = employers.get(occasion.employerId);
+      if (!employerGroup.occasions.has(occasion.occasionId)) {
+        employerGroup.occasions.set(occasion.occasionId, {
+          ...occasion,
+          blocks: [],
+        });
+      }
+      employerGroup.occasions.get(occasion.occasionId).blocks.push(block);
       continue;
     }
 
@@ -90,12 +102,11 @@ function buildCatalog(blocks) {
 
   return {
     blocks,
-    experience: [...companies.entries()].map(([company, roles]) => ({
-      company,
-      roles: [...roles.entries()].map(([role, roleBlocks]) => ({
-        role,
-        blocks: roleBlocks,
-      })),
+    experience: [...employers.values()].map((group) => ({
+      employerId: group.employerId,
+      employer: group.employer,
+      company: group.employer,
+      occasions: [...group.occasions.values()],
     })),
     sidebar,
   };

@@ -23,7 +23,7 @@ const employmentContext = {
 };
 
 describe("BlockLibrary", () => {
-  it("groups experience blocks by company and role", async () => {
+  it("categorises experience by stable employer and role identities", async () => {
     const blocks = createTestLibrary();
 
     await blocks.saveVersion({
@@ -32,13 +32,76 @@ describe("BlockLibrary", () => {
       context: employmentContext,
       content: { text: "Led a cross-functional CRM migration." },
     });
+    await blocks.saveVersion({
+      kind: "experience",
+      title: "Unassigned achievement",
+      content: { text: "Improved a customer workflow." },
+    });
 
     const catalog = await blocks.browse();
 
-    expect(catalog.experience[0]).toMatchObject({
-      company: "E2",
-      roles: [{ role: "Digital Marketing Manager" }],
+    expect(catalog.experience).toEqual([
+      expect.objectContaining({
+        employerId: "e2",
+        employer: "E2",
+        occasions: [
+          expect.objectContaining({
+            roleId: "digital-marketing-manager",
+            role: "Digital Marketing Manager",
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        employerId: "unassigned-employer",
+        employer: "Unassigned employer",
+        occasions: [
+          expect.objectContaining({
+            roleId: "unassigned-role",
+            role: "Unassigned role",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("keeps and filters separate occasions with the same employer and role", async () => {
+    const blocks = createTestLibrary();
+    const occasion = (startDate, endDate) => ({
+      ...employmentContext,
+      key: `e2-digital-marketing-manager-${startDate}`,
+      metadata: {
+        ...employmentContext.metadata,
+        occasionId: `e2-digital-marketing-manager-${startDate}`,
+        startDate,
+        endDate,
+      },
     });
+
+    await blocks.saveVersion({
+      kind: "experience",
+      title: "Earlier lifecycle work",
+      context: occasion("2021-03", "2022-06"),
+      content: { text: "Led lifecycle reporting." },
+    });
+    await blocks.saveVersion({
+      kind: "experience",
+      title: "Current acquisition work",
+      context: occasion("2024-02", "present"),
+      content: { text: "Rebuilt acquisition planning." },
+    });
+
+    const catalog = await blocks.browse();
+    const filtered = await blocks.browse({
+      occasionId: "e2-digital-marketing-manager-2024-02",
+    });
+
+    expect(catalog.experience[0].occasions).toHaveLength(2);
+    expect(catalog.experience[0].occasions.map((item) => item.startDate)).toEqual([
+      "2021-03",
+      "2024-02",
+    ]);
+    expect(filtered.blocks).toHaveLength(1);
+    expect(filtered.blocks[0].title).toBe("Current acquisition work");
   });
 
   it("appends immutable versions and rejects stale edits", async () => {
@@ -146,7 +209,7 @@ describe("BlockLibrary", () => {
     const catalog = await blocks.browse();
 
     expect(imported).toHaveLength(1);
-    expect(catalog.experience[0].roles[0].blocks[0].currentVersion).toMatchObject({
+    expect(catalog.experience[0].occasions[0].blocks[0].currentVersion).toMatchObject({
       content: { text: "Led a CRM migration." },
       source: { type: "import", legacyId: 42 },
     });

@@ -1,3 +1,5 @@
+import { normalizeEmploymentGroup } from "../employment/occasion";
+
 export const CV_SECTIONS = [
   "experience",
   "skills",
@@ -41,20 +43,57 @@ export function normalizeDraft(input = {}) {
 
 export function normalizeSelections(selections) {
   return selections
-    .map((selection) => ({
-      blockId: selection.blockId,
-      versionId: selection.versionId,
-      section: selection.section,
-      order: Number(selection.order || 0),
-      ...(selection.content ? { content: selection.content } : {}),
-      ...(selection.block ? { block: selection.block } : {}),
-    }))
+    .map((selection) => {
+      const group = experienceGroup(selection);
+      return {
+        blockId: selection.blockId,
+        versionId: selection.versionId,
+        section: selection.section,
+        order: Number(selection.order || 0),
+        ...(selection.content ? { content: selection.content } : {}),
+        ...(selection.block ? { block: selection.block } : {}),
+        ...(group ? { group } : {}),
+      };
+    })
     .sort((a, b) => a.section.localeCompare(b.section) || a.order - b.order)
     .map((selection, index, all) => ({
       ...selection,
       order: all.slice(0, index).filter((x) => x.section === selection.section)
         .length,
     }));
+}
+
+function experienceGroup(selection) {
+  if (selection.section !== "experience") return null;
+  if (selection.group) return normalizeEmploymentGroup(selection.group);
+  const context = selection.block?.contexts?.find((item) => item.type === "employment");
+  if (!context) return null;
+  return normalizeEmploymentGroup(context.metadata);
+}
+
+export function groupExperienceSelections(selections = []) {
+  const employers = new Map();
+  for (const item of selections) {
+    const group =
+      experienceGroup({ ...item, section: "experience" }) ||
+      normalizeEmploymentGroup();
+    if (!employers.has(group.employerId)) {
+      employers.set(group.employerId, {
+        employerId: group.employerId,
+        employer: group.employer,
+        occasions: new Map(),
+      });
+    }
+    const employer = employers.get(group.employerId);
+    if (!employer.occasions.has(group.occasionId)) {
+      employer.occasions.set(group.occasionId, { ...group, items: [] });
+    }
+    employer.occasions.get(group.occasionId).items.push(item);
+  }
+  return [...employers.values()].map((employer) => ({
+    ...employer,
+    occasions: [...employer.occasions.values()],
+  }));
 }
 
 function assertSection(section) {
@@ -84,6 +123,9 @@ export function addSelection(draft, input) {
         section: input.section,
         order: draft.selections.filter((item) => item.section === input.section)
           .length,
+        ...(input.content ? { content: input.content } : {}),
+        ...(input.block ? { block: input.block } : {}),
+        ...(input.group ? { group: input.group } : {}),
       },
     ],
   });
@@ -112,4 +154,3 @@ export function moveSelection(draft, versionId, section, order = 0) {
     ],
   });
 }
-

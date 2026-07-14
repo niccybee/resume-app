@@ -1,5 +1,7 @@
 <script setup>
 import { computed } from "vue";
+import { groupExperienceSelections } from "../domain/cvs/cvDraft";
+import { formatEmploymentPeriod } from "../domain/employment/occasion";
 import { resolveTheme } from "../domain/themes/themeRegistry";
 
 const props = defineProps({ document: { type: Object, required: true } });
@@ -8,11 +10,7 @@ const basics = computed(() => props.document.profile?.basics || {});
 const bySection = computed(() =>
   Object.groupBy(props.document.selections || [], (item) => item.section),
 );
-
-function label(item) {
-  const context = item.block?.contexts?.find((entry) => entry.type === "employment");
-  return context?.label || item.block?.title || "Experience";
-}
+const experienceGroups = computed(() => groupExperienceSelections(bySection.value.experience));
 
 function value(item) {
   return item.content?.text || item.content?.name || item.content?.institution || "";
@@ -42,9 +40,19 @@ function value(item) {
         </section>
         <section v-if="bySection.experience?.length">
           <h2>Experience</h2>
-          <article v-for="item in bySection.experience" :key="item.versionId" class="cv-entry">
-            <h3>{{ label(item) }}</h3>
-            <p>{{ value(item) }}</p>
+          <article v-for="employer in experienceGroups" :key="employer.employerId" class="cv-employer">
+            <h3>{{ employer.employer }}</h3>
+            <section v-for="occasion in employer.occasions" :key="occasion.occasionId" class="cv-role cv-occasion">
+              <div class="cv-occasion-heading">
+                <h4>{{ occasion.role }}</h4>
+                <p class="cv-period">{{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</p>
+              </div>
+              <ul>
+                <li v-for="item in occasion.items" :key="item.versionId" class="cv-achievement cv-entry">
+                  {{ value(item) }}
+                </li>
+              </ul>
+            </section>
           </article>
         </section>
       </main>
@@ -74,7 +82,13 @@ address { display: grid; align-content: end; gap: .2rem; font-style: normal; tex
 .cv-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(12rem, .8fr); gap: 2.4rem; margin-top: 2rem; }
 h2 { color: var(--accent); text-transform: uppercase; letter-spacing: .08em; font-size: .8rem; margin-bottom: 1rem; }
 h3 { font-size: 1rem; margin-bottom: .35rem; }
-.cv-entry { padding: 0 0 1rem; margin: 0 0 1rem; border-bottom: 1px solid #dde2df; box-shadow: none; break-inside: avoid; }
+.cv-employer { padding: 0 0 1rem; margin: 0 0 1rem; border-bottom: 1px solid #dde2df; box-shadow: none; break-inside: avoid; }
+.cv-role { margin: .65rem 0 0; }
+.cv-role h4 { margin: 0 0 .3rem; font-size: .86rem; }
+.cv-occasion-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+.cv-period { margin: 0; color: #5c6964; font-size: .75rem; white-space: nowrap; }
+.cv-role ul { margin: 0; padding-left: 1.1rem; }
+.cv-entry { break-inside: avoid; }
 .cv-entry p, .cv-document li, .cv-document main > section > p { font-size: .86rem; line-height: 1.6; }
 .theme-modern { --ink: #14213d; --accent: #ef8354; font-family: ui-sans-serif, system-ui, sans-serif; border-radius: 22px; }
 .theme-modern .cv-hero { background: #14213d; color: white; margin: -18mm -18mm 0; padding: 18mm; border: 0; }
@@ -82,4 +96,3 @@ h3 { font-size: 1rem; margin-bottom: .35rem; }
 @media (max-width: 700px) { .cv-document { min-height: 0; padding: 1.5rem; } .cv-hero, .cv-grid { grid-template-columns: 1fr; display: grid; } address { text-align: left; } .theme-modern .cv-hero { margin: -1.5rem -1.5rem 0; padding: 1.5rem; } }
 @media print { .cv-document { min-height: 0; max-width: none; margin: 0; padding: 10mm; border: 0; box-shadow: none; print-color-adjust: exact; -webkit-print-color-adjust: exact; } .cv-entry, section { break-inside: avoid; } .cv-document a { color: inherit; text-decoration: underline; } }
 </style>
-

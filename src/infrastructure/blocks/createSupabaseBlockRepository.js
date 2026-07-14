@@ -1,10 +1,10 @@
 import { BlockLibraryError } from "../../domain/blocks/blockLibrary";
 
 async function defaultGetActor(client) {
-  if (typeof client.auth?.getUser === "function") {
-    const { data, error } = await client.auth.getUser();
+  if (typeof client.auth?.getSession === "function") {
+    const { data, error } = await client.auth.getSession();
     if (error) throw error;
-    return data?.user || null;
+    return data?.session?.user || null;
   }
   return client.auth?.user?.() || null;
 }
@@ -134,7 +134,12 @@ export function createSupabaseBlockRepository({
       return (data || [])
         .map(mapBlock)
         .filter((block) => {
-          if (!query.companyId && !query.roleId && !query.section) return true;
+          if (
+            !query.companyId &&
+            !query.roleId &&
+            !query.occasionId &&
+            !query.section
+          ) return true;
           return block.contexts.some((context) => {
             if (query.section) {
               return context.type === "sidebar" && context.key === query.section;
@@ -143,7 +148,9 @@ export function createSupabaseBlockRepository({
               context.type === "employment" &&
               (!query.companyId ||
                 context.metadata?.companyId === query.companyId) &&
-              (!query.roleId || context.metadata?.roleId === query.roleId)
+              (!query.roleId || context.metadata?.roleId === query.roleId) &&
+              (!query.occasionId ||
+                context.metadata?.occasionId === query.occasionId)
             );
           });
         })

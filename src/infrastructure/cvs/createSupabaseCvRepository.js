@@ -29,12 +29,12 @@ function mapDocument(row, selections = []) {
 
 export function createSupabaseCvRepository({ client }) {
   async function actor({ optional = false } = {}) {
-    const { data, error } = await client.auth.getUser();
+    const { data, error } = await client.auth.getSession();
     if (error && !optional) mapError(error);
-    if (!data?.user && !optional) {
+    if (!data?.session?.user && !optional) {
       throw new CvWorkspaceError("authentication-required", "Sign in to manage CVs.");
     }
-    return data?.user || null;
+    return data?.session?.user || null;
   }
 
   async function selectionsFor(cvId) {
@@ -60,6 +60,7 @@ export function createSupabaseCvRepository({ client }) {
       order: item.position,
       content: byId.get(item.version_id)?.content || {},
       block: item.display || {},
+      group: item.display?.grouping || undefined,
       source: byId.get(item.version_id)
         ? {
             type: byId.get(item.version_id).source_type,
@@ -136,7 +137,10 @@ export function createSupabaseCvRepository({ client }) {
             version_id: selection.versionId,
             section: selection.section,
             position: selection.order,
-            display: selection.block || {},
+            display: {
+              ...(selection.block || {}),
+              ...(selection.group ? { grouping: selection.group } : {}),
+            },
           })),
         );
         mapError(insertError);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createBlockLibrary } from "../blocks/blockLibrary";
 import { createMemoryBlockRepository } from "../blocks/createMemoryBlockRepository";
 import { createTaskBlocks } from "./createTaskBlocks";
@@ -39,4 +39,64 @@ describe("reviewed task creation", () => {
       "Rebuilt acquisition planning.",
     ]);
   });
+});
+
+it("persists a reviewed task set through one atomic library operation", async () => {
+  const saveVersions = vi.fn().mockResolvedValue([
+    {
+      id: "version-1",
+      blockId: "block-1",
+      number: 1,
+      content: { text: "Led lifecycle reporting." },
+    },
+    {
+      id: "version-2",
+      blockId: "block-2",
+      number: 1,
+      content: { text: "Rebuilt acquisition planning." },
+    },
+  ]);
+  const blockLibrary = { saveVersions };
+  const tasks = [
+    {
+      employer: "E2",
+      role: "Marketing Manager",
+      occasionId: "e2-marketing-manager-2021-03",
+      startDate: "2021-03",
+      endDate: "2022-06",
+      item: "Led lifecycle reporting.",
+    },
+    {
+      employer: "E2",
+      role: "Marketing Manager",
+      occasionId: "e2-marketing-manager-2024-02",
+      startDate: "2024-02",
+      endDate: "present",
+      item: "Rebuilt acquisition planning.",
+    },
+  ];
+
+  const selections = await createTaskBlocks({ blockLibrary, tasks });
+
+  expect(saveVersions).toHaveBeenCalledOnce();
+  expect(saveVersions).toHaveBeenCalledWith([
+    expect.objectContaining({
+      kind: "experience",
+      content: { text: "Led lifecycle reporting." },
+      contexts: [expect.objectContaining({
+        metadata: expect.objectContaining({ occasionId: "e2-marketing-manager-2021-03" }),
+      })],
+    }),
+    expect.objectContaining({
+      kind: "experience",
+      content: { text: "Rebuilt acquisition planning." },
+      contexts: [expect.objectContaining({
+        metadata: expect.objectContaining({ occasionId: "e2-marketing-manager-2024-02" }),
+      })],
+    }),
+  ]);
+  expect(selections.map((selection) => selection.versionId)).toEqual([
+    "version-1",
+    "version-2",
+  ]);
 });

@@ -1,4 +1,5 @@
 import { supabase } from "../supabase";
+import { parseTaskPrompt } from "../domain/tasks/taskJson";
 
 export class OpenRouterClientError extends Error {
   constructor(code, message) {
@@ -75,6 +76,18 @@ export function createOpenRouterClient({ client }) {
         model: proposal.model || null,
         createdAt: proposal.createdAt || null,
       };
+    },
+
+    async generateTasks({ instruction }) {
+      const payload = await invoke({ action: "generate-tasks", instruction });
+      try {
+        return parseTaskPrompt(JSON.stringify(payload));
+      } catch (reason) {
+        throw new OpenRouterClientError(
+          "malformed-response",
+          `OpenRouter returned invalid task JSON. ${reason.message}`,
+        );
+      }
     },
   };
 }

@@ -182,6 +182,24 @@ export function createSupabaseBlockRepository({
       return data;
     },
 
+    async saveVersions(inputs) {
+      await requireActor();
+      const { data, error } = await client.rpc("save_cv_block_versions", {
+        p_versions: inputs.map((input) => ({
+          block_id: input.blockId || null,
+          kind: input.kind || null,
+          title: input.title || null,
+          content: input.content,
+          based_on_version_id: input.basedOnVersionId || null,
+          source_type: input.source?.type || "human",
+          source_metadata: input.source || {},
+          contexts: input.contexts || null,
+        })),
+      });
+      throwRepositoryError(error);
+      return data || [];
+    },
+
     async resolve(versionIds) {
       const actor = await requireActor({ optional: true });
       if (!actor || versionIds.length === 0) return [];

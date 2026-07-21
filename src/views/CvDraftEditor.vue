@@ -9,6 +9,7 @@ import { createTaskBlocks } from "../domain/tasks/createTaskBlocks";
 import { listThemes } from "../domain/themes/themeRegistry";
 import { blockLibrary } from "../services/blockLibrary";
 import { cvWorkspace } from "../services/cvWorkspace";
+import { openRouter } from "../services/openRouter";
 
 const route = useRoute(); const router = useRouter();
 const status = ref("loading"); const error = ref(""); const saving = ref(false); const generatingSummary = ref(false);
@@ -67,6 +68,10 @@ async function createReviewedTasks(tasks) {
     throw reason;
   }
 }
+
+function generateTaskProposal(instruction) {
+  return openRouter.generateTasks({ instruction });
+}
 </script>
 
 <template>
@@ -82,7 +87,10 @@ async function createReviewedTasks(tasks) {
       <label>Theme<select v-model="draft.themeId"><option :value="null">Default — Editorial</option><option v-for="theme in themes" :key="theme.id" :value="theme.id">{{ theme.name }} — {{ theme.description }}</option></select></label>
       <details><summary>Summary generator</summary><label>Direction<input v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary control-standard" :aria-busy="generatingSummary" :disabled="generatingSummary" @click="generateSummary">Generate proposal</button><article v-if="proposal"><p>{{ proposal.text }}</p><div class="grid"><button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Accept</button><button class="secondary control-standard" @click="proposal=null">Discard</button></div></article></details>
 
-      <TaskChat :create-tasks-handler="createReviewedTasks" />
+      <TaskChat
+        :generate-tasks-handler="generateTaskProposal"
+        :create-tasks-handler="createReviewedTasks"
+      />
 
       <h2>Reusable block library</h2>
       <p v-if="!blocks.length">No blocks available. <RouterLink to="/app/blocks">Create blocks first.</RouterLink></p>

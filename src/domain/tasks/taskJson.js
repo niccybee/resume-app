@@ -31,6 +31,9 @@ function normalizeTask(task, index) {
     ...employment,
     status: "draft",
     item,
+    ...(task.source?.type === "ai"
+      ? { source: { type: "ai", provider: task.source.provider || "openrouter" } }
+      : {}),
   };
 }
 

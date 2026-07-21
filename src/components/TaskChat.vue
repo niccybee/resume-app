@@ -4,12 +4,15 @@ import { parseTaskPrompt } from "../domain/tasks/taskJson";
 
 const props = defineProps({
   createTasksHandler: { type: Function, default: null },
+  generateTasksHandler: { type: Function, default: null },
 });
 const emit = defineEmits(["createTasks"]);
 const prompt = ref("");
 const errorMessage = ref("");
 const output = ref(null);
+const reviewJson = ref("");
 const creating = ref(false);
+const generating = ref(false);
 const messages = ref([
   {
     role: "assistant",
@@ -17,9 +20,7 @@ const messages = ref([
   },
 ]);
 
-const formattedOutput = computed(() =>
-  output.value ? JSON.stringify(output.value, null, 2) : "",
-);
+const formattedOutput = computed(() => reviewJson.value);
 
 function useExample() {
   prompt.value =
@@ -36,10 +37,48 @@ function submitPrompt() {
       text: `Prepared ${result.tasks.length} draft task${result.tasks.length === 1 ? "" : "s"}. Review the JSON before creating them.`,
     });
     output.value = result;
+    reviewJson.value = JSON.stringify(result, null, 2);
     prompt.value = "";
   } catch (error) {
     errorMessage.value = error.message;
   }
+}
+
+async function generateWithAi() {
+  if (!props.generateTasksHandler) return;
+  errorMessage.value = "";
+  output.value = null;
+  reviewJson.value = "";
+  generating.value = true;
+  try {
+    const instruction = prompt.value.trim();
+    if (!instruction) throw new Error("Describe at least one task.");
+    const result = parseTaskPrompt(JSON.stringify(
+      await props.generateTasksHandler(instruction),
+    ));
+    result.tasks = result.tasks.map((task) => ({
+      ...task,
+      source: { type: "ai", provider: "openrouter" },
+    }));
+    messages.value.push({ role: "user", text: instruction });
+    messages.value.push({
+      role: "assistant",
+      text: `Prepared ${result.tasks.length} AI draft task${result.tasks.length === 1 ? "" : "s"}. Review and edit the JSON before creating them.`,
+    });
+    output.value = result;
+    reviewJson.value = JSON.stringify(result, null, 2);
+    prompt.value = "";
+  } catch (error) {
+    errorMessage.value = error.message;
+  } finally {
+    generating.value = false;
+  }
+}
+
+function discardProposal() {
+  output.value = null;
+  reviewJson.value = "";
+  errorMessage.value = "";
 }
 
 async function createTasks() {
@@ -47,16 +86,19 @@ async function createTasks() {
   errorMessage.value = "";
   creating.value = true;
   try {
+    const reviewed = parseTaskPrompt(reviewJson.value);
+    output.value = reviewed;
     if (props.createTasksHandler) {
-      await props.createTasksHandler(output.value.tasks);
+      await props.createTasksHandler(reviewed.tasks);
     } else {
-      emit("createTasks", output.value.tasks);
+      emit("createTasks", reviewed.tasks);
     }
     messages.value.push({
       role: "assistant",
       text: `${output.value.tasks.length} task${output.value.tasks.length === 1 ? "" : "s"} added to the active draft.`,
     });
     output.value = null;
+    reviewJson.value = "";
   } catch (error) {
     errorMessage.value = error.message || "The task blocks could not be saved.";
   } finally {
@@ -99,14 +141,27 @@ async function createTasks() {
       ></textarea>
       <div class="chat-input-addon">
         <small>JSON or one occasion per line · ⌘/Ctrl + Enter</small>
-        <button
-          type="button"
-          class="control-compact"
-          data-testid="generate-task-json"
-          @click="submitPrompt"
-        >
-          Generate JSON
-        </button>
+        <div class="chat-input-actions">
+          <button
+            type="button"
+            class="control-compact secondary"
+            data-testid="generate-task-json"
+            @click="submitPrompt"
+          >
+            Review manual input
+          </button>
+          <button
+            v-if="generateTasksHandler"
+            type="button"
+            class="control-compact"
+            data-testid="generate-ai-task-json"
+            :aria-busy="generating"
+            :disabled="generating"
+            @click="generateWithAi"
+          >
+            Ask OpenRouter
+          </button>
+        </div>
       </div>
     </div>
     <p v-if="errorMessage" class="inline-error" role="alert">
@@ -129,7 +184,26 @@ async function createTasks() {
         >
           Create {{ output.tasks.length }} task{{ output.tasks.length === 1 ? "" : "s" }}
         </button>
+        <button
+          type="button"
+          class="secondary control-standard"
+          data-testid="discard-task-json"
+          :disabled="creating"
+          @click="discardProposal"
+        >
+          Discard
+        </button>
       </div>
+      <label class="review-editor-label">
+        Edit proposed task JSON
+        <textarea
+          v-model="reviewJson"
+          data-testid="edit-task-json"
+          aria-label="Edit proposed task JSON"
+          rows="12"
+          spellcheck="false"
+        ></textarea>
+      </label>
       <pre data-testid="task-json"><code>{{ formattedOutput }}</code></pre>
     </div>
   </section>
@@ -151,9 +225,12 @@ async function createTasks() {
 .chat-input-group textarea { min-height: 6.25rem; margin: 0; border: 0 !important; border-radius: 0; resize: vertical; box-shadow: none; }
 .chat-input-addon { padding: .6rem; border-top: 1px solid #dce3df; }
 .chat-input-addon small { color: #52635b; font-size: .72rem; }
+.chat-input-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .inline-error { margin: -.5rem 1.25rem 1.25rem; color: #a12626; }
 .json-review { padding: 1.25rem; border-top: 1px solid #dce3df; background: #19221f; }
 .json-review h3, .json-review .task-chat-eyebrow { color: #fff; }
 .json-review pre { max-height: 20rem; margin: 1rem 0 0; padding: 1rem; overflow: auto; border: 1px solid #52635b; border-radius: 0; background: #0f1513; color: #fff; font-size: .72rem; }
+.review-editor-label { display: block; margin-top: 1rem; color: #fff; }
+.review-editor-label textarea { margin-top: .4rem; border-color: #52635b; background: #0f1513; color: #fff; font-family: var(--font-label); font-size: .75rem; }
 @media (max-width: 640px) { .task-chat-header, .json-review-heading, .chat-input-addon { align-items: stretch; flex-direction: column; } .chat-message { max-width: 95%; } }
 </style>

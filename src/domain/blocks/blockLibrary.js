@@ -120,6 +120,22 @@ export function createBlockLibrary({ repository, generator } = {}) {
     );
   }
 
+  function normalizeVersionInput(input) {
+    if (!input?.blockId) {
+      assertKind(input?.kind);
+      if (!input?.title?.trim()) {
+        throw new BlockLibraryError("invalid-title", "A new block requires a title.");
+      }
+    }
+    assertContent(input?.content, input?.kind);
+    return {
+      ...input,
+      title: input.title?.trim(),
+      source: input.source || { type: "human" },
+      contexts: input.contexts || (input.context ? [input.context] : undefined),
+    };
+  }
+
   return {
     async browse(query = {}) {
       const blocks = await repository.browse(query);
@@ -127,23 +143,18 @@ export function createBlockLibrary({ repository, generator } = {}) {
     },
 
     async saveVersion(input) {
-      if (!input?.blockId) {
-        assertKind(input?.kind);
-        if (!input?.title?.trim()) {
-          throw new BlockLibraryError(
-            "invalid-title",
-            "A new block requires a title.",
-          );
-        }
-      }
+      return repository.saveVersion(normalizeVersionInput(input));
+    },
 
-      assertContent(input?.content, input?.kind);
-      return repository.saveVersion({
-        ...input,
-        title: input.title?.trim(),
-        source: input.source || { type: "human" },
-        contexts: input.contexts || (input.context ? [input.context] : undefined),
-      });
+    async saveVersions(inputs) {
+      if (!Array.isArray(inputs) || inputs.length === 0) {
+        throw new BlockLibraryError("invalid-version-list", "At least one block version is required.");
+      }
+      const normalized = inputs.map(normalizeVersionInput);
+      if (repository.saveVersions) return repository.saveVersions(normalized);
+      const versions = [];
+      for (const input of normalized) versions.push(await repository.saveVersion(input));
+      return versions;
     },
 
     async suggestVersion({

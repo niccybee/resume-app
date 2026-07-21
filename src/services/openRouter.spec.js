@@ -162,4 +162,50 @@ describe("OpenRouter authenticated client boundary", () => {
         message: "OpenRouter returned an invalid summary proposal.",
       });
   });
+
+  it("requests versioned create_tasks JSON for a conversational instruction", async () => {
+    const payload = {
+      type: "create_tasks",
+      version: 1,
+      tasks: [{
+        employer: "E2",
+        role: "Growth Lead",
+        occasionId: "e2-growth-lead-2024-02",
+        startDate: "2024-02",
+        endDate: "present",
+        item: "Built a quarterly acquisition roadmap.",
+      }],
+    };
+    const client = {
+      functions: {
+        invoke: vi.fn().mockResolvedValue({ data: payload, error: null }),
+      },
+    };
+    const openRouter = createOpenRouterClient({ client });
+
+    await expect(openRouter.generateTasks({
+      instruction: "At E2 I built a quarterly acquisition roadmap as Growth Lead in 2024.",
+    })).resolves.toMatchObject(payload);
+    expect(client.functions.invoke).toHaveBeenCalledWith("openrouter", {
+      body: {
+        action: "generate-tasks",
+        instruction: "At E2 I built a quarterly acquisition roadmap as Growth Lead in 2024.",
+      },
+    });
+  });
+
+  it("rejects unsupported AI task payloads atomically", async () => {
+    const client = {
+      functions: {
+        invoke: vi.fn().mockResolvedValue({
+          data: { type: "create_tasks", version: 2, tasks: [] },
+          error: null,
+        }),
+      },
+    };
+    const openRouter = createOpenRouterClient({ client });
+
+    await expect(openRouter.generateTasks({ instruction: "Describe my work" }))
+      .rejects.toMatchObject({ code: "malformed-response" });
+  });
 });

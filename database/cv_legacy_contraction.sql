@@ -194,8 +194,8 @@ $$;
 
 revoke all on function public.start_cv_editing_session(uuid, uuid)
 from public, anon;
-grant execute on function public.start_cv_editing_session(uuid, uuid)
-to authenticated;
+revoke execute on function public.start_cv_editing_session(uuid, uuid)
+from authenticated;
 
 create or replace function public.contract_cv_lineage_content()
 returns trigger

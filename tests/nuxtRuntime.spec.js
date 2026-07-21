@@ -68,7 +68,12 @@ const mcpInitialBlockVersion = {
   created_at: "2026-07-21T00:00:00.000Z",
 };
 let mcpCurrentBlockVersion = mcpInitialBlockVersion;
+let mcpBlockStatus = "active";
+let mcpCvStatus = "published";
+let mcpPublishedRevisionId = "revision-mcp";
 let mcpContentProposal = null;
+let mcpActiveProposal = null;
+let mcpLifecycleProposalSequence = 0;
 let mcpContentProposalSequence = 0;
 let mcpContentApplyCount = 0;
 
@@ -113,9 +118,9 @@ const publicationServer = createServer(async (request, response) => {
       owner_id: "mcp-owner",
       name: "Product Manager at Google",
       slug: "product-manager-google",
-      status: "published",
+      status: mcpCvStatus,
       published_at: "2026-07-21T00:00:00.000Z",
-      published_revision_id: "revision-mcp",
+      published_revision_id: mcpPublishedRevisionId,
     }]));
     return;
   }
@@ -151,7 +156,7 @@ const publicationServer = createServer(async (request, response) => {
       owner_id: "mcp-owner",
       kind: "experience",
       title: "Product launch",
-      status: "active",
+      status: mcpBlockStatus,
       current_version_id: mcpCurrentBlockVersion.id,
       created_at: "2026-07-21T00:00:00.000Z",
       updated_at: "2026-07-21T00:00:00.000Z",
@@ -256,12 +261,37 @@ const publicationServer = createServer(async (request, response) => {
       expires_at: "2026-07-22T03:00:00.000Z",
       result: null,
     };
+    mcpActiveProposal = mcpContentProposal;
     response.end(JSON.stringify(mcpContentProposal));
+    return;
+  }
+  if (["/rest/v1/rpc/create_cv_lifecycle_proposal", "/rest/v1/rpc/create_cv_publication_proposal"].includes(requestUrl.pathname)) {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    const operation = input.p_operation;
+    const target = operation.target || operation.source;
+    mcpActiveProposal = {
+      id: `proposal-lifecycle-${++mcpLifecycleProposalSequence}`,
+      schema_version: "1",
+      operation_type: operation.type,
+      target_type: target.type,
+      target_id: target.id,
+      target_cv_id: target.cvId || (target.type === "cv" ? target.id : "cv-mcp"),
+      base_optimistic_version: operation.baseOptimisticVersion || null,
+      normalized_operations: [operation],
+      structured_diff: { lifecycle: { operation: operation.type, target } },
+      warnings: [], status: "pending",
+      created_at: "2026-07-21T04:00:00.000Z",
+      expires_at: "2026-07-22T04:00:00.000Z", result: null,
+    };
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(mcpActiveProposal));
     return;
   }
   if (requestUrl.pathname === "/rest/v1/rpc/get_cv_change_proposal") {
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify(mcpContentProposal));
+    response.end(JSON.stringify(mcpActiveProposal));
     return;
   }
   if (requestUrl.pathname === "/rest/v1/rpc/apply_cv_content_change_proposal") {
@@ -295,14 +325,71 @@ const publicationServer = createServer(async (request, response) => {
           },
         },
       };
+      mcpActiveProposal = mcpContentProposal;
     }
     response.end(JSON.stringify(mcpContentProposal));
     return;
   }
+  if (["/rest/v1/rpc/apply_cv_lifecycle_proposal", "/rest/v1/rpc/apply_cv_publication_proposal"].includes(requestUrl.pathname)) {
+    const operation = mcpActiveProposal.normalized_operations[0];
+    let result;
+    if (operation.type === "start_editing_session") {
+      result = { cvId: operation.target.id, editingSessionId: "session-started", optimisticVersion: 1 };
+    } else if (operation.type === "resume_editing_session") {
+      result = { cvId: "cv-mcp", editingSessionId: operation.target.id, optimisticVersion: mcpEditingSessionRow.optimistic_version };
+    } else if (operation.type === "finish_editing_session") {
+      mcpEditingSessionRow.status = "finished";
+      mcpEditingSessionRow.finished_revision_id = "revision-mcp-2";
+      mcpEditingSessionRow.optimistic_version += 1;
+      result = {
+        cvId: "cv-mcp", editingSessionId: operation.target.id,
+        optimisticVersion: mcpEditingSessionRow.optimistic_version,
+        revisionId: "revision-mcp-2", revisionNumber: 2,
+        publishedRevisionId: mcpPublishedRevisionId,
+      };
+    } else if (operation.type.startsWith("copy_")) {
+      result = {
+        cvId: operation.type === "copy_for_new_role" ? "cv-new-role" : "cv-mcp",
+        editingSessionId: `session-${operation.type}`, optimisticVersion: 1,
+      };
+    } else if (operation.type === "archive_editing_session") {
+      mcpEditingSessionRow.status = "archived";
+      mcpEditingSessionRow.optimistic_version += 1;
+      result = { cvId: "cv-mcp", editingSessionId: operation.target.id, optimisticVersion: mcpEditingSessionRow.optimistic_version };
+    } else if (operation.type === "restore_editing_session") {
+      mcpEditingSessionRow.status = "open";
+      mcpEditingSessionRow.optimistic_version += 1;
+      result = { cvId: "cv-mcp", editingSessionId: operation.target.id, optimisticVersion: mcpEditingSessionRow.optimistic_version };
+    } else if (operation.type === "archive_cv") {
+      mcpCvStatus = "archived";
+      result = { cvId: "cv-mcp", status: mcpCvStatus };
+    } else if (operation.type === "restore_cv") {
+      mcpCvStatus = "draft";
+      result = { cvId: "cv-mcp", status: mcpCvStatus };
+    } else if (operation.type === "archive_cv_block") {
+      mcpBlockStatus = "archived";
+      result = { blockId: "block-mcp", versionId: mcpCurrentBlockVersion.id, status: mcpBlockStatus };
+    } else if (operation.type === "restore_cv_block") {
+      mcpBlockStatus = "active";
+      result = { blockId: "block-mcp", versionId: mcpCurrentBlockVersion.id, status: mcpBlockStatus };
+    } else if (operation.type === "publish_revision") {
+      mcpCvStatus = "published";
+      mcpPublishedRevisionId = operation.target.id;
+      result = { cvId: "cv-mcp", revisionId: mcpPublishedRevisionId, slug: operation.slug, status: mcpCvStatus };
+    } else if (operation.type === "withdraw_publication") {
+      mcpCvStatus = "draft";
+      result = { cvId: "cv-mcp", revisionId: mcpPublishedRevisionId, status: mcpCvStatus };
+    }
+    mcpActiveProposal = { ...mcpActiveProposal, status: "applied", result };
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(mcpActiveProposal));
+    return;
+  }
   if (requestUrl.pathname === "/rest/v1/rpc/discard_cv_change_proposal") {
     response.setHeader("Content-Type", "application/json");
-    mcpContentProposal = { ...mcpContentProposal, status: "discarded" };
-    response.end(JSON.stringify(mcpContentProposal));
+    mcpActiveProposal = { ...mcpActiveProposal, status: "discarded" };
+    if (mcpContentProposal?.id === mcpActiveProposal.id) mcpContentProposal = mcpActiveProposal;
+    response.end(JSON.stringify(mcpActiveProposal));
     return;
   }
   if (request.url !== "/rest/v1/rpc/get_published_cv") {
@@ -584,6 +671,7 @@ describe("Nuxt runtime", async () => {
       "get_supported_schemas",
       "export_cv_revision",
       "propose_content_changes",
+      "propose_lifecycle_change",
       "apply_change_proposal",
       "discard_change_proposal",
     ]));
@@ -792,6 +880,109 @@ describe("Nuxt runtime", async () => {
     });
     expect(mcpCurrentBlockVersion.id).toBe("version-mcp-2");
     expect(mcpEditingSessionRow.optimistic_version).toBe(3);
+
+    const proposeAndApplyLifecycle = async (operation) => {
+      const lifecycleProposal = await call("propose_lifecycle_change", { operation });
+      expect(lifecycleProposal.result.structuredContent.data).toMatchObject({
+        operationType: operation.type,
+        status: "pending",
+        nextActions: ["apply", "discard"],
+      });
+      const lifecycleApplied = await call("apply_change_proposal", {
+        proposalId: lifecycleProposal.result.structuredContent.data.id,
+      });
+      expect(lifecycleApplied.result.structuredContent.data).toMatchObject({
+        operationType: operation.type,
+        status: "applied",
+      });
+      return lifecycleApplied.result.structuredContent.data;
+    };
+
+    const started = await proposeAndApplyLifecycle({
+      type: "start_editing_session",
+      target: { type: "cv", id: "cv-mcp" },
+      baseRevisionId: "revision-mcp",
+    });
+    expect(started.result).toMatchObject({ editingSessionId: "session-started", optimisticVersion: 1 });
+
+    const resumed = await proposeAndApplyLifecycle({
+      type: "resume_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+    });
+    expect(resumed.result).toMatchObject({ editingSessionId: "session-mcp", optimisticVersion: 3 });
+
+    for (const operation of [{
+      type: "copy_to_new_version",
+      source: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+    }, {
+      type: "copy_for_new_role",
+      source: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+      name: "Head of Marketing at Facebook",
+    }]) {
+      await proposeAndApplyLifecycle(operation);
+      expect(mcpEditingSessionRow.status).toBe("open");
+      expect(mcpEditingSessionRow.optimistic_version).toBe(3);
+    }
+
+    await proposeAndApplyLifecycle({
+      type: "archive_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+    });
+    expect(mcpEditingSessionRow.status).toBe("archived");
+    await proposeAndApplyLifecycle({
+      type: "restore_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 4,
+    });
+    expect(mcpEditingSessionRow.status).toBe("open");
+
+    await proposeAndApplyLifecycle({ type: "archive_cv", target: { type: "cv", id: "cv-mcp" } });
+    expect(mcpCvStatus).toBe("archived");
+    await proposeAndApplyLifecycle({ type: "restore_cv", target: { type: "cv", id: "cv-mcp" } });
+    expect(mcpCvStatus).toBe("draft");
+
+    await proposeAndApplyLifecycle({
+      type: "archive_cv_block", target: { type: "cv_block", id: "block-mcp" },
+      baseVersionId: "version-mcp-2",
+    });
+    expect(mcpBlockStatus).toBe("archived");
+    await proposeAndApplyLifecycle({
+      type: "restore_cv_block", target: { type: "cv_block", id: "block-mcp" },
+      baseVersionId: "version-mcp-2",
+    });
+    expect(mcpBlockStatus).toBe("active");
+
+    const finished = await proposeAndApplyLifecycle({
+      type: "finish_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 5,
+    });
+    expect(finished.result).toMatchObject({
+      revisionId: "revision-mcp-2", revisionNumber: 2, publishedRevisionId: "revision-mcp",
+    });
+    expect(mcpCvStatus).toBe("draft");
+    expect(mcpPublishedRevisionId).toBe("revision-mcp");
+
+    await proposeAndApplyLifecycle({
+      type: "publish_revision",
+      target: { type: "cv_revision", id: "revision-mcp-2", cvId: "cv-mcp" },
+      slug: "product-manager-google",
+    });
+    expect(mcpPublishedRevisionId).toBe("revision-mcp-2");
+    await proposeAndApplyLifecycle({
+      type: "publish_revision",
+      target: { type: "cv_revision", id: "revision-mcp", cvId: "cv-mcp" },
+      slug: "product-manager-google",
+    });
+    expect(mcpPublishedRevisionId).toBe("revision-mcp");
+    await proposeAndApplyLifecycle({
+      type: "withdraw_publication", target: { type: "cv", id: "cv-mcp" },
+    });
+    expect(mcpCvStatus).toBe("draft");
   });
 
   it("returns a signed-out user to the exact OAuth consent request", async () => {

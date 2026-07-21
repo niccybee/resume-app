@@ -293,7 +293,16 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
       } else if (!operation.target?.id) {
         throw new CvWorkspaceError("validation-failed", "A lifecycle target is required.");
       }
-      if (operation.type.endsWith("editing_session") && operation.target?.type !== "editing_session") {
+      if (operation.type === "start_editing_session") {
+        if (operation.target?.type !== "cv") {
+          throw new CvWorkspaceError("validation-failed", "Starting an Editing Session requires a CV target.");
+        }
+        if (operation.baseRevisionId != null && typeof operation.baseRevisionId !== "string") {
+          throw new CvWorkspaceError("validation-failed", "The base CV Revision must be an exact identifier.");
+        }
+      }
+      if (["resume_editing_session", "finish_editing_session", "archive_editing_session", "restore_editing_session"].includes(operation.type)
+        && operation.target?.type !== "editing_session") {
         throw new CvWorkspaceError("validation-failed", "Editing Session lifecycle operations require an Editing Session target.");
       }
       const sessionSource = operation.source?.type === "editing_session";
@@ -303,6 +312,25 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
       }
       if (["archive_cv", "restore_cv", "withdraw_publication"].includes(operation.type) && operation.target?.type !== "cv") {
         throw new CvWorkspaceError("validation-failed", "CV lifecycle operations require a CV target.");
+      }
+      if (["archive_cv_block", "restore_cv_block"].includes(operation.type)) {
+        if (operation.target?.type !== "cv_block" || !operation.baseVersionId) {
+          throw new CvWorkspaceError("validation-failed", "CV Block lifecycle operations require a CV Block and exact base Block Version.");
+        }
+        if (!blockLibrary) {
+          throw new CvWorkspaceError("validation-failed", "CV Block lifecycle changes require the Block Library boundary.");
+        }
+        const block = await blockLibrary.getBlock(operation.target.id);
+        if (block.currentVersion?.id !== operation.baseVersionId) {
+          throw new CvWorkspaceError("stale-block-version", "The CV Block has a newer current Block Version.", {
+            blockId: block.id,
+            currentVersionId: block.currentVersion?.id || null,
+          });
+        }
+        const expectedStatus = operation.type === "archive_cv_block" ? "active" : "archived";
+        if (block.status !== expectedStatus) {
+          throw new CvWorkspaceError("invalid-lifecycle-transition", "CV Block cannot make that lifecycle transition.");
+        }
       }
       return repository.createChangeProposal({
         schemaVersion: "1",

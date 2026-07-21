@@ -18,6 +18,9 @@ function mapError(error) {
   if (/Archived CVs must be restored/i.test(error.message || "")) {
     throw new CvWorkspaceError("invalid-lifecycle-transition", error.message);
   }
+  if (/Invalid lifecycle transition|Copy source Editing Session is not open|CV Block is referenced by a non-archived|cannot make that lifecycle transition/i.test(error.message || "")) {
+    throw new CvWorkspaceError("invalid-lifecycle-transition", error.message);
+  }
   if (/stale-proposal/i.test(error.message || "")) {
     let context;
     try {
@@ -387,6 +390,26 @@ export function createSupabaseCvRepository({ client, getActor } = {}) {
             "stale-proposal",
             "Publication changed after this Change Proposal was reviewed.",
             proposal.result || undefined,
+          );
+        }
+        if (["archive_cv_block", "restore_cv_block"].includes(proposal.operationType)) {
+          const code = proposal.result?.reason === "invalid-lifecycle-transition"
+            || /non-archived CV Composition/i.test(proposal.result?.reason || "")
+            ? "invalid-lifecycle-transition"
+            : "stale-block-version";
+          throw new CvWorkspaceError(
+            code,
+            code === "stale-block-version"
+              ? "The CV Block has a newer current Block Version."
+              : "CV Block can no longer make that lifecycle transition.",
+            proposal.result || undefined,
+          );
+        }
+        if (proposal.result?.reason === "invalid-lifecycle-transition") {
+          throw new CvWorkspaceError(
+            "invalid-lifecycle-transition",
+            "The lifecycle transition is no longer valid.",
+            proposal.result,
           );
         }
         const target = proposal.result?.target;

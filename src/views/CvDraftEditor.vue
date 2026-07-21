@@ -108,10 +108,11 @@ async function startEditingSession(revision) {
   error.value = "";
   notice.value = "";
   try {
-    const session = await cvWorkspace.startEditingSession(draft.id, revision?.id || null);
-    sessionChangeProposal.value = null;
-    activateEditingSession(session, revision?.number || session.baseRevisionNumber);
-    await refreshEditingContext();
+    sessionChangeProposal.value = await cvWorkspace.proposeLifecycleChange({ operation: {
+      type: "start_editing_session",
+      target: { type: "cv", id: draft.id },
+      baseRevisionId: revision?.id || null,
+    } });
   } catch (reason) {
     error.value = reason.message;
   }
@@ -212,18 +213,12 @@ async function finishEditingSession() {
       return;
     }
 
-    let finished;
-    try {
-      finished = await cvWorkspace.finishEditingSession(
-        saved.id,
-        saved.optimisticVersion,
-      );
-    } catch (reason) {
-      finished = await resolveFinishedSession(sessionId, reason);
-    }
-    activeSession.value = null;
-    await refreshEditingContext();
-    notice.value = `Editing Session finished as Revision ${finished.revisionNumber}.`;
+    sessionChangeProposal.value = await cvWorkspace.proposeLifecycleChange({ operation: {
+      type: "finish_editing_session",
+      target: { type: "editing_session", id: saved.id },
+      baseOptimisticVersion: saved.optimisticVersion,
+    } });
+    notice.value = "Review the finish proposal, then apply it to create the immutable CV Revision.";
   } catch (reason) {
     error.value = reason.message;
   } finally {
@@ -302,11 +297,11 @@ async function applySessionChangeProposal() {
   const operationType = sessionChangeProposal.value.operationType || "replace_working_state";
   try {
     const applied = await cvWorkspace.applyChangeProposal(proposalId);
-    if (["edit_content", "replace_working_state", "copy_to_new_version", "copy_for_new_role", "restore_editing_session"].includes(operationType)) {
+    if (["edit_content", "replace_working_state", "start_editing_session", "resume_editing_session", "copy_to_new_version", "copy_for_new_role", "restore_editing_session"].includes(operationType)) {
       const session = await cvWorkspace.resumeEditingSession(applied.result.editingSessionId);
       activateEditingSession(session, activeBaseRevisionNumber.value);
       if (operationType === "copy_for_new_role") await router.replace(`/app/cvs/${applied.result.cvId}`);
-    } else if (operationType === "archive_editing_session") {
+    } else if (["archive_editing_session", "finish_editing_session"].includes(operationType)) {
       activeSession.value = null;
     } else if (["archive_cv", "restore_cv"].includes(operationType)) {
       replaceDraft(await cvWorkspace.open(applied.result.cvId));
@@ -317,7 +312,9 @@ async function applySessionChangeProposal() {
     }
     sessionChangeProposal.value = null;
     await refreshEditingContext();
-    notice.value = "Change Proposal applied.";
+    notice.value = operationType === "finish_editing_session"
+      ? `Editing Session finished as Revision ${applied.result.revisionNumber}.`
+      : "Change Proposal applied.";
   } catch (reason) {
     if (reason.code === "stale-proposal" && activeSession.value) {
       const refreshed = await cvWorkspace.resumeEditingSession(activeSession.value.id);

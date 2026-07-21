@@ -230,6 +230,23 @@ describe("Supabase CV repository Revision history boundary", () => {
 });
 
 describe("Supabase CV repository Editing Session boundary", () => {
+  it.each([
+    "Invalid lifecycle transition.",
+    "Copy source Editing Session is not open.",
+    "CV Block is referenced by a non-archived CV Composition or Working Composition.",
+  ])("maps lifecycle proposal failure %s to a stable transition code", async (message) => {
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } } }) },
+      rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "55000", message } }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.createChangeProposal({
+      schemaVersion: "1", operationType: "restore_cv",
+      target: { type: "cv", id: "cv-1" }, baseOptimisticVersion: null,
+      operations: [{ type: "restore_cv", target: { type: "cv", id: "cv-1" } }],
+    })).rejects.toMatchObject({ code: "invalid-lifecycle-transition" });
+  });
   it("routes lifecycle Change Proposals through the generic proposal contract", async () => {
     const row = {
       id: "proposal-copy", schema_version: "1", operation_type: "copy_to_new_version",
@@ -253,6 +270,41 @@ describe("Supabase CV repository Editing Session boundary", () => {
     });
     expect(client.rpc).toHaveBeenCalledWith("create_cv_lifecycle_proposal", {
       p_schema_version: "1", p_operation: row.normalized_operations[0],
+    });
+  });
+
+  it.each([
+    {
+      operationType: "archive_cv_block",
+      result: { blockId: "block-1", currentVersionId: "version-2" },
+      code: "stale-block-version",
+    },
+    {
+      operationType: "finish_editing_session",
+      result: { reason: "invalid-lifecycle-transition", target: { id: "session-1" } },
+      code: "invalid-lifecycle-transition",
+    },
+  ])("maps invalidated $operationType lifecycle proposals to $code", async ({ operationType, result, code }) => {
+    const pending = {
+      id: "proposal-lifecycle", schema_version: "1", operation_type: operationType,
+      target_type: operationType.endsWith("cv_block") ? "cv_block" : "editing_session",
+      target_id: operationType.endsWith("cv_block") ? "block-1" : "session-1",
+      target_cv_id: operationType.endsWith("cv_block") ? null : "cv-1",
+      base_optimistic_version: 2, normalized_operations: [], structured_diff: {},
+      warnings: [], status: "pending", result: null,
+    };
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } } }) },
+      rpc: vi.fn(async (name) => ({
+        data: name === "get_cv_change_proposal" ? pending : { ...pending, status: "invalidated", result },
+        error: null,
+      })),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.applyChangeProposal("proposal-lifecycle")).rejects.toMatchObject({
+      code,
+      context: result,
     });
   });
   it("creates, reads, applies, and discards Change Proposals through owner-scoped atomic RPCs", async () => {

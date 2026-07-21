@@ -46,6 +46,7 @@ export function createMcpChangeService({ client, user, oauthClient }) {
           : operation
       )),
     }),
+    proposeLifecycleChange: (input) => cvWorkspace.proposeLifecycleChange(input),
     applyChangeProposal: (proposalId) => cvWorkspace.applyChangeProposal(proposalId),
     discardChangeProposal: (proposalId) => cvWorkspace.discardChangeProposal(proposalId),
   };

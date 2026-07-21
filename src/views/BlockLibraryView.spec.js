@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   listCvs: vi.fn(),
   editingSessions: vi.fn(),
   proposeContentChanges: vi.fn(),
+  proposeLifecycleChange: vi.fn(),
   applyChangeProposal: vi.fn(),
   discardChangeProposal: vi.fn(),
 }));
@@ -41,6 +42,7 @@ vi.mock("../services/cvWorkspace", () => ({
     list: mocks.listCvs,
     editingSessions: mocks.editingSessions,
     proposeContentChanges: mocks.proposeContentChanges,
+    proposeLifecycleChange: mocks.proposeLifecycleChange,
     applyChangeProposal: mocks.applyChangeProposal,
     discardChangeProposal: mocks.discardChangeProposal,
   },
@@ -173,6 +175,11 @@ async function mountLibrary() {
   });
   mocks.applyChangeProposal.mockResolvedValue({ id: "proposal-1", status: "applied" });
   mocks.discardChangeProposal.mockResolvedValue({ id: "proposal-1", status: "discarded" });
+  mocks.proposeLifecycleChange.mockImplementation(async ({ operation }) => ({
+    id: `proposal-${operation.type}`,
+    operationType: operation.type,
+    status: "pending",
+  }));
   const wrapper = mount(BlockLibraryView);
   await flushPromises();
   return wrapper;
@@ -247,8 +254,6 @@ describe("native CV Block Library interactions", () => {
     const archived = { ...interestBlock, status: "archived", id: "block-archived", title: "Archived interest" };
     mocks.browse.mockResolvedValue({ ...catalog, blocks: [...catalog.blocks, archived] });
     mocks.duplicateBlock.mockResolvedValue({ blockId: "block-copy" });
-    mocks.archiveBlock.mockResolvedValue({ id: experienceBlock.id, status: "archived" });
-    mocks.restoreBlock.mockResolvedValue({ id: archived.id, status: "active" });
     mocks.deleteBlock.mockResolvedValue({ deletedBlockId: skillBlock.id });
     const wrapper = mount(BlockLibraryView);
     await flushPromises();
@@ -259,14 +264,22 @@ describe("native CV Block Library interactions", () => {
     };
     await click("Duplicate CV Block");
     await click("Archive CV Block");
+    await click("Apply reviewed Change Proposal");
     await click("Delete CV Block");
     await click("Restore CV Block");
+    await click("Apply reviewed Change Proposal");
 
     expect(mocks.browse).toHaveBeenCalledWith({ includeArchived: true });
     expect(mocks.duplicateBlock).toHaveBeenCalledWith(experienceBlock.id);
-    expect(mocks.archiveBlock).toHaveBeenCalledWith(experienceBlock.id);
+    expect(mocks.proposeLifecycleChange).toHaveBeenCalledWith({ operation: {
+      type: "archive_cv_block", target: { type: "cv_block", id: experienceBlock.id },
+      baseVersionId: experienceBlock.currentVersion.id,
+    } });
     expect(mocks.deleteBlock).toHaveBeenCalledWith(experienceBlock.id);
-    expect(mocks.restoreBlock).toHaveBeenCalledWith(archived.id);
+    expect(mocks.proposeLifecycleChange).toHaveBeenCalledWith({ operation: {
+      type: "restore_cv_block", target: { type: "cv_block", id: archived.id },
+      baseVersionId: archived.currentVersion.id,
+    } });
   });
 
   it("offers archive recovery when a referenced CV Block cannot be deleted", async () => {

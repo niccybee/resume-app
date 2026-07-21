@@ -11,7 +11,7 @@ describe("CV and Editing Session lifecycle migration", () => {
   it("extends Change Proposals with typed copy and archive operations", async () => {
     const sql = await migration();
     expect(sql).toMatch(/^begin;/i);
-    for (const operation of ["copy_to_new_version", "copy_for_new_role", "archive_editing_session", "restore_editing_session", "archive_cv", "restore_cv"]) {
+    for (const operation of ["start_editing_session", "resume_editing_session", "finish_editing_session", "copy_to_new_version", "copy_for_new_role", "archive_editing_session", "restore_editing_session", "archive_cv", "restore_cv", "archive_cv_block", "restore_cv_block"]) {
       expect(sql).toContain(operation);
     }
     expect(sql).toMatch(/create or replace function public\.create_cv_lifecycle_proposal/i);
@@ -24,8 +24,25 @@ describe("CV and Editing Session lifecycle migration", () => {
     expect(sql).toMatch(/create policy "Owners manage active CV compositions"[\s\S]*document\.status <> 'archived'/i);
     expect(sql).toMatch(/create trigger reject_archived_cv_session_mutation/i);
     expect(sql).toMatch(/insert into public\.cv_change_proposals/i);
+    expect(sql).toMatch(/revoke execute on function public\.start_cv_editing_session\(uuid, uuid\) from authenticated/i);
+    expect(sql).toMatch(/revoke execute on function public\.finish_cv_editing_session\(uuid, integer\) from authenticated/i);
     expect(sql).not.toMatch(/update public\.cv_editing_sessions[\s\S]*create or replace function public\.apply_cv_lifecycle_proposal/i);
     expect(sql.trim()).toMatch(/commit;$/i);
+  });
+
+  it("starts, resumes, finishes, and manages eligible CV Blocks only on apply", async () => {
+    const sql = await migration();
+    const create = sql.slice(sql.indexOf("create or replace function public.create_cv_lifecycle_proposal"), sql.indexOf("revoke all on function public.create_cv_lifecycle_proposal"));
+    const apply = sql.slice(sql.indexOf("create or replace function public.apply_cv_lifecycle_proposal"), sql.indexOf("revoke all on function public.apply_cv_lifecycle_proposal"));
+    expect(create).toMatch(/baseRevisionId/i);
+    expect(create).toMatch(/baseVersionId/i);
+    expect(create).not.toMatch(/start_cv_editing_session/i);
+    expect(create).not.toMatch(/finish_cv_editing_session/i);
+    expect(apply).toMatch(/start_cv_editing_session/i);
+    expect(apply).toMatch(/finish_cv_editing_session/i);
+    expect(apply).toMatch(/published_revision_id/i);
+    expect(apply).toMatch(/archive_cv_block/i);
+    expect(apply).toMatch(/non-archived CV Composition/i);
   });
 
   it("copies atomically while retaining source state and new-role v1 semantics", async () => {
@@ -58,5 +75,16 @@ describe("CV and Editing Session lifecycle migration", () => {
     expect(apply).toMatch(/status = 'invalidated'/i);
     expect(sql).toMatch(/revoke all on function public\.apply_cv_lifecycle_proposal\(uuid\)[\s\S]*from public, anon/i);
     expect(sql).toMatch(/grant execute on function public\.apply_cv_lifecycle_proposal\(uuid\)[\s\S]*to authenticated/i);
+  });
+
+  it("keeps direct lifecycle RPCs revoked in migrations applied after lifecycle proposals", async () => {
+    const [blocks, contraction] = await Promise.all([
+      readFile(new URL("database/cv_block_identity_lifecycle.sql", root), "utf8"),
+      readFile(new URL("database/cv_legacy_contraction.sql", root), "utf8"),
+    ]);
+    expect(blocks).toMatch(/revoke execute on function public\.set_cv_block_status\(uuid, text\) from authenticated/i);
+    expect(blocks).not.toMatch(/grant execute on function public\.set_cv_block_status\(uuid, text\) to authenticated/i);
+    expect(contraction).toMatch(/revoke execute on function public\.start_cv_editing_session\(uuid, uuid\)[\s\S]*from authenticated/i);
+    expect(contraction).not.toMatch(/grant execute on function public\.start_cv_editing_session\(uuid, uuid\)[\s\S]*to authenticated/i);
   });
 });

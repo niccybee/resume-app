@@ -52,6 +52,81 @@ describe("CV workspace boundary", () => {
     });
   });
 
+  it("starts, resumes, and finishes Editing Sessions through explicit lifecycle proposals", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product Manager at Google", status: "published",
+      publishedRevisionId: "cv-1-revision-1", selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+
+    const start = await workspace.proposeLifecycleChange({ operation: {
+      type: "start_editing_session",
+      target: { type: "cv", id: "cv-1" },
+      baseRevisionId: "cv-1-revision-1",
+    } });
+    await expect(workspace.editingSessions("cv-1")).resolves.toEqual([]);
+    const started = await workspace.applyChangeProposal(start.id);
+    const session = await workspace.resumeEditingSession(started.result.editingSessionId);
+    expect(session).toMatchObject({ status: "open", baseRevisionId: "cv-1-revision-1" });
+
+    const resume = await workspace.proposeLifecycleChange({ operation: {
+      type: "resume_editing_session",
+      target: { type: "editing_session", id: session.id },
+      baseOptimisticVersion: session.optimisticVersion,
+    } });
+    const resumed = await workspace.applyChangeProposal(resume.id);
+    expect(resumed.result).toMatchObject({
+      cvId: "cv-1", editingSessionId: session.id, optimisticVersion: 1,
+    });
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      status: "open", optimisticVersion: 1,
+    });
+
+    const finish = await workspace.proposeLifecycleChange({ operation: {
+      type: "finish_editing_session",
+      target: { type: "editing_session", id: session.id },
+      baseOptimisticVersion: session.optimisticVersion,
+    } });
+    const finished = await workspace.applyChangeProposal(finish.id);
+    expect(finished.result).toMatchObject({
+      cvId: "cv-1",
+      editingSessionId: session.id,
+      revisionId: "cv-1-revision-2",
+      revisionNumber: 2,
+    });
+    await expect(workspace.open("cv-1")).resolves.toMatchObject({
+      status: "published", publishedRevisionId: "cv-1-revision-1",
+    });
+  });
+
+  it("archives and restores eligible CV Blocks through lifecycle proposals", async () => {
+    const blockRepository = createMemoryBlockRepository();
+    const blockLibrary = createBlockLibrary({ repository: blockRepository });
+    const version = await blockLibrary.saveVersion({
+      kind: "skill", title: "Strategy", content: { name: "Product strategy" },
+    });
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product CV", selections: [],
+    }], { blockRepository });
+    const workspace = createCvWorkspace({ repository, blockLibrary });
+
+    const archive = await workspace.proposeLifecycleChange({ operation: {
+      type: "archive_cv_block",
+      target: { type: "cv_block", id: version.blockId },
+      baseVersionId: version.id,
+    } });
+    await workspace.applyChangeProposal(archive.id);
+    await expect(blockLibrary.getBlock(version.blockId)).resolves.toMatchObject({ status: "archived" });
+
+    const restore = await workspace.proposeLifecycleChange({ operation: {
+      type: "restore_cv_block",
+      target: { type: "cv_block", id: version.blockId },
+      baseVersionId: version.id,
+    } });
+    await workspace.applyChangeProposal(restore.id);
+    await expect(blockLibrary.getBlock(version.blockId)).resolves.toMatchObject({ status: "active" });
+  });
+
   it("copies a CV Revision into a new role-focused lineage whose first finish is Revision 1", async () => {
     const repository = createMemoryCvRepository([{
       id: "cv-1", name: "Product Manager at Google", summary: "Google focus", selections: [employment],

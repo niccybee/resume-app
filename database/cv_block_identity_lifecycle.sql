@@ -333,7 +333,7 @@ begin
 end;
 $$;
 revoke all on function public.set_cv_block_status(uuid, text) from public, anon;
-grant execute on function public.set_cv_block_status(uuid, text) to authenticated;
+revoke execute on function public.set_cv_block_status(uuid, text) from authenticated;
 
 create or replace function public.delete_cv_block(p_block_id uuid)
 returns jsonb

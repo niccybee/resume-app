@@ -202,10 +202,15 @@ async function runBlockLifecycle(action, block) {
   error.value = "";
   try {
     if (action === "duplicate") await blockLibrary.duplicateBlock(block.id);
-    if (action === "archive") await blockLibrary.archiveBlock(block.id);
-    if (action === "restore") await blockLibrary.restoreBlock(block.id);
+    if (["archive", "restore"].includes(action)) {
+      reviewedProposal.value = await cvWorkspace.proposeLifecycleChange({ operation: {
+        type: action === "archive" ? "archive_cv_block" : "restore_cv_block",
+        target: { type: "cv_block", id: block.id },
+        baseVersionId: block.currentVersion.id,
+      } });
+    }
     if (action === "delete") await blockLibrary.deleteBlock(block.id);
-    await load();
+    if (!["archive", "restore"].includes(action)) await load();
   } catch (reason) {
     error.value = reason.message;
   } finally {
@@ -293,6 +298,12 @@ onMounted(load);
     </section>
   </details>
 
+  <article v-if="reviewedProposal?.operationType && reviewedProposal.operationType !== 'edit_content'" aria-label="Reviewed CV Block Lifecycle Change Proposal">
+    <strong>Reviewed Change Proposal</strong>
+    <p>Applying performs the reviewed {{ reviewedProposal.operationType.replaceAll('_', ' ') }} transition.</p>
+    <div class="grid"><button :disabled="saving" @click="applyReviewedEdit">Apply reviewed Change Proposal</button><button class="secondary" :disabled="saving" @click="discardReviewedEdit">Discard reviewed Change Proposal</button></div>
+  </article>
+
   <dialog :open="Boolean(editing)">
     <article v-if="editing"><header><button aria-label="Close" rel="prev" @click="editing = null"></button><h2>{{ editing.title }}</h2></header>
       <label>Editing Session<select v-model="editingSessionId"><option value="">Choose an open Editing Session</option><option v-for="session in editingSessions" :key="session.id" :value="session.id">{{ session.label }}</option></select></label>
@@ -301,7 +312,7 @@ onMounted(load);
       <details><summary>Block Version history</summary><ol><li v-for="version in [...editing.versions].reverse()" :key="version.id">v{{ version.number }} · {{ version.source.type }}<br /><small>{{ JSON.stringify(version.content) }}</small></li></ol></details>
       <hr /><label>AI change instruction<input v-model="instruction" placeholder="Emphasise stakeholder leadership…" /></label><button class="secondary" @click="suggest">Generate Change Proposal</button>
       <article v-if="proposal"><strong>Unsaved Change Proposal</strong><p>{{ proposal.content.text || proposal.content.name || proposal.content.institution }}</p><div class="grid"><button @click="reviewEdit(proposal.content, proposal.source)">Review as Change Proposal</button><button class="secondary" @click="proposal = null">Reject</button></div></article>
-      <article v-if="reviewedProposal" aria-label="Reviewed Block Version Change Proposal"><strong>Reviewed Change Proposal</strong><p>Applying appends an immutable Block Version and advances Working Composition {{ reviewedProposal.baseOptimisticVersion }}.</p><div class="grid"><button :disabled="saving" @click="applyReviewedEdit">Apply reviewed Change Proposal</button><button class="secondary" :disabled="saving" @click="discardReviewedEdit">Discard reviewed Change Proposal</button></div></article>
+      <article v-if="reviewedProposal && (!reviewedProposal.operationType || reviewedProposal.operationType === 'edit_content')" aria-label="Reviewed Block Version Change Proposal"><strong>Reviewed Change Proposal</strong><p>Applying appends an immutable Block Version and advances Working Composition {{ reviewedProposal.baseOptimisticVersion }}.</p><div class="grid"><button :disabled="saving" @click="applyReviewedEdit">Apply reviewed Change Proposal</button><button class="secondary" :disabled="saving" @click="discardReviewedEdit">Discard reviewed Change Proposal</button></div></article>
     </article>
   </dialog>
 </template>

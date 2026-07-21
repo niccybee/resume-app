@@ -1,8 +1,26 @@
 import { CvWorkspaceError } from "../../domain/cvs/createCvWorkspace";
 import { normalizeDraft } from "../../domain/cvs/cvDraft";
+import { nextChangeProposalActions } from "../../domain/cvs/changeProposal";
 
 function mapError(error) {
   if (!error) return;
+  if (/stale-proposal/i.test(error.message || "")) {
+    let context;
+    try {
+      context = JSON.parse(error.message.slice(error.message.indexOf(":") + 1).trim());
+    } catch {}
+    throw new CvWorkspaceError(
+      "stale-proposal",
+      "Change Proposal is based on stale Editing Session state.",
+      context,
+    );
+  }
+  if (/proposal-expired/i.test(error.message || "")) {
+    throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
+  }
+  if (/invalid-proposal-state/i.test(error.message || "")) {
+    throw new CvWorkspaceError("invalid-proposal-state", error.message);
+  }
   if (error.code === "40001" || /session-conflict/i.test(error.message || "")) {
     throw new CvWorkspaceError(
       "session-conflict",
@@ -99,6 +117,30 @@ function serializeSelections(selections = []) {
       ...(selection.group ? { grouping: selection.group } : {}),
     },
   }));
+}
+
+function mapChangeProposal(row) {
+  if (!row) return null;
+  const status = row.status;
+  return {
+    id: row.id,
+    schemaVersion: row.schema_version,
+    operationType: row.operation_type,
+    target: {
+      type: row.target_type,
+      id: row.target_id,
+      cvId: row.target_cv_id,
+    },
+    baseOptimisticVersion: row.base_optimistic_version,
+    operations: row.normalized_operations || [],
+    diff: row.structured_diff || {},
+    warnings: row.warnings || [],
+    status,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    result: row.result || null,
+    nextActions: nextChangeProposalActions(status),
+  };
 }
 
 export function createSupabaseCvRepository({ client }) {
@@ -243,6 +285,66 @@ export function createSupabaseCvRepository({ client }) {
       });
       mapError(error);
       return fetchEditingSession(id);
+    },
+
+    async createChangeProposal(input) {
+      await actor();
+      const { data, error } = await client.rpc("create_cv_change_proposal", {
+        p_schema_version: input.schemaVersion,
+        p_operation_type: input.operationType,
+        p_target_session_id: input.target.id,
+        p_base_optimistic_version: input.baseOptimisticVersion,
+        p_normalized_operations: input.operations,
+      });
+      mapError(error);
+      return mapChangeProposal(data);
+    },
+
+    async getChangeProposal(id) {
+      await actor();
+      const { data, error } = await client.rpc("get_cv_change_proposal", {
+        p_proposal_id: id,
+      });
+      mapError(error);
+      return mapChangeProposal(data);
+    },
+
+    async applyChangeProposal(id) {
+      await actor();
+      const { data, error } = await client.rpc("apply_cv_change_proposal", {
+        p_proposal_id: id,
+      });
+      mapError(error);
+      const proposal = mapChangeProposal(data);
+      if (proposal.status === "expired") {
+        throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
+      }
+      if (proposal.status === "invalidated") {
+        const target = proposal.result?.target;
+        const context = target
+          ? {
+              target: mapEditingSession(
+                target,
+                (target.selections || []).map(mapEditingSessionSelection),
+              ),
+            }
+          : proposal.result || undefined;
+        throw new CvWorkspaceError(
+          "stale-proposal",
+          "Change Proposal is based on stale Editing Session state.",
+          context,
+        );
+      }
+      return proposal;
+    },
+
+    async discardChangeProposal(id) {
+      await actor();
+      const { data, error } = await client.rpc("discard_cv_change_proposal", {
+        p_proposal_id: id,
+      });
+      mapError(error);
+      return mapChangeProposal(data);
     },
 
     async save(input) {

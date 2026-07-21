@@ -28,6 +28,9 @@ vi.mock("../services/cvWorkspace", () => ({
     resumeEditingSession: vi.fn(),
     saveEditingSession: vi.fn(),
     finishEditingSession: vi.fn(),
+    proposeEditingSessionChange: vi.fn(),
+    applyChangeProposal: vi.fn(),
+    discardChangeProposal: vi.fn(),
     save: vi.fn(),
     publish: vi.fn(),
     unpublish: vi.fn(),
@@ -244,6 +247,88 @@ describe("CV summary proposals", () => {
     expect(wrapper.get('[role="status"]').text()).toContain(
       "finished as Revision 2",
     );
+  });
+
+  it("reviews and explicitly applies an Editing Session Change Proposal through the shared application service", async () => {
+    const session = {
+      id: "session-1", cvId: "cv-1", status: "open",
+      baseRevisionId: "revision-1", baseRevisionNumber: 1,
+      optimisticVersion: 3, name: "Product CV",
+      profile: { basics: { name: "Nic" } }, summary: "Before", selections: [],
+    };
+    cvWorkspace.history.mockResolvedValue([{ id: "revision-1", cvId: "cv-1", number: 1 }]);
+    cvWorkspace.editingSessions.mockResolvedValue([session]);
+    cvWorkspace.resumeEditingSession
+      .mockResolvedValueOnce(session)
+      .mockResolvedValueOnce({ ...session, optimisticVersion: 4, name: "Google Product Manager" });
+    cvWorkspace.proposeEditingSessionChange.mockResolvedValue({
+      id: "proposal-1",
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-1", cvId: "cv-1" },
+      baseOptimisticVersion: 3,
+      status: "pending",
+      diff: { fields: [{ path: "name", before: "Product CV", after: "Google Product Manager" }], composition: { added: [], removed: [] } },
+      warnings: [],
+      expiresAt: "2026-07-22T00:00:00.000Z",
+      nextActions: ["apply", "discard"],
+    });
+    cvWorkspace.applyChangeProposal.mockResolvedValue({
+      id: "proposal-1", status: "applied",
+      result: { editingSessionId: "session-1", optimisticVersion: 4 },
+    });
+    const wrapper = await mountEditor();
+
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    await wrapper.get('input[placeholder="Product lead CV"]').setValue("Google Product Manager");
+    await button(wrapper, "Review Change Proposal").trigger("click");
+    await flushPromises();
+
+    expect(cvWorkspace.proposeEditingSessionChange).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      baseOptimisticVersion: 3,
+      operations: [{
+        type: "replace_working_state",
+        value: expect.objectContaining({ name: "Google Product Manager" }),
+      }],
+    });
+    expect(cvWorkspace.applyChangeProposal).not.toHaveBeenCalled();
+    expect(wrapper.get('[aria-label="Editing Session Change Proposal"]').text()).toContain("name");
+    expect(wrapper.get('[aria-label="Editing Session Change Proposal"]').text()).toContain("Editing Session working version 3");
+
+    await button(wrapper, "Apply Proposed Changes").trigger("click");
+    await flushPromises();
+    expect(cvWorkspace.applyChangeProposal).toHaveBeenCalledWith("proposal-1");
+    expect(cvWorkspace.resumeEditingSession).toHaveBeenLastCalledWith("session-1");
+    expect(wrapper.get('[role="status"]').text()).toContain("Change Proposal applied");
+    expect(wrapper.text()).toContain("working version 4");
+  });
+
+  it("discards an Editing Session Change Proposal without applying it", async () => {
+    const session = {
+      id: "session-1", cvId: "cv-1", status: "open", baseRevisionId: "revision-1",
+      baseRevisionNumber: 1, optimisticVersion: 1, name: "Product CV", profile: { basics: {} }, selections: [],
+    };
+    cvWorkspace.history.mockResolvedValue([{ id: "revision-1", cvId: "cv-1", number: 1 }]);
+    cvWorkspace.editingSessions.mockResolvedValue([session]);
+    cvWorkspace.resumeEditingSession.mockResolvedValue(session);
+    cvWorkspace.proposeEditingSessionChange.mockResolvedValue({
+      id: "proposal-1", status: "pending", baseOptimisticVersion: 1,
+      diff: { fields: [], composition: { added: [], removed: [] } }, warnings: [],
+      expiresAt: "2026-07-22T00:00:00.000Z", nextActions: ["apply", "discard"],
+    });
+    cvWorkspace.discardChangeProposal.mockResolvedValue({ id: "proposal-1", status: "discarded" });
+    const wrapper = await mountEditor();
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Review Change Proposal").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Discard Change Proposal").trigger("click");
+    await flushPromises();
+
+    expect(cvWorkspace.discardChangeProposal).toHaveBeenCalledWith("proposal-1");
+    expect(cvWorkspace.applyChangeProposal).not.toHaveBeenCalled();
+    expect(wrapper.find('[aria-label="Editing Session Change Proposal"]').exists()).toBe(false);
   });
 
   it("resolves a finish retry after the server already committed the Revision", async () => {

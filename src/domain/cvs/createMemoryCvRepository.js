@@ -1,11 +1,12 @@
 import { normalizeDraft } from "./cvDraft";
 import { CvWorkspaceError } from "./createCvWorkspace";
+import { nextChangeProposalActions } from "./changeProposal";
 
 function copy(value) {
   return structuredClone(value);
 }
 
-export function createMemoryCvRepository(initial = []) {
+export function createMemoryCvRepository(initial = [], { clock = () => new Date() } = {}) {
   const records = new Map(initial.map((item) => [item.id, normalizeDraft(item)]));
   const revisions = new Map(initial
     .filter((item) => item.id)
@@ -25,13 +26,59 @@ export function createMemoryCvRepository(initial = []) {
       }]];
     }));
   const editingSessions = new Map();
+  const changeProposals = new Map();
   let sequence = initial.length;
   let sessionSequence = 0;
+  let proposalSequence = 0;
+
+  function nowIso() {
+    return clock().toISOString();
+  }
 
   function session(id) {
     const value = editingSessions.get(id);
     if (!value) throw new CvWorkspaceError("not-found", "Editing Session not found.");
     return value;
+  }
+
+  function proposal(id) {
+    const value = changeProposals.get(id);
+    if (!value) throw new CvWorkspaceError("not-found", "Change Proposal not found.");
+    return value;
+  }
+
+  function proposalDiff(before, after) {
+    const fields = [];
+    for (const path of ["name", "themeId", "profile", "summary", "summaryProvenance"]) {
+      if (JSON.stringify(before[path]) !== JSON.stringify(after[path])) {
+        fields.push({ path, before: copy(before[path]), after: copy(after[path]) });
+      }
+    }
+    const beforeByBlock = new Map(before.selections.map((item) => [item.blockId, item]));
+    const afterByBlock = new Map(after.selections.map((item) => [item.blockId, item]));
+    return {
+      fields,
+      composition: {
+        added: copy(after.selections.filter((item) => !beforeByBlock.has(item.blockId))),
+        removed: copy(before.selections.filter((item) => !afterByBlock.has(item.blockId))),
+        replaced: copy(after.selections.filter((item) => {
+          const previous = beforeByBlock.get(item.blockId);
+          return previous && previous.versionId !== item.versionId;
+        }).map((item) => ({ before: beforeByBlock.get(item.blockId), after: item }))),
+        moved: copy(after.selections.filter((item) => {
+          const previous = beforeByBlock.get(item.blockId);
+          return previous && previous.versionId === item.versionId
+            && (previous.section !== item.section || previous.order !== item.order);
+        }).map((item) => ({ before: beforeByBlock.get(item.blockId), after: item }))),
+        changed: copy(after.selections.filter((item) => {
+          const previous = beforeByBlock.get(item.blockId);
+          if (!previous || previous.versionId !== item.versionId) return false;
+          const previousPresentation = { block: previous.block, group: previous.group };
+          const nextPresentation = { block: item.block, group: item.group };
+          return JSON.stringify(previousPresentation) !== JSON.stringify(nextPresentation);
+        }).map((item) => ({ before: beforeByBlock.get(item.blockId), after: item }))),
+      },
+    };
   }
 
   return {
@@ -79,7 +126,7 @@ export function createMemoryCvRepository(initial = []) {
       if (!base) {
         throw new CvWorkspaceError("not-found", "Base CV Revision not found.");
       }
-      const now = new Date().toISOString();
+      const now = nowIso();
       const value = {
         id: `session-${++sessionSequence}`,
         cvId,
@@ -121,7 +168,7 @@ export function createMemoryCvRepository(initial = []) {
         summaryProvenance: draft.summaryProvenance,
         selections: draft.selections,
         optimisticVersion: current.optimisticVersion + 1,
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowIso(),
       };
       editingSessions.set(saved.id, saved);
       return copy(saved);
@@ -150,7 +197,7 @@ export function createMemoryCvRepository(initial = []) {
         summary: current.summary,
         summaryProvenance: copy(current.summaryProvenance),
         selections: copy(current.selections),
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso(),
       };
       history.push(revision);
       revisions.set(current.cvId, history);
@@ -164,6 +211,106 @@ export function createMemoryCvRepository(initial = []) {
       };
       editingSessions.set(id, finished);
       return copy(finished);
+    },
+    async createChangeProposal(input) {
+      const target = session(input.target.id);
+      if (target.status !== "open") {
+        throw new CvWorkspaceError("invalid-lifecycle-transition", "Editing Session is not open.");
+      }
+      if (target.optimisticVersion !== input.baseOptimisticVersion) {
+        throw new CvWorkspaceError("stale-proposal", "Editing Session changed before the proposal was created.", {
+          target: copy(target),
+        });
+      }
+      const proposed = normalizeDraft({
+        ...input.operations[0].value,
+        id: target.cvId,
+      });
+      const createdAt = nowIso();
+      const expiresAt = new Date(clock().getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const value = {
+        id: `proposal-${++proposalSequence}`,
+        ...copy(input),
+        diff: proposalDiff(target, proposed),
+        warnings: [],
+        createdAt,
+        expiresAt,
+        status: "pending",
+        result: null,
+        nextActions: nextChangeProposalActions("pending"),
+      };
+      changeProposals.set(value.id, value);
+      return copy(value);
+    },
+    async getChangeProposal(id) {
+      return copy(proposal(id));
+    },
+    async discardChangeProposal(id) {
+      const current = proposal(id);
+      if (current.status === "discarded") return copy(current);
+      if (current.status !== "pending") {
+        throw new CvWorkspaceError("invalid-proposal-state", "Only a pending Change Proposal can be discarded.");
+      }
+      const discarded = { ...current, status: "discarded", nextActions: nextChangeProposalActions("discarded") };
+      changeProposals.set(id, discarded);
+      return copy(discarded);
+    },
+    async applyChangeProposal(id) {
+      const current = proposal(id);
+      if (current.status === "applied") return copy(current);
+      if (current.status === "expired") {
+        throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
+      }
+      if (current.status === "invalidated") {
+        throw new CvWorkspaceError("stale-proposal", "Change Proposal is based on stale Editing Session state.", current.result);
+      }
+      if (current.status !== "pending") {
+        throw new CvWorkspaceError("invalid-proposal-state", "Only a pending Change Proposal can be applied.");
+      }
+      if (clock().getTime() > new Date(current.expiresAt).getTime()) {
+        changeProposals.set(id, { ...current, status: "expired", nextActions: nextChangeProposalActions("expired") });
+        throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
+      }
+      const target = session(current.target.id);
+      if (target.status !== "open" || target.optimisticVersion !== current.baseOptimisticVersion) {
+        const result = { target: copy(target) };
+        changeProposals.set(id, { ...current, status: "invalidated", result, nextActions: nextChangeProposalActions("invalidated") });
+        throw new CvWorkspaceError("stale-proposal", "Change Proposal is based on stale Editing Session state.", {
+          target: copy(target),
+        });
+      }
+      const next = normalizeDraft({
+        ...current.operations[0].value,
+        id: target.cvId,
+      });
+      const saved = {
+        ...target,
+        name: next.name,
+        themeId: next.themeId,
+        profile: next.profile,
+        summary: next.summary,
+        summaryProvenance: next.summaryProvenance,
+        selections: next.selections,
+        optimisticVersion: target.optimisticVersion + 1,
+        updatedAt: nowIso(),
+      };
+      editingSessions.set(saved.id, saved);
+      const applied = {
+        ...current,
+        status: "applied",
+        result: {
+          editingSessionId: saved.id,
+          optimisticVersion: saved.optimisticVersion,
+          affectedIdentities: {
+            cvId: saved.cvId,
+            blockIds: saved.selections.map((item) => item.blockId),
+            versionIds: saved.selections.map((item) => item.versionId),
+          },
+        },
+        nextActions: nextChangeProposalActions("applied"),
+      };
+      changeProposals.set(id, applied);
+      return copy(applied);
     },
     async save(input) {
       const draft = normalizeDraft(input);

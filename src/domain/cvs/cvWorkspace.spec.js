@@ -18,6 +18,174 @@ const employmentContext = {
 };
 
 describe("CV workspace boundary", () => {
+  it("creates a normalized Change Proposal without mutating its Editing Session, then applies it once", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Product CV",
+      summary: "Before",
+      selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const session = await workspace.startEditingSession("cv-1");
+
+    const proposal = await workspace.proposeEditingSessionChange({
+      sessionId: session.id,
+      baseOptimisticVersion: session.optimisticVersion,
+      operations: [{
+        type: "replace_working_state",
+        value: {
+          ...session,
+          summary: "After",
+          selections: [skill],
+        },
+      }],
+    });
+
+    expect(proposal).toMatchObject({
+      schemaVersion: "1",
+      operationType: "replace_working_state",
+      target: { type: "editing_session", id: session.id, cvId: "cv-1" },
+      baseOptimisticVersion: 1,
+      status: "pending",
+      warnings: [],
+      nextActions: ["apply", "discard"],
+      diff: {
+        fields: [{ path: "summary", before: "Before", after: "After" }],
+        composition: {
+          added: [expect.objectContaining({ blockId: "block-2" })],
+          removed: [expect.objectContaining({ blockId: "block-1" })],
+        },
+      },
+    });
+    expect(proposal.expiresAt).toBeTruthy();
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      optimisticVersion: 1,
+      summary: "Before",
+      selections: [{ ...employment, order: 0 }],
+    });
+
+    const applied = await workspace.applyChangeProposal(proposal.id);
+    const retried = await workspace.applyChangeProposal(proposal.id);
+    expect(applied).toMatchObject({
+      status: "applied",
+      result: {
+        editingSessionId: session.id,
+        optimisticVersion: 2,
+        affectedIdentities: {
+          cvId: "cv-1",
+          blockIds: ["block-2"],
+          versionIds: ["version-2"],
+        },
+      },
+    });
+    expect(retried).toEqual(applied);
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      optimisticVersion: 2,
+      summary: "After",
+      selections: [{ ...skill, order: 0 }],
+    });
+  });
+
+  it("discards and expires Change Proposals without mutating session state", async () => {
+    let now = new Date("2026-07-21T00:00:00.000Z");
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Product CV",
+      summary: "Before",
+      selections: [],
+    }], { clock: () => now });
+    const workspace = createCvWorkspace({ repository });
+    const session = await workspace.startEditingSession("cv-1");
+    const input = {
+      sessionId: session.id,
+      baseOptimisticVersion: session.optimisticVersion,
+      operations: [{
+        type: "replace_working_state",
+        value: { ...session, summary: "Never applied" },
+      }],
+    };
+    const discarded = await workspace.proposeEditingSessionChange(input);
+    await expect(workspace.discardChangeProposal(discarded.id)).resolves.toMatchObject({
+      status: "discarded",
+      nextActions: [],
+    });
+    await expect(workspace.applyChangeProposal(discarded.id)).rejects.toMatchObject({
+      code: "invalid-proposal-state",
+    });
+
+    const expiring = await workspace.proposeEditingSessionChange(input);
+    now = new Date("2026-07-22T00:00:01.000Z");
+    await expect(workspace.applyChangeProposal(expiring.id)).rejects.toMatchObject({
+      code: "proposal-expired",
+    });
+    await expect(workspace.applyChangeProposal(expiring.id)).rejects.toMatchObject({
+      code: "proposal-expired",
+    });
+    await expect(workspace.getChangeProposal(expiring.id)).resolves.toMatchObject({
+      status: "expired",
+    });
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      optimisticVersion: 1,
+      summary: "Before",
+    });
+  });
+
+  it("returns a stable stale-proposal conflict with refreshed Editing Session context", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Product CV",
+      summary: "Before",
+      selections: [],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const session = await workspace.startEditingSession("cv-1");
+    const proposal = await workspace.proposeEditingSessionChange({
+      sessionId: session.id,
+      baseOptimisticVersion: 1,
+      operations: [{
+        type: "replace_working_state",
+        value: { ...session, summary: "Stale proposal" },
+      }],
+    });
+    await workspace.saveEditingSession({ ...session, summary: "Winning change" });
+
+    const staleConflict = {
+      code: "stale-proposal",
+      context: {
+        target: { id: session.id, optimisticVersion: 2, summary: "Winning change" },
+      },
+    };
+    await expect(workspace.applyChangeProposal(proposal.id)).rejects.toMatchObject(staleConflict);
+    await expect(workspace.applyChangeProposal(proposal.id)).rejects.toMatchObject(staleConflict);
+    await expect(workspace.getChangeProposal(proposal.id)).resolves.toMatchObject({
+      status: "invalidated",
+    });
+  });
+
+  it("rejects unsupported or malformed Change Proposal operations before persistence", async () => {
+    let calls = 0;
+    const workspace = createCvWorkspace({
+      repository: {
+        async getEditingSession() {
+          return { id: "session-1", cvId: "cv-1", optimisticVersion: 1, status: "open", name: "CV", selections: [] };
+        },
+        async createChangeProposal() { calls += 1; },
+      },
+    });
+
+    await expect(workspace.proposeEditingSessionChange({
+      sessionId: "session-1",
+      baseOptimisticVersion: 1,
+      operations: [{ type: "delete_everything" }],
+    })).rejects.toMatchObject({ code: "validation-failed" });
+    await expect(workspace.proposeEditingSessionChange({
+      sessionId: "session-1",
+      baseOptimisticVersion: 1,
+      operations: [],
+    })).rejects.toMatchObject({ code: "validation-failed" });
+    expect(calls).toBe(0);
+  });
+
   it("exposes immutable CV Revision history for an existing lineage", async () => {
     const repository = createMemoryCvRepository([{
       id: "cv-1",

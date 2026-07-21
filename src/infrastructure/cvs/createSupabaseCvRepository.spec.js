@@ -180,6 +180,112 @@ describe("Supabase CV repository Revision history boundary", () => {
 });
 
 describe("Supabase CV repository Editing Session boundary", () => {
+  it("creates, reads, applies, and discards Change Proposals through owner-scoped atomic RPCs", async () => {
+    const proposal = {
+      id: "proposal-1",
+      schema_version: "1",
+      operation_type: "replace_working_state",
+      target_type: "editing_session",
+      target_id: "session-1",
+      target_cv_id: "cv-1",
+      base_optimistic_version: 1,
+      normalized_operations: [{ type: "replace_working_state", value: { name: "Product CV", selections: [] } }],
+      structured_diff: { fields: [], composition: { added: [], removed: [], replaced: [], moved: [] } },
+      warnings: [],
+      status: "pending",
+      created_at: "2026-07-21T00:00:00.000Z",
+      expires_at: "2026-07-22T00:00:00.000Z",
+      result: null,
+    };
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } }, error: null }) },
+      rpc: vi.fn(async (name, params) => {
+        if (name === "get_cv_editing_session") {
+          return { data: { id: "session-1", cv_id: "cv-1", optimistic_version: 1, status: "open", working_name: "Product CV", working_profile: {}, selections: [] }, error: null };
+        }
+        if (name === "create_cv_change_proposal") return { data: proposal, error: null };
+        if (name === "get_cv_change_proposal") return { data: proposal, error: null };
+        if (name === "apply_cv_change_proposal") {
+          return { data: { ...proposal, status: "applied", result: { editingSessionId: "session-1", optimisticVersion: 2 } }, error: null };
+        }
+        if (name === "discard_cv_change_proposal") return { data: { ...proposal, status: "discarded" }, error: null };
+        throw new Error(`Unexpected RPC ${name}: ${JSON.stringify(params)}`);
+      }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+    const input = {
+      schemaVersion: "1",
+      operationType: "replace_working_state",
+      target: { type: "editing_session", id: "session-1", cvId: "cv-1" },
+      baseOptimisticVersion: 1,
+      operations: proposal.normalized_operations,
+    };
+
+    await expect(repository.createChangeProposal(input)).resolves.toMatchObject({
+      id: "proposal-1", schemaVersion: "1", status: "pending", nextActions: ["apply", "discard"],
+    });
+    await expect(repository.getChangeProposal("proposal-1")).resolves.toMatchObject({ id: "proposal-1" });
+    await expect(repository.applyChangeProposal("proposal-1")).resolves.toMatchObject({ status: "applied" });
+    await expect(repository.discardChangeProposal("proposal-1")).resolves.toMatchObject({ status: "discarded" });
+    expect(client.rpc).toHaveBeenCalledWith("create_cv_change_proposal", {
+      p_schema_version: "1",
+      p_operation_type: "replace_working_state",
+      p_target_session_id: "session-1",
+      p_base_optimistic_version: 1,
+      p_normalized_operations: proposal.normalized_operations,
+    });
+    expect(client.rpc).toHaveBeenCalledWith("get_cv_change_proposal", { p_proposal_id: "proposal-1" });
+    expect(client.rpc).toHaveBeenCalledWith("apply_cv_change_proposal", { p_proposal_id: "proposal-1" });
+    expect(client.rpc).toHaveBeenCalledWith("discard_cv_change_proposal", { p_proposal_id: "proposal-1" });
+  });
+
+  it("maps stale proposal failures with refreshed target context", async () => {
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } }, error: null }) },
+      rpc: vi.fn().mockResolvedValue({
+        data: null,
+        error: { code: "40001", message: 'stale-proposal: {"target":{"id":"session-1","optimisticVersion":2}}' },
+      }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.applyChangeProposal("proposal-1")).rejects.toMatchObject({
+      code: "stale-proposal",
+      context: { target: { id: "session-1", optimisticVersion: 2 } },
+    });
+  });
+
+  it("normalizes the database stale snapshot into the shared Editing Session context", async () => {
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } }, error: null }) },
+      rpc: vi.fn().mockResolvedValue({
+        data: {
+          id: "proposal-1", schema_version: "1", operation_type: "replace_working_state",
+          target_type: "editing_session", target_id: "session-1", target_cv_id: "cv-1",
+          base_optimistic_version: 1, normalized_operations: [], structured_diff: {},
+          warnings: [], status: "invalidated",
+          result: { target: {
+            id: "session-1", cv_id: "cv-1", base_revision_id: "revision-1",
+            status: "open", optimistic_version: 2, working_name: "Product CV",
+            working_profile: { basics: { name: "Nic" } }, working_summary: "Winning change",
+            selections: [{ block_id: "block-1", version_id: "version-1", section: "experience", position: 0, content: { text: "Won" }, display: {} }],
+          } },
+        },
+        error: null,
+      }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.applyChangeProposal("proposal-1")).rejects.toMatchObject({
+      code: "stale-proposal",
+      context: { target: {
+        id: "session-1", cvId: "cv-1", optimisticVersion: 2,
+        name: "Product CV", summary: "Winning change",
+        selections: [{ blockId: "block-1", versionId: "version-1", order: 0 }],
+      } },
+    });
+  });
+
   it("lists multiple owner-scoped sessions for one CV without loading every composition", async () => {
     const query = {
       select: vi.fn().mockReturnThis(),

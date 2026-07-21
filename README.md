@@ -15,12 +15,22 @@ The checked-in SQL in `database/` is the reproducible PRM2 schema. New public-sc
 For the CV lineage expansion, apply `database/cv_revisions.sql` after the existing
 CV document, CV Block, and Composition schema. Apply
 `database/cv_editing_sessions.sql` next to add durable Working Compositions and
-atomic start, save, and finish boundaries, then apply
+atomic start, save, and finish boundaries. Apply
+`database/cv_change_proposals.sql` after Editing Sessions to add immutable,
+owner-scoped Change Proposals with atomic explicit apply and discard operations,
+then apply
 `database/cv_public_read.sql`. The Revision migration is transactional and
 idempotent: it rejects duplicate CV Block identities before backfilling immutable
 v1 snapshots and pinning existing public slugs to those snapshots. Finishing an
 Editing Session allocates its Revision number under a CV-lineage lock and never
 changes the Published Revision.
+
+Working Composition edits can be represented as a versioned Change Proposal.
+Creating or discarding a proposal does not alter its target Editing Session;
+apply revalidates the proposal's expiry and base optimistic version, then changes
+the Working Composition atomically. Repeated apply returns the original result,
+while stale proposals return refreshed target context for recovery. The Nuxt UI
+and future MCP handlers use the same CV workspace application-service methods.
 
 OpenRouter requests run through the Nuxt server at `/api/openrouter`. The private
 service-role key is used only server-side to call the restricted Vault RPCs in

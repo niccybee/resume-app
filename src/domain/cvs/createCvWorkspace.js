@@ -1,10 +1,11 @@
 import { normalizeDraft, normalizeSlug } from "./cvDraft";
 
 export class CvWorkspaceError extends Error {
-  constructor(code, message) {
+  constructor(code, message, context = undefined) {
     super(message);
     this.name = "CvWorkspaceError";
     this.code = code;
+    if (context !== undefined) this.context = context;
   }
 }
 
@@ -25,6 +26,41 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
       updatedAt: input.updatedAt || null,
       finishedAt: input.finishedAt || null,
     };
+  }
+
+  function normalizeProposalOperations(operations) {
+    if (!Array.isArray(operations) || operations.length !== 1) {
+      throw new CvWorkspaceError(
+        "validation-failed",
+        "A Change Proposal requires exactly one supported operation.",
+      );
+    }
+    const [operation] = operations;
+    if (operation?.type !== "replace_working_state" || !operation.value) {
+      throw new CvWorkspaceError(
+        "validation-failed",
+        "Unsupported Change Proposal operation.",
+      );
+    }
+    const value = normalizeEditingSession({
+      ...operation.value,
+      id: operation.value.id || operation.value.sessionId,
+      cvId: operation.value.cvId,
+    });
+    if (!value.name || value.name === "Untitled CV") {
+      throw new CvWorkspaceError("validation-failed", "Enter a name for this CV.");
+    }
+    return [{
+      type: "replace_working_state",
+      value: {
+        name: value.name,
+        themeId: value.themeId,
+        profile: value.profile,
+        summary: value.summary,
+        summaryProvenance: value.summaryProvenance,
+        selections: value.selections,
+      },
+    }];
   }
 
   async function revisionNumbers(cvId) {
@@ -102,6 +138,29 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
         await repository.finishEditingSession(sessionId, expectedVersion),
       );
     },
+
+    async proposeEditingSessionChange(input) {
+      if (!input?.sessionId || !Number.isInteger(input.baseOptimisticVersion)) {
+        throw new CvWorkspaceError(
+          "validation-failed",
+          "A target Editing Session and base optimistic version are required.",
+        );
+      }
+      const target = await repository.getEditingSession(input.sessionId);
+      if (!target) throw new CvWorkspaceError("not-found", "Editing Session not found.");
+      const operations = normalizeProposalOperations(input.operations);
+      return repository.createChangeProposal({
+        schemaVersion: "1",
+        operationType: "replace_working_state",
+        target: { type: "editing_session", id: target.id, cvId: target.cvId },
+        baseOptimisticVersion: input.baseOptimisticVersion,
+        operations,
+      });
+    },
+
+    getChangeProposal: (id) => repository.getChangeProposal(id),
+    applyChangeProposal: (id) => repository.applyChangeProposal(id),
+    discardChangeProposal: (id) => repository.discardChangeProposal(id),
 
     async open(id) {
       const cv = await repository.get(id);

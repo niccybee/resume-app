@@ -17,6 +17,8 @@ const blocks = ref([]); const proposal = ref(null); const instruction = ref("");
 const revisions = ref([]);
 const editingSessions = ref([]);
 const activeSession = ref(null);
+const sessionChangeProposal = ref(null);
+const proposingChange = ref(false);
 const selectedVersions = reactive({});
 const draft = reactive(normalizeDraft({ name: "", profile: { basics: {} }, selections: [] }));
 const themes = listThemes();
@@ -88,6 +90,7 @@ async function startEditingSession(revision) {
   notice.value = "";
   try {
     const session = await cvWorkspace.startEditingSession(draft.id, revision?.id || null);
+    sessionChangeProposal.value = null;
     activateEditingSession(session, revision?.number || session.baseRevisionNumber);
     await refreshEditingContext();
   } catch (reason) {
@@ -100,6 +103,7 @@ async function resumeEditingSession(summary) {
   notice.value = "";
   try {
     const session = await cvWorkspace.resumeEditingSession(summary.id);
+    sessionChangeProposal.value = null;
     activateEditingSession(session, summary.baseRevisionNumber);
   } catch (reason) {
     error.value = reason.message;
@@ -203,6 +207,74 @@ async function finishEditingSession() {
     saving.value = false;
   }
 }
+
+async function proposeEditingSessionChange() {
+  if (!activeSession.value || proposingChange.value) return;
+  proposingChange.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    sessionChangeProposal.value = await cvWorkspace.proposeEditingSessionChange({
+      sessionId: activeSession.value.id,
+      baseOptimisticVersion: activeSession.value.optimisticVersion,
+      operations: [{
+        type: "replace_working_state",
+        value: {
+          ...activeSession.value,
+          ...draft,
+          id: activeSession.value.id,
+          cvId: draft.id,
+        },
+      }],
+    });
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    proposingChange.value = false;
+  }
+}
+
+async function applySessionChangeProposal() {
+  if (!sessionChangeProposal.value || saving.value) return;
+  saving.value = true;
+  error.value = "";
+  notice.value = "";
+  const proposalId = sessionChangeProposal.value.id;
+  try {
+    const applied = await cvWorkspace.applyChangeProposal(proposalId);
+    const session = await cvWorkspace.resumeEditingSession(
+      applied.result.editingSessionId,
+    );
+    activateEditingSession(session, activeBaseRevisionNumber.value);
+    sessionChangeProposal.value = null;
+    await refreshEditingContext();
+    notice.value = "Change Proposal applied to the Editing Session.";
+  } catch (reason) {
+    if (reason.code === "stale-proposal" && activeSession.value) {
+      const refreshed = await cvWorkspace.resumeEditingSession(activeSession.value.id);
+      activateEditingSession(refreshed, activeBaseRevisionNumber.value);
+      await refreshEditingContext();
+    }
+    error.value = reason.message;
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function discardSessionChangeProposal() {
+  if (!sessionChangeProposal.value || saving.value) return;
+  saving.value = true;
+  error.value = "";
+  try {
+    await cvWorkspace.discardChangeProposal(sessionChangeProposal.value.id);
+    sessionChangeProposal.value = null;
+    notice.value = "Change Proposal discarded. The Editing Session was not changed.";
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    saving.value = false;
+  }
+}
 async function publish() { try { if (!draft.id) await save(); const saved=await cvWorkspace.publish(draft.id,publishSlug.value); replaceDraft(saved); publishSlug.value=saved.slug; } catch(reason){error.value=reason.message;} }
 async function unpublish() { try { replaceDraft(await cvWorkspace.unpublish(draft.id)); } catch(reason){error.value=reason.message;} }
 async function generateSummary() {
@@ -274,7 +346,28 @@ function generateTaskProposal(instruction) {
       <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
       <button v-if="draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear selected Block Versions…</button>
       <button class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">{{ activeSession ? "Save Editing Session" : "Save CV" }}</button>
+      <button v-if="activeSession" class="secondary control-standard" :aria-busy="proposingChange" :disabled="saving || proposingChange" @click="proposeEditingSessionChange">Review Change Proposal</button>
       <button v-if="activeSession" class="secondary control-standard" :disabled="saving" @click="finishEditingSession">Finish as CV Revision</button>
+      <article v-if="sessionChangeProposal" aria-label="Editing Session Change Proposal" class="proposal-review">
+        <h3>Editing Session Change Proposal</h3>
+        <p>Target {{ sessionChangeProposal.target?.id || activeSession?.id }} · Editing Session working version {{ sessionChangeProposal.baseOptimisticVersion }}</p>
+        <p>Expires {{ sessionChangeProposal.expiresAt }}</p>
+        <h4>Structured diff</h4>
+        <ul>
+          <li v-for="field in sessionChangeProposal.diff?.fields || []" :key="field.path">
+            {{ field.path }}: {{ field.before }} → {{ field.after }}
+          </li>
+          <li>Added Block Versions: {{ sessionChangeProposal.diff?.composition?.added?.length || 0 }}</li>
+          <li>Removed Block Versions: {{ sessionChangeProposal.diff?.composition?.removed?.length || 0 }}</li>
+        </ul>
+        <pre>{{ JSON.stringify(sessionChangeProposal.diff, null, 2) }}</pre>
+        <p v-if="sessionChangeProposal.warnings?.length">Warnings: {{ sessionChangeProposal.warnings.join(" · ") }}</p>
+        <p v-else>No warnings.</p>
+        <div class="grid">
+          <button class="control-standard" :disabled="saving" @click="applySessionChangeProposal">Apply Proposed Changes</button>
+          <button class="secondary control-standard" :disabled="saving" @click="discardSessionChangeProposal">Discard Change Proposal</button>
+        </div>
+      </article>
       <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
       <details v-if="draft.id"><summary>Publishing</summary><label>Public slug<input v-model="publishSlug" placeholder="product-lead" /></label><button v-if="draft.status !== 'published'" @click="publish">Publish unlisted link</button><template v-else><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="unpublish">Unpublish</button></template></details>
       <section v-if="draft.id" aria-labelledby="revision-history-heading">

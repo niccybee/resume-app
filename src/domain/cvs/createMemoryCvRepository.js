@@ -109,6 +109,11 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
         .sort((a, b) => b.number - a.number)
         .map(({ selections, ...revision }) => revision));
     },
+    async getRevision(cvId, revisionId) {
+      const revision = (revisions.get(cvId) || []).find((item) => item.id === revisionId);
+      if (!revision) throw new CvWorkspaceError("not-found", "CV Revision not found.");
+      return copy(revision);
+    },
     async listEditingSessions(cvId) {
       return copy([...editingSessions.values()].filter((item) => item.cvId === cvId));
     },

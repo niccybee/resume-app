@@ -1,4 +1,5 @@
 import { normalizeDraft, normalizeSlug } from "./cvDraft";
+import { exportCvRevision } from "./compositionAdapterRegistry";
 
 export class CvWorkspaceError extends Error {
   constructor(code, message, context = undefined) {
@@ -92,6 +93,15 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
           ? numberById.get(revision.baseRevisionId) || null
           : null,
       }));
+    },
+
+    async exportRevision(cvId, revisionId, options = {}) {
+      const revision = await repository.getRevision(cvId, revisionId);
+      return exportCvRevision({
+        revision,
+        adapter: options.adapter,
+        adapterVersion: options.adapterVersion,
+      });
     },
 
     async editingSessions(cvId) {

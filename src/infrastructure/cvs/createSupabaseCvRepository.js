@@ -249,6 +249,17 @@ export function createSupabaseCvRepository({ client }) {
       return (data || []).map(mapRevision);
     },
 
+    async getRevision(cvId, revisionId) {
+      await actor();
+      const { data, error } = await client.rpc("get_cv_revision_snapshot", {
+        p_cv_id: cvId,
+        p_revision_id: revisionId,
+      });
+      mapError(error);
+      if (!data) throw new CvWorkspaceError("not-found", "CV Revision not found.");
+      return data;
+    },
+
     async listEditingSessions(cvId) {
       const user = await actor();
       const { data, error } = await client

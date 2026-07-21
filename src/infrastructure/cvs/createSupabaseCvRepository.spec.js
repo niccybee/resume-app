@@ -179,6 +179,23 @@ describe("Supabase CV repository Revision history boundary", () => {
     expect(query.eq).toHaveBeenCalledWith("owner_id", "user-1");
     expect(query.order).toHaveBeenCalledWith("revision_number", { ascending: false });
   });
+
+  it("retrieves one exact immutable Revision snapshot for export", async () => {
+    const snapshot = {
+      id: "revision-1", cvId: "cv-1", number: 1, profile: { basics: { name: "Nic" } }, summary: "Leader",
+      selections: [{ blockId: "block-1", versionId: "version-1", section: "experience", order: 0, content: { text: "Shipped" }, block: { kind: "experience" } }],
+    };
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } }, error: null }) },
+      rpc: vi.fn().mockResolvedValue({ data: snapshot, error: null }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.getRevision("cv-1", "revision-1")).resolves.toEqual(snapshot);
+    expect(client.rpc).toHaveBeenCalledWith("get_cv_revision_snapshot", {
+      p_cv_id: "cv-1", p_revision_id: "revision-1",
+    });
+  });
 });
 
 describe("Supabase CV repository Editing Session boundary", () => {

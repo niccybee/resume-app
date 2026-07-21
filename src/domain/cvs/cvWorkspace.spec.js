@@ -713,6 +713,26 @@ describe("CV workspace boundary", () => {
     expect(await workspace.getPublic("private")).toBeNull();
   });
 
+  it("exports a selected historical CV Revision through a named versioned adapter", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product CV", profile: { basics: { name: "Nic", label: "Product Manager" } },
+      summary: "Revision one", selections: [],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const [revision1] = await workspace.history("cv-1");
+    const session = await workspace.startEditingSession("cv-1", revision1.id);
+    const saved = await workspace.saveEditingSession({ ...session, summary: "Revision two" });
+    await workspace.finishEditingSession(saved.id, saved.optimisticVersion);
+
+    await expect(workspace.exportRevision("cv-1", revision1.id, {
+      adapter: "json-resume", adapterVersion: "1",
+      revision: { profile: { basics: { name: "Injected" } }, summary: "Mutable input", selections: [] },
+    })).resolves.toMatchObject({
+      adapter: "json-resume", adapterVersion: "1",
+      payload: { basics: { name: "Nic", label: "Product Manager", summary: "Revision one" }, work: [] },
+    });
+  });
+
   it("publishes, rolls back, and withdraws an exact CV Revision only after explicit apply", async () => {
     const repository = createMemoryCvRepository([
       { id: "cv-1", name: "Product CV", selections: [] },

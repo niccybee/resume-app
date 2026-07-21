@@ -24,7 +24,8 @@ composition tables exist to add versioned CV Block content validation,
 owner/identity triggers, independent duplication, and archive/restore/delete
 boundaries. Apply `database/cv_revision_publication.sql` to replace legacy
 publication writes with reviewed exact-Revision publish, rollback, and
-withdrawal proposals. Apply
+withdrawal proposals. Apply `database/cv_revision_export.sql` to expose the
+owner-scoped immutable Revision snapshot used by composition adapters. Apply
 `database/cv_public_read.sql`. The Revision migration is transactional and
 idempotent: it rejects duplicate CV Block identities before backfilling immutable
 v1 snapshots and pinning existing public slugs to those snapshots. Finishing an
@@ -50,6 +51,13 @@ Change Proposal. Applying another Revision repoints the existing stable slug;
 selecting an older Revision is an explicit rollback. Withdrawal immediately
 deactivates access while retaining the CV, slug, pin, and Revision history.
 Finishing an Editing Session never changes the published Revision.
+
+Any immutable CV Revision can be exported through composition adapter
+`json-resume` version `1`. Adapter identity and version stay in the Resume
+Studio response envelope; the nested JSON Resume payload contains only standard
+fields. Employment Occasions become ordered `work` entries, selected Experience
+Blocks become ordered `highlights`, and ongoing roles omit `endDate`. Exported
+dates accept `YYYY`, `YYYY-MM`, or `YYYY-MM-DD` precision.
 
 CV Block content is stored with schema version `1` and validated by the same
 kind registry in the application and database for experience, skill,

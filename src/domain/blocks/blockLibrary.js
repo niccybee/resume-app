@@ -140,6 +140,21 @@ export function createBlockLibrary({ repository, generator } = {}) {
       return buildCatalog(blocks);
     },
 
+    async getBlock(blockId) {
+      if (!blockId) throw new BlockLibraryError("block-not-found", "CV Block not found.");
+      const blocks = await repository.browse({ blockId, includeArchived: true });
+      const block = blocks.find((candidate) => candidate.id === blockId);
+      if (!block) throw new BlockLibraryError("block-not-found", "CV Block not found.");
+      knownKindsByBlockId.set(block.id, block.kind);
+      return block;
+    },
+
+    async getVersion(versionId) {
+      if (!versionId) throw new BlockLibraryError("version-not-found", "Block Version not found.");
+      const [version] = await repository.resolve([versionId]);
+      return version;
+    },
+
     async saveVersion(input) {
       const normalized = normalizeVersionInput(input);
       const saved = await repository.saveVersion(normalized);

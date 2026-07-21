@@ -144,8 +144,15 @@ function mapChangeProposal(row) {
   };
 }
 
-export function createSupabaseCvRepository({ client }) {
+export function createSupabaseCvRepository({ client, getActor } = {}) {
   async function actor({ optional = false } = {}) {
+    if (getActor) {
+      const user = await getActor();
+      if (!user && !optional) {
+        throw new CvWorkspaceError("authentication-required", "Sign in to manage CVs.");
+      }
+      return user || null;
+    }
     const { data, error } = await client.auth.getSession();
     if (error && !optional) mapError(error);
     if (!data?.session?.user && !optional) {

@@ -11,6 +11,8 @@ import {
   useTestContext,
 } from "@nuxt/test-utils/e2e";
 import { afterAll, describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const serverOnlySecret = "server-only-t01-test-secret";
 const browserAuthStorageKey = "sb-t02-test-auth-token";
@@ -35,6 +37,24 @@ const staticCvStage = await mkdtemp(join(tmpdir(), "resume-nuxt-static-cv-"));
 const staticCvFixture = resolve(staticCvStage, "cv/t01-static-smoke");
 const withdrawnCvFixture = resolve(staticCvStage, "cv/t06-withdrawn");
 const failedCvFixture = resolve(staticCvStage, "cv/t06-verification-fails");
+const mcpEditingSessionRow = {
+  id: "session-mcp",
+  cv_id: "cv-mcp",
+  owner_id: "mcp-owner",
+  base_revision_id: "revision-mcp",
+  status: "open",
+  optimistic_version: 2,
+  working_name: "Product Manager at Google",
+  working_theme_id: "editorial",
+  working_profile: { basics: { name: "MCP Owner" } },
+  working_summary: "A working summary.",
+  working_summary_provenance: null,
+  finished_revision_id: null,
+  selections: [],
+  created_at: "2026-07-21T01:00:00.000Z",
+  updated_at: "2026-07-21T02:00:00.000Z",
+  finished_at: null,
+};
 
 const publicationServer = createServer(async (request, response) => {
   if (request.url === "/auth/v1/user") {
@@ -67,6 +87,136 @@ const publicationServer = createServer(async (request, response) => {
       token_endpoint: `${publicationServerUrl}/auth/v1/oauth/token`,
       jwks_uri: `${publicationServerUrl}/auth/v1/.well-known/jwks.json`,
     }));
+    return;
+  }
+  const requestUrl = new URL(request.url, "http://resume-studio.test");
+  if (requestUrl.pathname === "/rest/v1/cv_documents") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify([{
+      id: "cv-mcp",
+      owner_id: "mcp-owner",
+      name: "Product Manager at Google",
+      slug: "product-manager-google",
+      status: "published",
+      published_at: "2026-07-21T00:00:00.000Z",
+      published_revision_id: "revision-mcp",
+    }]));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_revisions") {
+    response.setHeader("Content-Type", "application/json");
+    const rows = requestUrl.searchParams.get("cv_id") === "eq.cv-another-user" ? [] : [{
+      id: "revision-mcp",
+      cv_id: "cv-mcp",
+      owner_id: "mcp-owner",
+      revision_number: 1,
+      base_revision_id: null,
+      theme_id: "editorial",
+      profile: { basics: { name: "MCP Owner", label: "Product Manager" } },
+      summary: "A product leader.",
+      summary_provenance: null,
+      created_at: "2026-07-21T00:00:00.000Z",
+    }];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_editing_sessions") {
+    response.setHeader("Content-Type", "application/json");
+    const rows = requestUrl.searchParams.get("cv_id") === "eq.cv-another-user"
+      ? []
+      : [mcpEditingSessionRow];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_blocks") {
+    response.setHeader("Content-Type", "application/json");
+    const rows = requestUrl.searchParams.get("id") === "eq.block-another-user" ? [] : [{
+      id: "block-mcp",
+      owner_id: "mcp-owner",
+      kind: "experience",
+      title: "Product launch",
+      status: "active",
+      current_version_id: "version-mcp",
+      created_at: "2026-07-21T00:00:00.000Z",
+      updated_at: "2026-07-21T00:00:00.000Z",
+      cv_block_contexts: [],
+      versions: [{
+        id: "version-mcp",
+        block_id: "block-mcp",
+        version_number: 1,
+        schema_version: "1",
+        content: { text: "Launched a product used by one million people." },
+        source_type: "human",
+        source_metadata: {},
+        based_on_version_id: null,
+        created_at: "2026-07-21T00:00:00.000Z",
+      }],
+    }];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_block_versions") {
+    response.setHeader("Content-Type", "application/json");
+    const requestedIds = requestUrl.searchParams.get("id") || "";
+    const rows = requestedIds.includes("version-another-user") ? [] : [{
+      id: "version-mcp",
+      block_id: "block-mcp",
+      owner_id: "mcp-owner",
+      version_number: 1,
+      schema_version: "1",
+      content: { text: "Launched a product used by one million people." },
+      source_type: "human",
+      source_metadata: {},
+      based_on_version_id: null,
+      created_at: "2026-07-21T00:00:00.000Z",
+    }];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/get_cv_revision_snapshot") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    response.setHeader("Content-Type", "application/json");
+    if (input.p_cv_id !== "cv-mcp" || input.p_revision_id !== "revision-mcp") {
+      response.end("null");
+      return;
+    }
+    response.end(JSON.stringify({
+      id: "revision-mcp",
+      cvId: "cv-mcp",
+      number: 1,
+      baseRevisionId: null,
+      themeId: "editorial",
+      profile: { basics: { name: "MCP Owner", label: "Product Manager" } },
+      summary: "A product leader.",
+      selections: [{
+        blockId: "block-mcp",
+        versionId: "version-mcp",
+        section: "experience",
+        order: 0,
+        content: { text: "Launched a product used by one million people." },
+        block: { kind: "experience", title: "Product launch" },
+        group: {
+          occasionId: "google-product-manager",
+          employer: "Google",
+          role: "Product Manager",
+          startDate: "2020-01",
+        },
+      }],
+    }));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/get_cv_editing_session") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    response.setHeader("Content-Type", "application/json");
+    if (input.p_session_id !== "session-mcp") {
+      response.end("null");
+      return;
+    }
+    response.end(JSON.stringify(mcpEditingSessionRow));
     return;
   }
   if (request.url !== "/rest/v1/rpc/get_published_cv") {
@@ -299,6 +449,142 @@ describe("Nuxt runtime", async () => {
     expect(identity.status, identityBody).toBe(200);
     expect(identityBody).toContain("mcp-owner");
     expect(identityBody).toContain("chat-client-runtime");
+  });
+
+  it("serves read-only CV tools and schema resources through a real MCP client contract", async () => {
+    const transport = new StreamableHTTPClientTransport(new URL(url("/mcp")), {
+      requestInit: { headers: { authorization: `Bearer ${mcpAccessToken}` } },
+    });
+    const client = new Client({ name: "Resume Studio contract test", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      const discovered = await client.listTools();
+      expect(discovered.tools.map((tool) => tool.name)).toContain("list_cvs");
+      const read = await client.callTool({ name: "list_cvs", arguments: {} });
+      expect(read.structuredContent).toMatchObject({
+        schemaVersion: "1",
+        data: [{ id: "cv-mcp" }],
+      });
+    } finally {
+      await client.close();
+    }
+
+    let requestId = 20;
+    const mcp = async (method, params = {}) => {
+      const response = await fetch(url("/mcp"), {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${mcpAccessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
+      });
+      const text = await response.text();
+      expect(response.status, text).toBe(200);
+      return JSON.parse(text);
+    };
+    const call = (name, args = {}) => mcp("tools/call", { name, arguments: args });
+
+    const tools = await mcp("tools/list");
+    const toolNames = tools.result.tools.map((tool) => tool.name);
+    expect(toolNames).toEqual(expect.arrayContaining([
+      "list_cvs",
+      "get_cv_revision",
+      "list_editing_sessions",
+      "list_cv_blocks",
+      "get_block_version",
+      "get_publication_state",
+      "get_supported_schemas",
+      "export_cv_revision",
+    ]));
+    expect(toolNames).not.toEqual(expect.arrayContaining([
+      "save_cv",
+      "apply_change_proposal",
+      "delete_cv_block",
+    ]));
+
+    const resources = await mcp("resources/list");
+    expect(resources.result.resources.map((resource) => resource.uri)).toEqual(expect.arrayContaining([
+      "resume-studio://schemas/block-content/v1",
+      "resume-studio://schemas/composition/v1",
+      "resume-studio://schemas/change-proposal/v1",
+      "resume-studio://adapters",
+    ]));
+    const composition = await mcp("resources/read", {
+      uri: "resume-studio://schemas/composition/v1",
+    });
+    expect(JSON.parse(composition.result.contents[0].text)).toMatchObject({
+      schemaVersion: "1",
+      data: { exactBlockVersions: true, maxVersionsPerBlockIdentity: 1 },
+    });
+
+    const cvs = await call("list_cvs");
+    expect(cvs.result.structuredContent).toMatchObject({
+      schemaVersion: "1",
+      data: [{ id: "cv-mcp", name: "Product Manager at Google" }],
+    });
+    const revision = await call("get_cv_revision", {
+      cvId: "cv-mcp",
+      revisionId: "revision-mcp",
+    });
+    expect(revision.result.structuredContent.data.selections[0]).toMatchObject({
+      blockId: "block-mcp",
+      versionId: "version-mcp",
+    });
+    const sessions = await call("list_editing_sessions", { cvId: "cv-mcp" });
+    expect(sessions.result.structuredContent.data[0]).toMatchObject({
+      id: "session-mcp",
+      cvId: "cv-mcp",
+      optimisticVersion: 2,
+    });
+    const blocks = await call("list_cv_blocks");
+    expect(blocks.result.structuredContent.data[0]).toMatchObject({
+      id: "block-mcp",
+      currentVersion: { id: "version-mcp" },
+    });
+    const blockVersion = await call("get_block_version", { versionId: "version-mcp" });
+    expect(blockVersion.result.structuredContent.data).toMatchObject({
+      id: "version-mcp",
+      blockId: "block-mcp",
+      schemaVersion: "1",
+    });
+    const publication = await call("get_publication_state", { cvId: "cv-mcp" });
+    expect(publication.result.structuredContent.data).toMatchObject({
+      status: "published",
+      publishedRevisionId: "revision-mcp",
+    });
+    const schemas = await call("get_supported_schemas");
+    expect(schemas.result.structuredContent.data.blockContent.currentVersion).toBe("1");
+    const exported = await call("export_cv_revision", {
+      cvId: "cv-mcp",
+      revisionId: "revision-mcp",
+    });
+    expect(exported.result.structuredContent).toMatchObject({
+      schemaVersion: "1",
+      data: {
+        adapter: "json-resume",
+        adapterVersion: "1",
+        payload: { work: [{ name: "Google", highlights: ["Launched a product used by one million people."] }] },
+      },
+    });
+
+    const otherUserCv = await call("get_cv", { cvId: "cv-another-user" });
+    expect(otherUserCv.result).toMatchObject({ isError: true });
+    expect(otherUserCv.result.content[0].text).toContain('"code": "not-found"');
+    const otherUserRevision = await call("get_cv_revision", {
+      cvId: "cv-another-user",
+      revisionId: "revision-another-user",
+    });
+    expect(otherUserRevision.result).toMatchObject({ isError: true });
+    const otherUserVersion = await call("get_block_version", {
+      versionId: "version-another-user",
+    });
+    expect(otherUserVersion.result).toMatchObject({ isError: true });
+
+    const invalid = await call("get_cv", {});
+    expect(invalid.result).toMatchObject({ isError: true });
+    expect(invalid.result.content[0].text).toMatch(/validation|invalid/i);
   });
 
   it("returns a signed-out user to the exact OAuth consent request", async () => {

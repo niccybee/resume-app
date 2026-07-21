@@ -1,5 +1,6 @@
 import { normalizeDraft, normalizeSlug } from "./cvDraft";
 import { exportCvRevision } from "./compositionAdapterRegistry";
+import { LIFECYCLE_CHANGE_PROPOSAL_OPERATION_TYPES } from "./changeProposal";
 
 export class CvWorkspaceError extends Error {
   constructor(code, message, context = undefined) {
@@ -95,6 +96,8 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
       }));
     },
 
+    revision: (cvId, revisionId) => repository.getRevision(cvId, revisionId),
+
     async exportRevision(cvId, revisionId, options = {}) {
       const revision = await repository.getRevision(cvId, revisionId);
       return exportCvRevision({
@@ -178,16 +181,7 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
 
     async proposeLifecycleChange(input) {
       const operation = input?.operation;
-      const supported = new Set([
-        "copy_to_new_version",
-        "copy_for_new_role",
-        "archive_editing_session",
-        "restore_editing_session",
-        "archive_cv",
-        "restore_cv",
-        "publish_revision",
-        "withdraw_publication",
-      ]);
+      const supported = new Set(LIFECYCLE_CHANGE_PROPOSAL_OPERATION_TYPES);
       if (!supported.has(operation?.type)) {
         throw new CvWorkspaceError("validation-failed", "Unsupported lifecycle Change Proposal operation.");
       }

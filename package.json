@@ -21,6 +21,7 @@
     "vue-router": "^5.2.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@nuxt/test-utils": "^4.0.3",
     "@nuxtjs/mcp-toolkit": "^0.18.0",
     "@types/node": "^26.1.1",

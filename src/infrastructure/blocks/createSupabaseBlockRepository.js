@@ -136,6 +136,7 @@ export function createSupabaseBlockRepository({
 
       if (!query.includeArchived) request = request.eq("status", "active");
 
+      if (query.blockId) request = request.eq("id", query.blockId);
       if (query.kind) request = request.eq("kind", query.kind);
       const { data, error } = await request.order("updated_at", {
         ascending: false,

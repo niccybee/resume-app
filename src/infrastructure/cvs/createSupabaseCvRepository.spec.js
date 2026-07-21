@@ -142,6 +142,25 @@ describe("Supabase CV repository list boundary", () => {
     );
     expect(query.eq).toHaveBeenCalledWith("owner_id", "user-1");
   });
+
+  it("uses a verified request actor for server-side user-token reads", async () => {
+    const query = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const client = {
+      auth: { getSession: vi.fn() },
+      from: vi.fn().mockReturnValue(query),
+    };
+    const getActor = vi.fn().mockResolvedValue({ id: "mcp-owner" });
+    const repository = createSupabaseCvRepository({ client, getActor });
+
+    await expect(repository.list()).resolves.toEqual([]);
+    expect(getActor).toHaveBeenCalledOnce();
+    expect(client.auth.getSession).not.toHaveBeenCalled();
+    expect(query.eq).toHaveBeenCalledWith("owner_id", "mcp-owner");
+  });
 });
 
 describe("Supabase CV repository Revision history boundary", () => {

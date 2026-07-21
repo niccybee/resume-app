@@ -113,6 +113,20 @@ then builds the database client with that same bearer token. MCP tools therefore
 run as the user under existing RLS policies; no privileged database credential is
 used for MCP access. OAuth scopes describe the connection but do not replace RLS.
 
+Authenticated MCP clients can discover read-only tools for CV lineages, CV
+Revisions, Editing Sessions and Working Compositions, CV Blocks and Block
+Versions, publication state, supported schemas, and JSON Resume export. These
+reads return `{ schemaVersion: "1", data: ... }` envelopes and do not require a
+Change Proposal or confirmation. They run through the same application services
+as the Nuxt UI and stay scoped to the authenticated user's RLS-visible rows.
+
+The MCP resource catalog publishes versioned product contracts at
+`resume-studio://schemas/block-content/v1`,
+`resume-studio://schemas/composition/v1`,
+`resume-studio://schemas/change-proposal/v1`, and
+`resume-studio://adapters`. These resources describe validation and workflow
+rules only; they never contain account or CV data.
+
 Published CV snapshots are generated before the Nuxt build and packaged as
 server assets. Nuxt verifies the slug through the curated public Supabase contract
 on every request before returning the snapshot, so withdrawal and verification

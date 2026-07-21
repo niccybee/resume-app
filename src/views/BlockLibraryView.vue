@@ -3,12 +3,12 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { BLOCK_KINDS } from "../domain/blocks/blockLibrary";
 import { blockLibrary } from "../services/blockLibrary";
 import { backfillLegacyHomepageBlocks } from "../domain/blocks/backfillLegacyHomepageBlocks";
-import { createEmploymentContext, formatEmploymentPeriod } from "../domain/employment/occasion";
+import { createEmploymentContext, formatEmploymentPeriod, normalizeEmploymentGroup } from "../domain/employment/occasion";
 
 const catalog = ref({ blocks: [], experience: [], sidebar: {} });
 const status = ref("loading");
 const error = ref("");
-const filters = reactive({ search: "", kind: "", company: "", role: "" });
+const filters = reactive({ search: "", kind: "", companyId: "", roleId: "", occasionId: "", section: "" });
 const form = reactive({ kind: "experience", title: "", value: "", employer: "", role: "", startDate: "", endDate: "" });
 const saving = ref(false);
 const editing = ref(null);
@@ -31,9 +31,12 @@ function contentFor(kind, value) {
 
 const visibleBlocks = computed(() => catalog.value.blocks.filter((block) => {
   if (filters.kind && block.kind !== filters.kind) return false;
-  const context = block.contexts.find((item) => item.type === "employment");
-  if (filters.company && context?.metadata?.company !== filters.company) return false;
-  if (filters.role && context?.metadata?.role !== filters.role) return false;
+  const employment = block.contexts.find((item) => item.type === "employment");
+  const normalizedEmployment = normalizeEmploymentGroup(employment?.metadata);
+  if (filters.section && !block.contexts.some((context) => context.type === "sidebar" && context.key === filters.section)) return false;
+  if (filters.companyId && normalizedEmployment.employerId !== filters.companyId) return false;
+  if (filters.roleId && normalizedEmployment.roleId !== filters.roleId) return false;
+  if (filters.occasionId && normalizedEmployment.occasionId !== filters.occasionId) return false;
   if (!filters.search.trim()) return true;
   return JSON.stringify(block).toLowerCase().includes(filters.search.trim().toLowerCase());
 }));
@@ -49,14 +52,34 @@ const visibleExperienceGroups = computed(() => {
   })).filter((employer) => employer.occasions.length);
 });
 const visibleSidebarBlocks = computed(() => visibleBlocks.value.filter((block) => block.kind !== "experience"));
-const companies = computed(() => [...new Set(catalog.value.experience.map((group) => group.employer))]);
-const roles = computed(() => [...new Set(catalog.value.experience.flatMap((group) => group.occasions.map((item) => item.role)))]);
+const employers = computed(() => catalog.value.experience.map((group) => ({ id: group.employerId, label: group.employer })));
+const roles = computed(() => {
+  const unique = new Map();
+  for (const employer of catalog.value.experience) {
+    for (const occasion of employer.occasions) unique.set(occasion.roleId, occasion.role);
+  }
+  return [...unique].map(([id, label]) => ({ id, label }));
+});
+const occasions = computed(() => catalog.value.experience.flatMap((employer) =>
+  employer.occasions.map((occasion) => ({
+    id: occasion.occasionId,
+    label: `${employer.employer} · ${occasion.role} · ${formatEmploymentPeriod(occasion.startDate, occasion.endDate)}`,
+  })),
+));
+const sidebarSections = computed(() => Object.keys(catalog.value.sidebar));
 
 async function load() {
   status.value = "loading";
   error.value = "";
-  try { catalog.value = await blockLibrary.browse(); status.value = catalog.value.blocks.length ? "loaded" : "empty"; }
-  catch (reason) { error.value = reason.message; status.value = "failed"; }
+  try {
+    catalog.value = await blockLibrary.browse();
+    status.value = catalog.value.blocks.length ? "loaded" : "empty";
+    return true;
+  } catch (reason) {
+    error.value = reason.message;
+    status.value = "failed";
+    return false;
+  }
 }
 
 async function createBlock() {
@@ -77,8 +100,21 @@ async function createBlock() {
 function edit(block) { editing.value = block; editValue.value = currentValue(block); proposal.value = null; }
 async function saveEdit(content = contentFor(editing.value.kind, editValue.value), source = { type: "human" }) {
   saving.value = true;
+  error.value = "";
   try { await blockLibrary.saveVersion({ blockId: editing.value.id, kind: editing.value.kind, content, basedOnVersionId: editing.value.currentVersion.id, source }); editing.value = null; proposal.value = null; await load(); }
-  catch (reason) { error.value = reason.message; }
+  catch (reason) {
+    if (reason.code === "conflict") {
+      const editingId = editing.value.id;
+      const refreshed = await load();
+      if (!refreshed) {
+        editing.value = null;
+        error.value = "The CV Block changed, but the latest Block Version could not be loaded. Refresh the CV Block Library before reopening it.";
+        return;
+      }
+      editing.value = catalog.value.blocks.find((block) => block.id === editingId) || null;
+    }
+    error.value = reason.message;
+  }
   finally { saving.value = false; }
 }
 async function suggest() {
@@ -104,21 +140,23 @@ onMounted(load);
 
 <template>
   <section class="library-tools">
-    <input v-model="filters.search" type="search" placeholder="Search blocks, companies, roles…" />
-    <select v-model="filters.kind"><option value="">All block types</option><option v-for="kind in BLOCK_KINDS" :key="kind">{{ kind }}</option></select>
-    <select v-model="filters.company"><option value="">All companies</option><option v-for="company in companies" :key="company">{{ company }}</option></select>
-    <select v-model="filters.role"><option value="">All roles</option><option v-for="role in roles" :key="role">{{ role }}</option></select>
-    <button class="secondary control-compact" @click="Object.assign(filters, { search: '', kind: '', company: '', role: '' })">Clear filters</button>
+    <input v-model="filters.search" type="search" placeholder="Search CV Blocks, employers, roles…" />
+    <select v-model="filters.kind"><option value="">All CV Block types</option><option v-for="kind in BLOCK_KINDS" :key="kind">{{ kind }}</option></select>
+    <select v-model="filters.companyId"><option value="">All employers</option><option v-for="employer in employers" :key="employer.id" :value="employer.id">{{ employer.label }}</option></select>
+    <select v-model="filters.roleId"><option value="">All roles</option><option v-for="role in roles" :key="role.id" :value="role.id">{{ role.label }}</option></select>
+    <select v-model="filters.occasionId"><option value="">All Employment Occasions</option><option v-for="occasion in occasions" :key="occasion.id" :value="occasion.id">{{ occasion.label }}</option></select>
+    <select v-model="filters.section"><option value="">All sidebar sections</option><option v-for="section in sidebarSections" :key="section" :value="section">{{ section }}</option></select>
+    <button class="secondary control-compact" @click="Object.assign(filters, { search: '', kind: '', companyId: '', roleId: '', occasionId: '', section: '' })">Clear filters</button>
   </section>
 
   <details class="create-panel">
-    <summary>Create reusable block</summary>
+    <summary>Create CV Block</summary>
     <form @submit.prevent="createBlock">
       <div class="grid"><label>Type<select v-model="form.kind"><option v-for="kind in BLOCK_KINDS" :key="kind">{{ kind }}</option></select></label><label>Title<input v-model="form.title" required /></label></div>
       <div v-if="form.kind === 'experience'" class="grid"><label>Employer<input v-model="form.employer" required /></label><label>Role<input v-model="form.role" required /></label></div>
       <div v-if="form.kind === 'experience'" class="grid"><label>Start period<input v-model="form.startDate" type="month" required /></label><label>End period <small>(blank means present)</small><input v-model="form.endDate" type="month" /></label></div>
       <label>Content<textarea v-model="form.value" required></textarea></label>
-      <button :aria-busy="saving" :disabled="saving">Save block</button>
+      <button :aria-busy="saving" :disabled="saving">Save CV Block</button>
     </form>
   </details>
 
@@ -131,9 +169,9 @@ onMounted(load);
     <button :aria-busy="importing" :disabled="importing" @click="importFormerHomepage">Import former homepage CV</button>
   </article>
 
-  <p v-if="status === 'loading'" aria-busy="true">Loading block library…</p>
+  <p v-if="status === 'loading'" aria-busy="true">Loading CV Block Library…</p>
   <div v-if="error" role="alert"><p>{{ error }}</p><button class="secondary" @click="load">Try again</button></div>
-  <section v-if="status === 'empty'" class="empty-state">No reusable blocks yet. Create the first one above.</section>
+  <section v-if="status === 'empty'" class="empty-state">No CV Blocks yet. Create the first one above.</section>
   <section v-for="employer in visibleExperienceGroups" :key="employer.employerId" class="employer-group">
     <header><p class="kind">Employer</p><h2>{{ employer.employer }}</h2></header>
     <section v-for="occasion in employer.occasions" :key="occasion.occasionId" class="role-group">
@@ -142,7 +180,7 @@ onMounted(load);
       <div class="block-grid">
         <article v-for="block in occasion.blocks" :key="block.id">
           <p class="kind">Experience</p><h4>{{ block.title }}</h4><p>{{ currentValue(block) }}</p>
-          <footer><small>{{ block.versions.length }} version{{ block.versions.length === 1 ? '' : 's' }}</small><button class="secondary control-compact" @click="edit(block)">Edit & versions</button></footer>
+          <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button></footer>
         </article>
       </div>
     </section>
@@ -150,16 +188,16 @@ onMounted(load);
   <section v-if="visibleSidebarBlocks.length" class="block-grid sidebar-blocks">
     <article v-for="block in visibleSidebarBlocks" :key="block.id">
       <p class="kind">{{ block.kind }}</p><h3>{{ block.title }}</h3><p>{{ currentValue(block) }}</p>
-      <footer><small>{{ block.versions.length }} version{{ block.versions.length === 1 ? '' : 's' }}</small><button class="secondary control-compact" @click="edit(block)">Edit & versions</button></footer>
+      <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button></footer>
     </article>
   </section>
 
   <dialog :open="Boolean(editing)">
     <article v-if="editing"><header><button aria-label="Close" rel="prev" @click="editing = null"></button><h2>{{ editing.title }}</h2></header>
-      <label>New version<textarea v-model="editValue"></textarea></label><button :disabled="saving" @click="saveEdit()">Save immutable version</button>
-      <details><summary>Version history</summary><ol><li v-for="version in [...editing.versions].reverse()" :key="version.id">v{{ version.number }} · {{ version.source.type }}<br /><small>{{ JSON.stringify(version.content) }}</small></li></ol></details>
-      <hr /><label>AI change instruction<input v-model="instruction" placeholder="Emphasise stakeholder leadership…" /></label><button class="secondary" @click="suggest">Generate review proposal</button>
-      <article v-if="proposal"><strong>Unsaved proposal</strong><p>{{ proposal.content.text || proposal.content.name || proposal.content.institution }}</p><div class="grid"><button @click="saveEdit(proposal.content, proposal.source)">Accept as new version</button><button class="secondary" @click="proposal = null">Reject</button></div></article>
+      <label>New Block Version<textarea v-model="editValue"></textarea></label><button :disabled="saving" @click="saveEdit()">Save immutable Block Version</button>
+      <details><summary>Block Version history</summary><ol><li v-for="version in [...editing.versions].reverse()" :key="version.id">v{{ version.number }} · {{ version.source.type }}<br /><small>{{ JSON.stringify(version.content) }}</small></li></ol></details>
+      <hr /><label>AI change instruction<input v-model="instruction" placeholder="Emphasise stakeholder leadership…" /></label><button class="secondary" @click="suggest">Generate Change Proposal</button>
+      <article v-if="proposal"><strong>Unsaved Change Proposal</strong><p>{{ proposal.content.text || proposal.content.name || proposal.content.institution }}</p><div class="grid"><button @click="saveEdit(proposal.content, proposal.source)">Apply as new Block Version</button><button class="secondary" @click="proposal = null">Reject</button></div></article>
     </article>
   </dialog>
 </template>

@@ -141,7 +141,7 @@ describe("Nuxt runtime", async () => {
 
       await page.getByRole("link", { name: "Blocks", exact: true }).click();
       await page.waitForURL("**/app/blocks");
-      const blockSearch = page.getByRole("searchbox", { name: "Search blocks, companies, roles…" });
+      const blockSearch = page.getByRole("searchbox", { name: "Search CV Blocks, employers, roles…" });
       await blockSearch.waitFor();
       expect(await blockSearch.isVisible()).toBe(true);
 

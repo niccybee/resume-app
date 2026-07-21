@@ -1,4 +1,5 @@
 import { BlockLibraryError } from "../../domain/blocks/blockLibrary";
+import { normalizeEmploymentGroup } from "../../domain/employment/occasion";
 
 async function defaultGetActor(client) {
   if (typeof client.auth?.getSession === "function") {
@@ -17,7 +18,12 @@ function throwRepositoryError(error) {
     : /auth/i.test(message)
       ? "authentication-required"
       : "repository-error";
-  throw new BlockLibraryError(code, message);
+  throw new BlockLibraryError(
+    code,
+    code === "conflict"
+      ? "This CV Block changed since you opened it. Review the latest Block Version and try again."
+      : message,
+  );
 }
 
 function mapContext(row) {
@@ -134,23 +140,20 @@ export function createSupabaseBlockRepository({
       return (data || [])
         .map(mapBlock)
         .filter((block) => {
-          if (
-            !query.companyId &&
-            !query.roleId &&
-            !query.occasionId &&
-            !query.section
-          ) return true;
+          if (query.section && !block.contexts.some((context) =>
+            context.type === "sidebar" && context.key === query.section)) {
+            return false;
+          }
+          if (!query.companyId && !query.roleId && !query.occasionId) return true;
           return block.contexts.some((context) => {
-            if (query.section) {
-              return context.type === "sidebar" && context.key === query.section;
-            }
+            const employment = normalizeEmploymentGroup(context.metadata);
             return (
               context.type === "employment" &&
               (!query.companyId ||
-                context.metadata?.companyId === query.companyId) &&
-              (!query.roleId || context.metadata?.roleId === query.roleId) &&
+                employment.employerId === query.companyId) &&
+              (!query.roleId || employment.roleId === query.roleId) &&
               (!query.occasionId ||
-                context.metadata?.occasionId === query.occasionId)
+                employment.occasionId === query.occasionId)
             );
           });
         })

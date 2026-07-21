@@ -6,20 +6,21 @@ are infrequent enough that deployment latency is acceptable; withdrawal must
 prevent access immediately and must remove the snapshot from the next artifact.
 
 We generate one standalone HTML file at `/cv/<slug>/index.html` before each
-Nuxt production build. The staged `.generated/public` directory is registered as
-a Nitro public asset so its manifest and final `.output/public` artifact include
-the snapshots. The build uses a server-only Supabase service-role key to call a
+Nuxt production build. The staged `.generated/public/cv` directory is registered
+as a Nitro server asset so Nuxt can serve the snapshots only after its publication
+gate succeeds. The build uses a server-only Supabase service-role key to call a
 service-role-only slug-manifest function, then reads each document through the
 curated `get_published_cv` contract. Every run deletes the previous generated
 `.generated/public/cv` tree before writing the current published set. Static pages retain
 `noindex, nofollow, noarchive`, escape all user content, contain no Supabase
 credential or private record, and work without client JavaScript.
 
-A Netlify edge publication gate checks the curated public contract before serving
-any `/cv/<slug>` response. It fails closed when status cannot be verified and
-returns 404 as soon as a CV is withdrawn, so a stale deployment artifact cannot
-expose unpublished content. A newly published CV uses the dynamic Vue route until
-the next deployment creates its snapshot. The deployment environment must provide
+A native Nuxt server route checks the curated public contract before reading a
+generated `/cv/<slug>` snapshot. It fails closed when status cannot be verified and
+returns 404 as soon as publication is withdrawn, so a stale deployment artifact
+cannot expose unpublished content or bypass the gate as a public asset. A newly
+generated snapshot becomes available with the next deployment. The deployment
+environment must provide
 `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and the server-only
 `SUPABASE_SERVICE_ROLE_KEY`; production builds fail closed when they are absent.
 A server-held build hook may reduce publication-to-snapshot latency, but it is not

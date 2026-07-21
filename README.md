@@ -23,6 +23,11 @@ The owner workspace uses Supabase passwordless email magic links with account cr
 
 Shared CVs use an **unlisted public** model: a visitor who knows `/cv/:slug` can read a CV only while its document is marked `published`. Unpublishing immediately withdraws anonymous access without deleting the draft. Public queries can read only the document, composition rows, and exact immutable block versions referenced by that published document.
 
+Published CV snapshots are generated before the Nuxt build and packaged as
+server assets. Nuxt verifies the slug through the curated public Supabase contract
+on every request before returning the snapshot, so withdrawal and verification
+failures cannot leak a stale generated page.
+
 ## Themes and printing
 
 Themes are registered in `src/domain/themes/themeRegistry.js`. `editorial` is the documented default for missing, unknown, or retired IDs; `modern` is the second supported theme. The same `CvDocument` renderer is used for workspace previews and public links. Both themes include A4 print rules, suppress application chrome, avoid preventable entry breaks, and preserve visible contact links.

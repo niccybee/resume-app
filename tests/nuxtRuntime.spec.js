@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -32,15 +33,64 @@ const browserSession = JSON.stringify({
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const staticCvStage = await mkdtemp(join(tmpdir(), "resume-nuxt-static-cv-"));
 const staticCvFixture = resolve(staticCvStage, "cv/t01-static-smoke");
+const withdrawnCvFixture = resolve(staticCvStage, "cv/t06-withdrawn");
+const failedCvFixture = resolve(staticCvStage, "cv/t06-verification-fails");
 
-await mkdir(staticCvFixture, { recursive: true });
-await writeFile(
-  resolve(staticCvFixture, "index.html"),
-  '<p data-static-cv-runtime="true">Static CV from Nuxt output</p>',
-);
+const publicationServer = createServer(async (request, response) => {
+  if (request.url !== "/rest/v1/rpc/get_published_cv") {
+    response.writeHead(404).end();
+    return;
+  }
+
+  let body = "";
+  for await (const chunk of request) body += chunk;
+  const slug = JSON.parse(body).p_slug;
+  if (slug === "t06-verification-fails") {
+    response.writeHead(500).end("verification unavailable");
+    return;
+  }
+
+  response.setHeader("Content-Type", "application/json");
+  response.end(JSON.stringify(slug === "t01-static-smoke"
+    ? { slug, status: "published" }
+    : null));
+});
+const startPublicationCheckServer = (port = 0) => new Promise((resolveListen) => {
+  publicationServer.listen(port, "127.0.0.1", resolveListen);
+});
+const stopPublicationCheckServer = () => new Promise((resolveClose, rejectClose) => {
+  publicationServer.close((error) => {
+    if (error) rejectClose(error);
+    else resolveClose();
+  });
+});
+
+await startPublicationCheckServer();
+const publicationAddress = publicationServer.address();
+const publicationServerUrl = `http://127.0.0.1:${publicationAddress.port}`;
+await stopPublicationCheckServer();
+
+await Promise.all([
+  staticCvFixture,
+  withdrawnCvFixture,
+  failedCvFixture,
+].map((fixture) => mkdir(fixture, { recursive: true })));
+await Promise.all([
+  writeFile(
+    resolve(staticCvFixture, "index.html"),
+    '<meta name="robots" content="noindex, nofollow, noarchive"><p data-static-cv-runtime="true">Static CV from Nuxt output</p>',
+  ),
+  writeFile(resolve(withdrawnCvFixture, "index.html"), "stale withdrawn CV"),
+  writeFile(resolve(failedCvFixture, "index.html"), "unverified CV"),
+]);
 
 afterAll(
-  () => rm(staticCvStage, { recursive: true, force: true }),
+  async () => {
+    await rm(staticCvStage, { recursive: true, force: true });
+    if (publicationServer.listening) {
+      await stopPublicationCheckServer();
+    }
+  },
   60_000,
 );
 
@@ -55,16 +105,23 @@ describe("Nuxt runtime", async () => {
     nuxtConfig: {
       runtimeConfig: {
         supabaseServiceRoleKey: serverOnlySecret,
+        publicationSupabaseUrl: publicationServerUrl,
+        publicationSupabasePublishableKey: "t06-publication-key",
         public: {
           supabaseUrl: "https://t02-test.supabase.co",
           supabasePublishableKey: "t02-test-publishable-key",
         },
       },
       nitro: {
-        publicAssets: [{ dir: staticCvStage, baseURL: "/" }],
+        serverAssets: [{
+          baseName: "static-cvs",
+          dir: resolve(staticCvStage, "cv"),
+        }],
       },
     },
   });
+
+  await startPublicationCheckServer(publicationAddress.port);
 
   it("serves a representative route natively from Nuxt 4", async () => {
     const html = await $fetch("/runtime");
@@ -81,9 +138,25 @@ describe("Nuxt runtime", async () => {
   });
 
   it("serves staged static CV snapshots from the production server", async () => {
-    const html = await $fetch("/cv/t01-static-smoke/");
+    const response = await fetch(url("/cv/t01-static-smoke"));
+    const html = await response.text();
+    const trailingSlashHtml = await $fetch("/cv/t01-static-smoke/");
 
     expect(html).toContain('data-static-cv-runtime="true"');
+    expect(trailingSlashHtml).toContain('data-static-cv-runtime="true"');
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow, noarchive");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("blocks stale and unverifiable static CV snapshots inside Nuxt", async () => {
+    await expect($fetch("/cv/t06-withdrawn")).rejects.toMatchObject({
+      statusCode: 404,
+      data: "CV is not published.",
+    });
+    await expect($fetch("/cv/t06-verification-fails")).rejects.toMatchObject({
+      statusCode: 503,
+      data: "CV publication status is temporarily unavailable.",
+    });
   });
 
   it("keeps server-only credentials out of public build artifacts", async () => {

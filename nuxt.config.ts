@@ -1,5 +1,17 @@
 import { fileURLToPath } from "node:url";
 
+const publicSupabaseUrl =
+  process.env.NUXT_PUBLIC_SUPABASE_URL ||
+  process.env.SUPABASE_URL ||
+  process.env.VITE_SUPABASE_URL ||
+  "";
+const publicSupabasePublishableKey =
+  process.env.NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  "";
+
 export default defineNuxtConfig({
   compatibilityDate: "2026-07-21",
   modules: ["@pinia/nuxt"],
@@ -10,33 +22,31 @@ export default defineNuxtConfig({
   ],
   runtimeConfig: {
     supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+    publicationSupabaseUrl:
+      process.env.SUPABASE_URL ||
+      publicSupabaseUrl,
+    publicationSupabasePublishableKey:
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      publicSupabasePublishableKey,
     public: {
-      supabaseUrl:
-        process.env.NUXT_PUBLIC_SUPABASE_URL ||
-        process.env.VITE_SUPABASE_URL ||
-        "",
-      supabasePublishableKey:
-        process.env.NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.VITE_SUPABASE_ANON_KEY ||
-        "",
+      supabaseUrl: publicSupabaseUrl,
+      supabasePublishableKey: publicSupabasePublishableKey,
     },
   },
   routeRules: {
     "/app/**": { ssr: false },
-    "/cv/**": { ssr: false },
     "/login": { ssr: false },
   },
   nitro: {
     // Keep the server dependency graph in one module format. Externalizing it
     // creates a Vue Router devtools/perfect-debounce CJS/ESM startup cycle.
     noExternals: true,
-    publicAssets: [
+    serverAssets: [
       {
+        baseName: "static-cvs",
         dir: fileURLToPath(
-          new URL("./.generated/public", import.meta.url),
+          new URL("./.generated/public/cv", import.meta.url),
         ),
-        baseURL: "/",
       },
     ],
   },

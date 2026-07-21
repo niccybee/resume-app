@@ -6,6 +6,9 @@ function mapError(error) {
   if (error.code === "23505") {
     throw new CvWorkspaceError("slug-conflict", "That public slug is already in use.");
   }
+  if (error.code === "P0002") {
+    throw new CvWorkspaceError("not-found", error.message || "CV not found.");
+  }
   if (/jwt|auth|permission|row-level security/i.test(error.message || "")) {
     throw new CvWorkspaceError("authentication-required", "Sign in to manage CVs.");
   }
@@ -98,53 +101,27 @@ export function createSupabaseCvRepository({ client }) {
     },
 
     async save(input) {
-      const user = await actor();
+      await actor();
       const draft = normalizeDraft(input);
-      const payload = {
-        owner_id: user.id,
-        name: draft.name,
-        theme_id: draft.themeId,
-        profile: draft.profile,
-        summary: draft.summary || null,
-        summary_provenance: draft.summaryProvenance,
-      };
-      let result;
-      if (draft.id) {
-        result = await client
-          .from("cv_documents")
-          .update(payload)
-          .eq("id", draft.id)
-          .eq("owner_id", user.id)
-          .select()
-          .single();
-      } else {
-        result = await client.from("cv_documents").insert(payload).select().single();
-      }
-      mapError(result.error);
-      const id = result.data.id;
-      const { error: deleteError } = await client
-        .from("cv_compositions")
-        .delete()
-        .eq("cv_id", id)
-        .eq("owner_id", user.id);
-      mapError(deleteError);
-      if (draft.selections.length) {
-        const { error: insertError } = await client.from("cv_compositions").insert(
-          draft.selections.map((selection) => ({
-            cv_id: id,
-            owner_id: user.id,
+      const { data: id, error } = await client.rpc("save_cv_document", {
+        p_cv_id: draft.id,
+        p_name: draft.name,
+        p_theme_id: draft.themeId,
+        p_profile: draft.profile,
+        p_summary: draft.summary || null,
+        p_summary_provenance: draft.summaryProvenance,
+        p_selections: draft.selections.map((selection) => ({
             block_id: selection.blockId,
             version_id: selection.versionId,
             section: selection.section,
             position: selection.order,
             display: {
               ...(selection.block || {}),
-              ...(selection.group ? { grouping: selection.group } : {}),
+                ...(selection.group ? { grouping: selection.group } : {}),
             },
-          })),
-        );
-        mapError(insertError);
-      }
+        })),
+      });
+      mapError(error);
       return fetchOne("id", id);
     },
 

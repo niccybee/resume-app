@@ -1,4 +1,5 @@
 import { normalizeEmploymentGroup } from "../employment/occasion";
+import { BLOCK_SCHEMA_VERSION, validateBlockContent } from "./blockSchemaRegistry";
 
 export const BLOCK_KINDS = [
   "experience",
@@ -9,14 +10,15 @@ export const BLOCK_KINDS = [
 ];
 
 export class BlockLibraryError extends Error {
-  constructor(code, message) {
+  constructor(code, message, context = null) {
     super(message);
     this.name = "BlockLibraryError";
     this.code = code;
+    this.context = context;
   }
 }
 
-function assertContent(content, kind) {
+function assertContent(content, kind, schemaVersion = BLOCK_SCHEMA_VERSION) {
   if (!content || typeof content !== "object" || Array.isArray(content)) {
     throw new BlockLibraryError(
       "invalid-content",
@@ -24,23 +26,7 @@ function assertContent(content, kind) {
     );
   }
 
-  const requiredField = {
-    experience: "text",
-    skill: "name",
-    certification: "name",
-    education: "institution",
-    interest: "name",
-  }[kind];
-  if (
-    requiredField &&
-    (typeof content[requiredField] !== "string" ||
-      !content[requiredField].trim())
-  ) {
-    throw new BlockLibraryError(
-      "invalid-content",
-      `${kind} content requires a non-empty ${requiredField}.`,
-    );
-  }
+  if (kind) validateBlockContent({ content, kind, schemaVersion });
 }
 
 function assertKind(kind) {
@@ -119,17 +105,28 @@ export function createBlockLibrary({ repository, generator } = {}) {
       "BlockLibrary requires a repository adapter.",
     );
   }
+  const knownKindsByBlockId = new Map();
 
   function normalizeVersionInput(input) {
     if (!input?.blockId) {
       assertKind(input?.kind);
+      if (input?.basedOnVersionId) {
+        throw new BlockLibraryError(
+          "invalid-base-version",
+          "A new CV Block identity cannot be based on another Block's Version.",
+        );
+      }
       if (!input?.title?.trim()) {
         throw new BlockLibraryError("invalid-title", "A new block requires a title.");
       }
     }
-    assertContent(input?.content, input?.kind);
+    const kind = input?.kind || knownKindsByBlockId.get(input?.blockId);
+    assertKind(kind);
+    assertContent(input?.content, kind, input?.schemaVersion);
     return {
       ...input,
+      kind,
+      schemaVersion: input.schemaVersion || BLOCK_SCHEMA_VERSION,
       title: input.title?.trim(),
       source: input.source || { type: "human" },
       contexts: input.contexts || (input.context ? [input.context] : undefined),
@@ -139,11 +136,15 @@ export function createBlockLibrary({ repository, generator } = {}) {
   return {
     async browse(query = {}) {
       const blocks = await repository.browse(query);
+      for (const block of blocks) knownKindsByBlockId.set(block.id, block.kind);
       return buildCatalog(blocks);
     },
 
     async saveVersion(input) {
-      return repository.saveVersion(normalizeVersionInput(input));
+      const normalized = normalizeVersionInput(input);
+      const saved = await repository.saveVersion(normalized);
+      knownKindsByBlockId.set(saved.blockId, normalized.kind);
+      return saved;
     },
 
     async saveVersions(inputs) {
@@ -151,9 +152,17 @@ export function createBlockLibrary({ repository, generator } = {}) {
         throw new BlockLibraryError("invalid-version-list", "At least one block version is required.");
       }
       const normalized = inputs.map(normalizeVersionInput);
-      if (repository.saveVersions) return repository.saveVersions(normalized);
+      if (repository.saveVersions) {
+        const saved = await repository.saveVersions(normalized);
+        saved.forEach((version, index) => knownKindsByBlockId.set(version.blockId, normalized[index].kind));
+        return saved;
+      }
       const versions = [];
-      for (const input of normalized) versions.push(await repository.saveVersion(input));
+      for (const input of normalized) {
+        const saved = await repository.saveVersion(input);
+        knownKindsByBlockId.set(saved.blockId, input.kind);
+        versions.push(saved);
+      }
       return versions;
     },
 
@@ -190,7 +199,7 @@ export function createBlockLibrary({ repository, generator } = {}) {
         instruction: instruction.trim(),
         targetCvId,
       });
-      assertContent(suggestion.content, baseVersion.kind);
+      assertContent(suggestion.content, baseVersion.kind || knownKindsByBlockId.get(blockId));
       const run = repository.recordSuggestion
         ? await repository.recordSuggestion({
             blockId,
@@ -227,6 +236,26 @@ export function createBlockLibrary({ repository, generator } = {}) {
         );
       }
       return repository.resolve(versionIds);
+    },
+
+    async duplicateBlock(blockId, options = {}) {
+      if (!blockId) throw new BlockLibraryError("block-not-found", "CV Block not found.");
+      const saved = await repository.duplicateBlock(blockId, options);
+      const kind = knownKindsByBlockId.get(blockId);
+      if (kind) knownKindsByBlockId.set(saved.blockId, kind);
+      return saved;
+    },
+
+    async archiveBlock(blockId) {
+      return repository.setBlockStatus(blockId, "archived");
+    },
+
+    async restoreBlock(blockId) {
+      return repository.setBlockStatus(blockId, "active");
+    },
+
+    async deleteBlock(blockId) {
+      return repository.deleteBlock(blockId);
     },
   };
 }

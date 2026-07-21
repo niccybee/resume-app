@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   browse: vi.fn(),
   saveVersion: vi.fn(),
   suggestVersion: vi.fn(),
+  duplicateBlock: vi.fn(),
+  archiveBlock: vi.fn(),
+  restoreBlock: vi.fn(),
+  deleteBlock: vi.fn(),
   backfill: vi.fn(),
 }));
 
@@ -16,6 +20,10 @@ vi.mock("../services/blockLibrary", () => ({
     browse: mocks.browse,
     saveVersion: mocks.saveVersion,
     suggestVersion: mocks.suggestVersion,
+    duplicateBlock: mocks.duplicateBlock,
+    archiveBlock: mocks.archiveBlock,
+    restoreBlock: mocks.restoreBlock,
+    deleteBlock: mocks.deleteBlock,
   },
 }));
 
@@ -209,6 +217,45 @@ describe("native CV Block Library interactions", () => {
         metadata: {},
       }],
     });
+  });
+
+  it("duplicates, archives, restores, and safely deletes CV Blocks", async () => {
+    const archived = { ...interestBlock, status: "archived", id: "block-archived", title: "Archived interest" };
+    mocks.browse.mockResolvedValue({ ...catalog, blocks: [...catalog.blocks, archived] });
+    mocks.duplicateBlock.mockResolvedValue({ blockId: "block-copy" });
+    mocks.archiveBlock.mockResolvedValue({ id: experienceBlock.id, status: "archived" });
+    mocks.restoreBlock.mockResolvedValue({ id: archived.id, status: "active" });
+    mocks.deleteBlock.mockResolvedValue({ deletedBlockId: skillBlock.id });
+    const wrapper = mount(BlockLibraryView);
+    await flushPromises();
+
+    const click = async (label) => {
+      await wrapper.findAll("button").find((item) => item.text() === label).trigger("click");
+      await flushPromises();
+    };
+    await click("Duplicate CV Block");
+    await click("Archive CV Block");
+    await click("Delete CV Block");
+    await click("Restore CV Block");
+
+    expect(mocks.browse).toHaveBeenCalledWith({ includeArchived: true });
+    expect(mocks.duplicateBlock).toHaveBeenCalledWith(experienceBlock.id);
+    expect(mocks.archiveBlock).toHaveBeenCalledWith(experienceBlock.id);
+    expect(mocks.deleteBlock).toHaveBeenCalledWith(experienceBlock.id);
+    expect(mocks.restoreBlock).toHaveBeenCalledWith(archived.id);
+  });
+
+  it("offers archive recovery when a referenced CV Block cannot be deleted", async () => {
+    mocks.deleteBlock.mockRejectedValue(Object.assign(new Error("CV Block is referenced. Archive it instead."), {
+      code: "block-referenced", context: { nextActions: ["archive"] },
+    }));
+    const wrapper = await mountLibrary();
+
+    await wrapper.findAll("button").find((item) => item.text() === "Delete CV Block").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.get('[role="alert"]').text()).toContain("Archive it instead");
+    expect(wrapper.text()).toContain("Archive CV Block");
   });
 
   it("refreshes the current Block Version after a stale conflict before retrying", async () => {

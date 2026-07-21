@@ -29,7 +29,7 @@ function contentFor(kind, value) {
   return { name: value };
 }
 
-const visibleBlocks = computed(() => catalog.value.blocks.filter((block) => {
+const visibleBlocks = computed(() => catalog.value.blocks.filter((block) => block.status === "active").filter((block) => {
   if (filters.kind && block.kind !== filters.kind) return false;
   const employment = block.contexts.find((item) => item.type === "employment");
   const normalizedEmployment = normalizeEmploymentGroup(employment?.metadata);
@@ -40,6 +40,7 @@ const visibleBlocks = computed(() => catalog.value.blocks.filter((block) => {
   if (!filters.search.trim()) return true;
   return JSON.stringify(block).toLowerCase().includes(filters.search.trim().toLowerCase());
 }));
+const archivedBlocks = computed(() => catalog.value.blocks.filter((block) => block.status === "archived"));
 const visibleBlockIds = computed(() => new Set(visibleBlocks.value.map((block) => block.id)));
 const visibleExperienceGroups = computed(() => {
   if (filters.kind && filters.kind !== "experience") return [];
@@ -72,7 +73,7 @@ async function load() {
   status.value = "loading";
   error.value = "";
   try {
-    catalog.value = await blockLibrary.browse();
+    catalog.value = await blockLibrary.browse({ includeArchived: true });
     status.value = catalog.value.blocks.length ? "loaded" : "empty";
     return true;
   } catch (reason) {
@@ -120,6 +121,22 @@ async function saveEdit(content = contentFor(editing.value.kind, editValue.value
 async function suggest() {
   try { proposal.value = await blockLibrary.suggestVersion({ blockId: editing.value.id, basedOnVersionId: editing.value.currentVersion.id, instruction: instruction.value }); }
   catch (reason) { error.value = reason.message; }
+}
+
+async function runBlockLifecycle(action, block) {
+  saving.value = true;
+  error.value = "";
+  try {
+    if (action === "duplicate") await blockLibrary.duplicateBlock(block.id);
+    if (action === "archive") await blockLibrary.archiveBlock(block.id);
+    if (action === "restore") await blockLibrary.restoreBlock(block.id);
+    if (action === "delete") await blockLibrary.deleteBlock(block.id);
+    await load();
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    saving.value = false;
+  }
 }
 
 async function importFormerHomepage() {
@@ -180,7 +197,7 @@ onMounted(load);
       <div class="block-grid">
         <article v-for="block in occasion.blocks" :key="block.id">
           <p class="kind">Experience</p><h4>{{ block.title }}</h4><p>{{ currentValue(block) }}</p>
-          <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button></footer>
+          <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><span class="block-actions"><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button><button class="secondary control-compact" @click="runBlockLifecycle('duplicate', block)">Duplicate CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('archive', block)">Archive CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('delete', block)">Delete CV Block</button></span></footer>
         </article>
       </div>
     </section>
@@ -188,9 +205,19 @@ onMounted(load);
   <section v-if="visibleSidebarBlocks.length" class="block-grid sidebar-blocks">
     <article v-for="block in visibleSidebarBlocks" :key="block.id">
       <p class="kind">{{ block.kind }}</p><h3>{{ block.title }}</h3><p>{{ currentValue(block) }}</p>
-      <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button></footer>
+      <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><span class="block-actions"><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button><button class="secondary control-compact" @click="runBlockLifecycle('duplicate', block)">Duplicate CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('archive', block)">Archive CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('delete', block)">Delete CV Block</button></span></footer>
     </article>
   </section>
+
+  <details v-if="archivedBlocks.length" class="archived-blocks">
+    <summary>Archived CV Blocks ({{ archivedBlocks.length }})</summary>
+    <section class="block-grid">
+      <article v-for="block in archivedBlocks" :key="block.id">
+        <p class="kind">{{ block.kind }}</p><h3>{{ block.title }}</h3><p>{{ currentValue(block) }}</p>
+        <button class="secondary control-compact" @click="runBlockLifecycle('restore', block)">Restore CV Block</button>
+      </article>
+    </section>
+  </details>
 
   <dialog :open="Boolean(editing)">
     <article v-if="editing"><header><button aria-label="Close" rel="prev" @click="editing = null"></button><h2>{{ editing.title }}</h2></header>
@@ -202,4 +229,4 @@ onMounted(load);
   </dialog>
 </template>
 
-<style scoped>.library-tools { display:grid; grid-template-columns:2fr repeat(3,1fr) auto; gap:.6rem; align-items:start; } .create-panel { margin:1rem 0 2rem; } .import-panel { display:flex; justify-content:space-between; align-items:center; gap:2rem; border:1px solid #dce3df; box-shadow:none; } .import-panel p { margin:.3rem 0; } .import-panel button { width:auto; white-space:nowrap; } .employer-group { margin:2rem 0; padding-left:1rem; border-left:4px solid #37624e; } .employer-group > header h2 { margin:.15rem 0 1rem; } .role-group { margin:1.25rem 0 2rem; } .role-group > h3 { margin-bottom:.2rem; } .occasion-period { color:#52635b; font-size:.8rem; margin-bottom:.75rem; } .block-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; } .block-grid article { box-shadow:none; border:1px solid #dce3df; } .sidebar-blocks { margin-top:2rem; } .kind { color:#37624e; text-transform:uppercase; font-size:.7rem; letter-spacing:.12em; } footer { display:flex; justify-content:space-between; align-items:center; } dialog article { max-width:46rem; } @media(max-width:900px){.library-tools{grid-template-columns:1fr 1fr}.import-panel{align-items:flex-start;flex-direction:column}} @media(max-width:600px){.library-tools{grid-template-columns:1fr}.employer-group{padding-left:.7rem}}</style>
+<style scoped>.library-tools { display:grid; grid-template-columns:2fr repeat(3,1fr) auto; gap:.6rem; align-items:start; } .create-panel { margin:1rem 0 2rem; } .import-panel { display:flex; justify-content:space-between; align-items:center; gap:2rem; border:1px solid #dce3df; box-shadow:none; } .import-panel p { margin:.3rem 0; } .import-panel button { width:auto; white-space:nowrap; } .employer-group { margin:2rem 0; padding-left:1rem; border-left:4px solid #37624e; } .employer-group > header h2 { margin:.15rem 0 1rem; } .role-group { margin:1.25rem 0 2rem; } .role-group > h3 { margin-bottom:.2rem; } .occasion-period { color:#52635b; font-size:.8rem; margin-bottom:.75rem; } .block-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; } .block-grid article { box-shadow:none; border:1px solid #dce3df; } .sidebar-blocks,.archived-blocks { margin-top:2rem; } .kind { color:#37624e; text-transform:uppercase; font-size:.7rem; letter-spacing:.12em; } footer { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; } .block-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.35rem; } dialog article { max-width:46rem; } @media(max-width:900px){.library-tools{grid-template-columns:1fr 1fr}.import-panel{align-items:flex-start;flex-direction:column}} @media(max-width:600px){.library-tools{grid-template-columns:1fr}.employer-group{padding-left:.7rem}}</style>

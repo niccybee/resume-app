@@ -13,7 +13,9 @@ async function defaultGetActor(client) {
 function throwRepositoryError(error) {
   if (!error) return;
   const message = error.message || "The block repository request failed.";
-  const code = /changed since|conflict/i.test(message)
+  const code = /referenced.*archive/i.test(message)
+    ? "block-referenced"
+    : /changed since|conflict/i.test(message)
     ? "conflict"
     : /auth/i.test(message)
       ? "authentication-required"
@@ -23,6 +25,7 @@ function throwRepositoryError(error) {
     code === "conflict"
       ? "This CV Block changed since you opened it. Review the latest Block Version and try again."
       : message,
+    code === "block-referenced" ? { nextActions: ["archive"] } : null,
   );
 }
 
@@ -42,6 +45,7 @@ function mapVersion(row) {
     blockId: row.block_id,
     number: row.version_number,
     content: row.content,
+    schemaVersion: row.schema_version || "1",
     source: {
       type: row.source_type,
       ...(row.source_metadata || {}),
@@ -119,6 +123,7 @@ export function createSupabaseBlockRepository({
               id,
               block_id,
               version_number,
+              schema_version,
               content,
               source_type,
               source_metadata,
@@ -127,8 +132,9 @@ export function createSupabaseBlockRepository({
             )
           `,
         )
-        .eq("owner_id", actor.id)
-        .eq("status", "active");
+        .eq("owner_id", actor.id);
+
+      if (!query.includeArchived) request = request.eq("status", "active");
 
       if (query.kind) request = request.eq("kind", query.kind);
       const { data, error } = await request.order("updated_at", {
@@ -176,6 +182,7 @@ export function createSupabaseBlockRepository({
         p_kind: input.kind || null,
         p_title: input.title || null,
         p_content: input.content,
+        p_schema_version: input.schemaVersion || "1",
         p_based_on_version_id: input.basedOnVersionId || null,
         p_source_type: input.source?.type || "human",
         p_source_metadata: input.source || {},
@@ -193,6 +200,7 @@ export function createSupabaseBlockRepository({
           kind: input.kind || null,
           title: input.title || null,
           content: input.content,
+          schema_version: input.schemaVersion || "1",
           based_on_version_id: input.basedOnVersionId || null,
           source_type: input.source?.type || "human",
           source_metadata: input.source || {},
@@ -210,7 +218,7 @@ export function createSupabaseBlockRepository({
       const { data, error } = await client
         .from("cv_block_versions")
         .select(
-          "id, block_id, version_number, content, source_type, source_metadata, based_on_version_id, created_at",
+          "id, block_id, version_number, schema_version, content, source_type, source_metadata, based_on_version_id, created_at",
         )
         .eq("owner_id", actor.id)
         .in("id", versionIds);
@@ -244,6 +252,35 @@ export function createSupabaseBlockRepository({
         })
         .select()
         .single();
+      throwRepositoryError(error);
+      return data;
+    },
+
+    async duplicateBlock(blockId, { title } = {}) {
+      await requireActor();
+      const { data, error } = await client.rpc("duplicate_cv_block", {
+        p_block_id: blockId,
+        p_title: title || null,
+      });
+      throwRepositoryError(error);
+      return data;
+    },
+
+    async setBlockStatus(blockId, status) {
+      await requireActor();
+      const { data, error } = await client.rpc("set_cv_block_status", {
+        p_block_id: blockId,
+        p_status: status,
+      });
+      throwRepositoryError(error);
+      return data;
+    },
+
+    async deleteBlock(blockId) {
+      await requireActor();
+      const { data, error } = await client.rpc("delete_cv_block", {
+        p_block_id: blockId,
+      });
       throwRepositoryError(error);
       return data;
     },

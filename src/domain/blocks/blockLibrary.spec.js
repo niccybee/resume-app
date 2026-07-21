@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createBlockLibrary } from "./blockLibrary";
 import { createMemoryBlockRepository } from "./createMemoryBlockRepository";
 import { importLegacyCvItems } from "./importLegacyCvItems";
+import { validateBlockContent } from "./blockSchemaRegistry";
 
 function createTestLibrary(generator) {
   return createBlockLibrary({
@@ -23,6 +24,24 @@ const employmentContext = {
 };
 
 describe("BlockLibrary", () => {
+  it("validates every CV Block kind through the versioned schema registry", () => {
+    const valid = {
+      experience: { text: "Led a product launch.", highlights: ["Three markets"] },
+      skill: { name: "Product analytics", keywords: ["SQL"] },
+      certification: { name: "GA4", issuer: "Google" },
+      education: { institution: "RMIT", area: "Marketing" },
+      interest: { name: "Basketball", keywords: ["NBL"] },
+    };
+
+    for (const [kind, content] of Object.entries(valid)) {
+      expect(validateBlockContent({ kind, schemaVersion: "1", content })).toEqual(content);
+    }
+    expect(() => validateBlockContent({ kind: "skill", schemaVersion: "1", content: { name: "", keywords: "SQL" } }))
+      .toThrow(expect.objectContaining({ code: "invalid-content" }));
+    expect(() => validateBlockContent({ kind: "skill", schemaVersion: "99", content: valid.skill }))
+      .toThrow(expect.objectContaining({ code: "unsupported-schema-version" }));
+  });
+
   it("categorises experience by stable employer and role identities", async () => {
     const blocks = createTestLibrary();
 
@@ -126,11 +145,71 @@ describe("BlockLibrary", () => {
       }),
     ).rejects.toMatchObject({ code: "conflict" });
     await expect(blocks.resolve([first.id, second.id])).resolves.toEqual([
-      expect.objectContaining({ content: { text: "Automated reporting." } }),
+      expect.objectContaining({ schemaVersion: "1", content: { text: "Automated reporting." } }),
       expect.objectContaining({
+        schemaVersion: "1",
+        basedOnVersionId: first.id,
         content: { text: "Automated multi-channel reporting." },
       }),
     ]);
+  });
+
+  it("duplicates a CV Block into an independent identity and version history", async () => {
+    const blocks = createTestLibrary();
+    const source = await blocks.saveVersion({
+      kind: "experience", title: "Launch", context: employmentContext,
+      content: { text: "Launched the product." },
+    });
+
+    const duplicate = await blocks.duplicateBlock(source.blockId, { title: "Launch for second role" });
+    const catalog = await blocks.browse();
+    const sourceBlock = catalog.blocks.find((block) => block.id === source.blockId);
+    const duplicateBlock = catalog.blocks.find((block) => block.id === duplicate.blockId);
+
+    expect(duplicate.blockId).not.toBe(source.blockId);
+    expect(duplicate).toMatchObject({ number: 1, basedOnVersionId: null, content: source.content });
+    expect(duplicateBlock).toMatchObject({ title: "Launch for second role", versions: [expect.objectContaining({ number: 1 })] });
+    expect(sourceBlock.versions).toHaveLength(1);
+  });
+
+  it("rejects cross-identity base provenance when creating a CV Block", async () => {
+    const blocks = createTestLibrary();
+    const source = await blocks.saveVersion({
+      kind: "skill", title: "Analytics", content: { name: "Analytics" },
+    });
+
+    await expect(blocks.saveVersion({
+      kind: "skill", title: "Other identity", basedOnVersionId: source.id,
+      content: { name: "Other" },
+    })).rejects.toMatchObject({ code: "invalid-base-version" });
+  });
+
+  it("archives referenced CV Blocks instead of deleting them and deletes only unreferenced identities", async () => {
+    const references = new Set();
+    const repository = createMemoryBlockRepository({ isBlockReferenced: (blockId) => references.has(blockId) });
+    const blocks = createBlockLibrary({ repository });
+    const referenced = await blocks.saveVersion({
+      kind: "skill", title: "Analytics", content: { name: "Analytics" },
+    });
+    const disposable = await blocks.saveVersion({
+      kind: "interest", title: "Music", content: { name: "Music" },
+    });
+    references.add(referenced.blockId);
+
+    await expect(blocks.deleteBlock(referenced.blockId)).rejects.toMatchObject({
+      code: "block-referenced", context: { nextActions: ["archive"] },
+    });
+    await expect(blocks.archiveBlock(referenced.blockId)).resolves.toMatchObject({ status: "archived" });
+    await expect(blocks.browse()).resolves.toMatchObject({ blocks: [expect.not.objectContaining({ id: referenced.blockId })] });
+    await expect(blocks.browse({ includeArchived: true })).resolves.toMatchObject({
+      blocks: expect.arrayContaining([expect.objectContaining({ id: referenced.blockId, status: "archived" })]),
+    });
+    await expect(blocks.restoreBlock(referenced.blockId)).resolves.toMatchObject({ status: "active" });
+    references.delete(referenced.blockId);
+    await expect(blocks.deleteBlock(referenced.blockId)).resolves.toMatchObject({ deletedBlockId: referenced.blockId });
+    await expect(blocks.deleteBlock(disposable.blockId)).resolves.toMatchObject({ deletedBlockId: disposable.blockId });
+    await expect(blocks.resolve([referenced.id])).rejects.toMatchObject({ code: "version-not-found" });
+    await expect(blocks.resolve([disposable.id])).rejects.toMatchObject({ code: "version-not-found" });
   });
 
   it("keeps AI suggestions unsaved until explicitly accepted", async () => {

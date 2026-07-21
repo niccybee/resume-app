@@ -19,7 +19,10 @@ atomic start, save, and finish boundaries. Apply
 `database/cv_change_proposals.sql` after Editing Sessions to add immutable,
 owner-scoped Change Proposals with atomic explicit apply and discard operations,
 then `database/cv_lifecycle.sql` to add copy and archive/restore proposal
-operations. Apply
+operations. Apply `database/cv_block_identity_lifecycle.sql` after those
+composition tables exist to add versioned CV Block content validation,
+owner/identity triggers, independent duplication, and archive/restore/delete
+boundaries. Apply
 `database/cv_public_read.sql`. The Revision migration is transactional and
 idempotent: it rejects duplicate CV Block identities before backfilling immutable
 v1 snapshots and pinning existing public slugs to those snapshots. Finishing an
@@ -39,6 +42,14 @@ first finished Revision is v1. Both copy from an exact CV Revision or current
 Editing Session snapshot without changing the source. CVs and Editing Sessions
 are archived and restored through the same reviewed Change Proposal boundary;
 their compositions remain retained, and CV archival never cascades to CV Blocks.
+
+CV Block content is stored with schema version `1` and validated by the same
+kind registry in the application and database for experience, skill,
+certification, education, and interest content. Content changes append an
+immutable Block Version with same-identity base provenance. Duplicating starts
+an independent CV Block at v1. Referenced identities cannot be deleted and
+return archive as the safe recovery action; archived CV Blocks remain available
+for deliberate restoration.
 
 OpenRouter requests run through the Nuxt server at `/api/openrouter`. The private
 service-role key is used only server-side to call the restricted Vault RPCs in

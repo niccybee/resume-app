@@ -1,0 +1,11 @@
+[build]
+  command = "nr build"
+  publish = "dist"
+
+[build.environment]
+  STATIC_CV_GENERATION_REQUIRED = "true"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

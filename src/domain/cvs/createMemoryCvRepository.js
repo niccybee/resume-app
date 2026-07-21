@@ -6,8 +6,22 @@ function copy(value) {
   return structuredClone(value);
 }
 
+function lineage(item) {
+  return {
+    ...normalizeDraft({
+      id: item.id,
+      name: item.name,
+      slug: item.slug,
+      status: item.status,
+      publishedAt: item.publishedAt,
+      publishedRevisionId: item.publishedRevisionId,
+    }),
+    ...(item.statusBeforeArchive ? { statusBeforeArchive: item.statusBeforeArchive } : {}),
+  };
+}
+
 export function createMemoryCvRepository(initial = [], { clock = () => new Date() } = {}) {
-  const records = new Map(initial.map((item) => [item.id, normalizeDraft(item)]));
+  const records = new Map(initial.map((item) => [item.id, lineage(item)]));
   const revisions = new Map(initial
     .filter((item) => item.id)
     .map((item) => {
@@ -121,46 +135,57 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       const value = editingSessions.get(id);
       return value ? copy(value) : null;
     },
+    async createCvEditingSession(input) {
+      const draft = normalizeDraft(input);
+      const cvId = `cv-${++sequence}`;
+      records.set(cvId, normalizeDraft({ id: cvId, name: draft.name }));
+      revisions.set(cvId, []);
+      const now = nowIso();
+      const created = {
+        id: `session-${++sessionSequence}`,
+        cvId,
+        baseRevisionId: null,
+        status: "open",
+        optimisticVersion: 1,
+        name: draft.name,
+        themeId: draft.themeId,
+        profile: copy(draft.profile),
+        summary: draft.summary,
+        summaryProvenance: copy(draft.summaryProvenance),
+        selections: copy(draft.selections),
+        finishedRevisionId: null,
+        createdAt: now,
+        updatedAt: now,
+        finishedAt: null,
+      };
+      editingSessions.set(created.id, created);
+      return copy(created);
+    },
     async startEditingSession(cvId, requestedBaseRevisionId = null) {
       const document = records.get(cvId);
       if (!document) throw new CvWorkspaceError("not-found", "CV not found.");
       if (document.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before starting an Editing Session.");
       const history = revisions.get(cvId) || [];
-      if (!history.length && !requestedBaseRevisionId) {
-        history.push({
-          id: `${cvId}-revision-1`,
-          cvId,
-          number: 1,
-          baseRevisionId: null,
-          themeId: document.themeId,
-          profile: copy(document.profile),
-          summary: document.summary,
-          summaryProvenance: copy(document.summaryProvenance),
-          selections: copy(document.selections),
-          createdAt: new Date().toISOString(),
-        });
-        revisions.set(cvId, history);
-      }
       const base = requestedBaseRevisionId
         ? history.find((item) => item.id === requestedBaseRevisionId)
         : [...history].sort((a, b) => b.number - a.number)[0];
-      if (!base) {
+      if (requestedBaseRevisionId && !base) {
         throw new CvWorkspaceError("not-found", "Base CV Revision not found.");
       }
       const now = nowIso();
       const value = {
         id: `session-${++sessionSequence}`,
         cvId,
-        baseRevisionId: base.id,
+        baseRevisionId: base?.id || null,
         status: "open",
         optimisticVersion: 1,
         finishedRevisionId: null,
         name: document.name,
-        themeId: base.themeId,
-        profile: copy(base.profile),
-        summary: base.summary,
-        summaryProvenance: copy(base.summaryProvenance),
-        selections: copy(base.selections || []),
+        themeId: base?.themeId || null,
+        profile: copy(base?.profile || {}),
+        summary: base?.summary || "",
+        summaryProvenance: copy(base?.summaryProvenance || null),
+        selections: copy(base?.selections || []),
         createdAt: now,
         updatedAt: now,
         finishedAt: null,
@@ -551,16 +576,6 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       };
       changeProposals.set(id, applied);
       return copy(applied);
-    },
-    async save(input) {
-      const draft = normalizeDraft(input);
-      if (draft.id && records.get(draft.id)?.status === "archived") {
-        throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before changing it.");
-      }
-      const id = draft.id || `cv-${++sequence}`;
-      const saved = { ...draft, id };
-      records.set(id, saved);
-      return copy(saved);
     },
     async publish() {
       throw new CvWorkspaceError("explicit-apply-required", "Select an exact CV Revision and apply its publication Change Proposal.");

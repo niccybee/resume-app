@@ -7,8 +7,9 @@ import { createTaskBlocks } from "../domain/tasks/createTaskBlocks";
 import { blockLibrary } from "../services/blockLibrary";
 import { cvWorkspace } from "../services/cvWorkspace";
 
+let routeParams = { cvId: "cv-1" };
 vi.mock("vue-router", () => ({
-  useRoute: () => ({ params: { cvId: "cv-1" } }),
+  useRoute: () => ({ params: routeParams }),
   useRouter: () => ({ replace: vi.fn() }),
 }));
 vi.mock("../services/blockLibrary", () => ({
@@ -25,6 +26,7 @@ vi.mock("../services/cvWorkspace", () => ({
     history: vi.fn(),
     editingSessions: vi.fn(),
     startEditingSession: vi.fn(),
+    createCvEditingSession: vi.fn(),
     resumeEditingSession: vi.fn(),
     saveEditingSession: vi.fn(),
     finishEditingSession: vi.fn(),
@@ -32,7 +34,6 @@ vi.mock("../services/cvWorkspace", () => ({
     proposeLifecycleChange: vi.fn(),
     applyChangeProposal: vi.fn(),
     discardChangeProposal: vi.fn(),
-    save: vi.fn(),
     publish: vi.fn(),
     unpublish: vi.fn(),
     suggestSummary: vi.fn(),
@@ -48,7 +49,8 @@ function button(wrapper, label) {
   return wrapper.findAll("button").find((item) => item.text() === label);
 }
 
-async function mountEditor({ taskChatStub = true } = {}) {
+async function mountEditor({ taskChatStub = true, cvId = "cv-1" } = {}) {
+  routeParams = cvId ? { cvId } : {};
   const wrapper = mount(CvDraftEditor, {
     global: {
       stubs: {
@@ -64,6 +66,7 @@ async function mountEditor({ taskChatStub = true } = {}) {
 describe("CV summary proposals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    routeParams = { cvId: "cv-1" };
     blockLibrary.browse.mockResolvedValue({ blocks: [], experience: [], sidebar: {} });
     createTaskBlocks.mockResolvedValue([]);
     cvWorkspace.history.mockResolvedValue([]);
@@ -165,14 +168,14 @@ describe("CV summary proposals", () => {
     expect(wrapper.text()).toContain("Editing Session based on Revision 2");
   });
 
-  it("starts the first Editing Session for a newly created draft CV", async () => {
+  it("starts a base-less first Editing Session when no session or Revision exists", async () => {
     cvWorkspace.history.mockResolvedValue([]);
     cvWorkspace.startEditingSession.mockResolvedValue({
       id: "session-first",
       cvId: "cv-1",
       status: "open",
-      baseRevisionId: "revision-1",
-      baseRevisionNumber: 1,
+      baseRevisionId: null,
+      baseRevisionNumber: null,
       optimisticVersion: 1,
       name: "Product CV",
       profile: { basics: { name: "Nic" } },
@@ -185,7 +188,47 @@ describe("CV summary proposals", () => {
     await flushPromises();
 
     expect(cvWorkspace.startEditingSession).toHaveBeenCalledWith("cv-1", null);
-    expect(wrapper.text()).toContain("Editing Session based on Revision 1");
+    expect(wrapper.text()).toContain("Initial Editing Session");
+  });
+
+  it("offers resume instead of a duplicate first session after reloading a new CV", async () => {
+    cvWorkspace.history.mockResolvedValue([]);
+    cvWorkspace.editingSessions.mockResolvedValue([{
+      id: "session-first",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: null,
+      baseRevisionNumber: null,
+      optimisticVersion: 1,
+    }]);
+
+    const wrapper = await mountEditor();
+
+    expect(button(wrapper, "Start first Editing Session")).toBeUndefined();
+    expect(button(wrapper, "Resume Editing Session")).toBeTruthy();
+  });
+
+  it("opens lineage-only CV metadata before an Editing Session is resumed", async () => {
+    cvWorkspace.open.mockResolvedValue({
+      id: "cv-1",
+      name: "Product CV",
+      status: "draft",
+      publishedRevisionId: null,
+    });
+    cvWorkspace.editingSessions.mockResolvedValue([{
+      id: "session-1",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: "revision-1",
+      baseRevisionNumber: 1,
+      optimisticVersion: 2,
+    }]);
+
+    const wrapper = await mountEditor();
+
+    expect(wrapper.find('input[placeholder="Product lead CV"]').element.value).toBe("Product CV");
+    expect(wrapper.find('input[type="email"]').element.value).toBe("");
+    expect(button(wrapper, "Resume Editing Session")).toBeTruthy();
   });
 
   it("persists and finishes the active Editing Session through optimistic versions", async () => {
@@ -570,7 +613,7 @@ describe("CV summary proposals", () => {
     expect(button(wrapper, "Finish as CV Revision")).toBeUndefined();
   });
 
-  it("adds, regroups, reorders, removes, and saves exact Block Versions", async () => {
+  it("adds, regroups, reorders, removes, and saves exact Block Versions in an Editing Session", async () => {
     blockLibrary.browse.mockResolvedValue({
       blocks: [{
         id: "block-product-launch",
@@ -634,8 +677,21 @@ describe("CV summary proposals", () => {
         block: { title: "Sports", kind: "interest" },
       }],
     });
-    cvWorkspace.save.mockImplementation(async (draft) => ({ ...draft }));
+    const editingSession = {
+      id: "session-edit", cvId: "cv-1", baseRevisionId: "revision-1", baseRevisionNumber: 1,
+      status: "open", optimisticVersion: 1, name: "Product CV", themeId: "editorial",
+      profile: { basics: { name: "Nic", label: "Product Lead", email: "nic@example.com" } },
+      summary: "Existing summary",
+      selections: [],
+    };
+    editingSession.selections = (await cvWorkspace.open()).selections;
+    cvWorkspace.editingSessions.mockResolvedValue([editingSession]);
+    cvWorkspace.resumeEditingSession.mockResolvedValue(editingSession);
+    cvWorkspace.saveEditingSession.mockImplementation(async (session) => ({ ...session, optimisticVersion: 2 }));
     const wrapper = await mountEditor();
+
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
 
     const libraryRow = wrapper.get(".library-row");
     await libraryRow.get('select[aria-label="Block Version"]').setValue(
@@ -661,12 +717,13 @@ describe("CV summary proposals", () => {
     );
     await wrapper.get('input[type="email"]').setValue("product@example.com");
     await wrapper.get(".editor-controls > label select").setValue("modern");
-    await button(wrapper, "Save CV").trigger("click");
+    await button(wrapper, "Save Editing Session").trigger("click");
     await flushPromises();
 
-    const saved = cvWorkspace.save.mock.calls[0][0];
+    const saved = cvWorkspace.saveEditingSession.mock.calls[0][0];
     expect(saved).toMatchObject({
-      id: "cv-1",
+      id: "session-edit",
+      cvId: "cv-1",
       name: "Google Product Manager CV",
       themeId: "modern",
       profile: {
@@ -692,6 +749,24 @@ describe("CV summary proposals", () => {
         order: 1,
       }),
     ]);
+  });
+
+  it("creates a new CV directly as an initial Editing Session", async () => {
+    cvWorkspace.createCvEditingSession.mockResolvedValue({
+      id: "session-new", cvId: "cv-new", baseRevisionId: null, status: "open", optimisticVersion: 1,
+      name: "New Product CV", profile: { basics: {} }, summary: "", selections: [],
+    });
+    const wrapper = await mountEditor({ cvId: null });
+    await wrapper.get('input[placeholder="Product lead CV"]').setValue("New Product CV");
+
+    await button(wrapper, "Create CV Editing Session").trigger("click");
+    await flushPromises();
+
+    expect(cvWorkspace.createCvEditingSession).toHaveBeenCalledWith(expect.objectContaining({
+      id: null, name: "New Product CV", selections: [],
+    }));
+    expect(button(wrapper, "Save Editing Session")).toBeDefined();
+    expect(wrapper.get('[role="status"]').text()).toContain("initial Editing Session created");
   });
 
   it("shows and explicitly replaces an older pinned Block Version", async () => {

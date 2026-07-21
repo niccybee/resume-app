@@ -45,19 +45,16 @@ function mapError(error) {
   throw new CvWorkspaceError("repository-error", error.message || "The CV request failed.");
 }
 
-function mapDocument(row, selections = []) {
+const CV_LINEAGE_COLUMNS = "id, name, slug, status, published_at, published_revision_id";
+
+function mapDocument(row) {
   return normalizeDraft({
     id: row.id,
     name: row.name,
     slug: row.slug,
     status: row.status,
-    themeId: row.theme_id,
-    profile: row.profile || {},
-    summary: row.summary,
-    summaryProvenance: row.summary_provenance,
     publishedAt: row.published_at,
     publishedRevisionId: row.published_revision_id || row.publishedRevisionId,
-    selections,
   });
 }
 
@@ -157,39 +154,6 @@ export function createSupabaseCvRepository({ client }) {
     return data?.session?.user || null;
   }
 
-  async function selectionsFor(cvId) {
-    const { data: selections, error } = await client
-      .from("cv_compositions")
-      .select("block_id, version_id, section, position, display")
-      .eq("cv_id", cvId)
-      .order("section")
-      .order("position");
-    mapError(error);
-    const versionIds = (selections || []).map((item) => item.version_id);
-    if (!versionIds.length) return [];
-    const { data: versions, error: versionsError } = await client
-      .from("cv_block_versions")
-      .select("id, content, source_type, source_metadata")
-      .in("id", versionIds);
-    mapError(versionsError);
-    const byId = new Map((versions || []).map((version) => [version.id, version]));
-    return (selections || []).map((item) => ({
-      blockId: item.block_id,
-      versionId: item.version_id,
-      section: item.section,
-      order: item.position,
-      content: byId.get(item.version_id)?.content || {},
-      block: item.display || {},
-      group: item.display?.grouping || undefined,
-      source: byId.get(item.version_id)
-        ? {
-            type: byId.get(item.version_id).source_type,
-            ...byId.get(item.version_id).source_metadata,
-          }
-        : null,
-    }));
-  }
-
   async function fetchEditingSession(id) {
     await actor();
     const { data, error } = await client.rpc("get_cv_editing_session", {
@@ -211,12 +175,12 @@ export function createSupabaseCvRepository({ client }) {
   }
 
   async function fetchOne(column, value, { published = false } = {}) {
-    let request = client.from("cv_documents").select("*").eq(column, value);
+    let request = client.from("cv_documents").select(CV_LINEAGE_COLUMNS).eq(column, value);
     if (published) request = request.eq("status", "published");
     const { data, error } = await request.maybeSingle();
     mapError(error);
     if (!data) return null;
-    return mapDocument(data, await selectionsFor(data.id));
+    return mapDocument(data);
   }
 
   return {
@@ -225,7 +189,7 @@ export function createSupabaseCvRepository({ client }) {
       if (!user) return [];
       const { data, error } = await client
         .from("cv_documents")
-        .select("*")
+        .select(CV_LINEAGE_COLUMNS)
         .eq("owner_id", user.id)
         .order("updated_at", { ascending: false });
       mapError(error);
@@ -273,6 +237,23 @@ export function createSupabaseCvRepository({ client }) {
     },
 
     getEditingSession: fetchEditingSession,
+
+    async createCvEditingSession(input) {
+      await actor();
+      const draft = normalizeDraft(input);
+      const { data: id, error } = await client.rpc("create_cv_with_editing_session", {
+        p_state: {
+          name: draft.name,
+          themeId: draft.themeId,
+          profile: draft.profile,
+          summary: draft.summary,
+          summaryProvenance: draft.summaryProvenance,
+          selections: draft.selections,
+        },
+      });
+      mapError(error);
+      return fetchEditingSession(id);
+    },
 
     async startEditingSession(cvId, baseRevisionId = null) {
       await actor();
@@ -386,22 +367,6 @@ export function createSupabaseCvRepository({ client }) {
       });
       mapError(error);
       return mapChangeProposal(data);
-    },
-
-    async save(input) {
-      await actor();
-      const draft = normalizeDraft(input);
-      const { data: id, error } = await client.rpc("save_cv_document", {
-        p_cv_id: draft.id,
-        p_name: draft.name,
-        p_theme_id: draft.themeId,
-        p_profile: draft.profile,
-        p_summary: draft.summary || null,
-        p_summary_provenance: draft.summaryProvenance,
-        p_selections: serializeSelections(draft.selections),
-      });
-      mapError(error);
-      return normalizeDraft({ ...draft, id });
     },
 
     async publish() {

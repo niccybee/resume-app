@@ -111,12 +111,13 @@ describe("CV workspace boundary", () => {
         });
         await expect(workspace.publish("cv-1", "product-cv"))
           .rejects.toMatchObject({ code: "invalid-lifecycle-transition" });
-        await expect(workspace.save({ ...await workspace.open("cv-1"), name: "Changed while archived" }))
-          .rejects.toMatchObject({ code: "invalid-lifecycle-transition" });
       }
     }
     await expect(workspace.open("cv-1")).resolves.toMatchObject({
-      status: "draft", summary: "Retained",
+      status: "draft", summary: "", selections: [],
+    });
+    await expect(workspace.preview("cv-1")).resolves.toMatchObject({
+      status: "draft", summary: "Retained", selections: [{ ...employment, order: 0 }],
     });
     await expect(workspace.resumeEditingSession(saved.id)).resolves.toMatchObject({
       status: "open", selections: [{ ...skill, order: 0 }],
@@ -445,27 +446,58 @@ describe("CV workspace boundary", () => {
     });
   });
 
-  it("creates an initial Revision when a newly saved CV starts its first Editing Session", async () => {
+  it("creates a new CV directly into an initial Editing Session and finishes it as Revision 1", async () => {
     const workspace = createCvWorkspace({
       repository: createMemoryCvRepository(),
     });
-    const saved = await workspace.save({
+    const session = await workspace.createCvEditingSession({
       name: "New Product CV",
-      summary: "Legacy working summary",
+      summary: "Initial working summary",
       selections: [employment],
     });
 
-    const session = await workspace.startEditingSession(saved.id);
-
     expect(session).toMatchObject({
-      cvId: saved.id,
-      baseRevisionNumber: 1,
-      summary: "Legacy working summary",
+      status: "open",
+      baseRevisionId: null,
+      baseRevisionNumber: null,
+      summary: "Initial working summary",
       selections: [{ ...employment, order: 0 }],
     });
-    await expect(workspace.history(saved.id)).resolves.toEqual([
+    await expect(workspace.history(session.cvId)).resolves.toEqual([]);
+    await expect(workspace.open(session.cvId)).resolves.toMatchObject({
+      id: session.cvId, name: "New Product CV", profile: {}, selections: [],
+    });
+
+    const finished = await workspace.finishEditingSession(session.id, session.optimisticVersion);
+    expect(finished).toMatchObject({ status: "finished", revisionNumber: 1 });
+    await expect(workspace.history(session.cvId)).resolves.toEqual([
       expect.objectContaining({ number: 1, baseRevisionId: null }),
     ]);
+  });
+
+  it("keeps base-less memory sessions aligned with persistence without fabricating Revision 1", async () => {
+    const workspace = createCvWorkspace({ repository: createMemoryCvRepository() });
+    const initial = await workspace.createCvEditingSession({
+      name: "New Product CV",
+      summary: "Initial working summary",
+    });
+
+    const parallel = await workspace.startEditingSession(initial.cvId);
+
+    expect(parallel).toMatchObject({
+      baseRevisionId: null,
+      baseRevisionNumber: null,
+      summary: "",
+      selections: [],
+    });
+    await expect(workspace.history(initial.cvId)).resolves.toEqual([]);
+    const finished = await workspace.finishEditingSession(initial.id, initial.optimisticVersion);
+    expect(finished).toMatchObject({ revisionNumber: 1 });
+  });
+
+  it("does not expose the legacy mutable CV save boundary", () => {
+    const workspace = createCvWorkspace({ repository: createMemoryCvRepository() });
+    expect(workspace.save).toBeUndefined();
   });
 
   it("finishes sessions once with sequential completion numbers and separate ancestry", async () => {
@@ -539,7 +571,7 @@ describe("CV workspace boundary", () => {
     });
   });
 
-  it("composes, saves, and reloads exact block versions", async () => {
+  it("composes and reloads exact Block Versions through an initial Editing Session", async () => {
     const repository = createMemoryCvRepository();
     const workspace = createCvWorkspace({ repository });
     let draft = { name: "Product CV", selections: [] };
@@ -547,8 +579,8 @@ describe("CV workspace boundary", () => {
     draft = addSelection(draft, skill);
     draft = moveSelection(draft, "version-2", "experience", 0);
     draft = removeSelection(draft, "version-1");
-    const saved = await workspace.save(draft);
-    expect(await workspace.open(saved.id)).toMatchObject({
+    const saved = await workspace.createCvEditingSession(draft);
+    expect(await workspace.resumeEditingSession(saved.id)).toMatchObject({
       name: "Product CV",
       selections: [{ ...skill, section: "experience", order: 0 }],
     });
@@ -577,7 +609,7 @@ describe("CV workspace boundary", () => {
       },
     });
 
-    await expect(workspace.save({
+    await expect(workspace.createCvEditingSession({
       name: "Product CV",
       selections: duplicateSelections,
     })).rejects.toMatchObject({
@@ -606,7 +638,7 @@ describe("CV workspace boundary", () => {
       },
     });
 
-    await expect(workspace.save({
+    await expect(workspace.createCvEditingSession({
       name: "Product CV",
       selections: [{ versionId: "version-1", section: "experience" }],
     })).rejects.toMatchObject({ code: "invalid-selection" });
@@ -615,7 +647,7 @@ describe("CV workspace boundary", () => {
     });
   });
 
-  it("preserves employer grouping when an experience version is saved and reloaded", async () => {
+  it("preserves employer grouping in an initial Working Composition", async () => {
     const repository = createMemoryCvRepository();
     const workspace = createCvWorkspace({ repository });
     const draft = addSelection(
@@ -630,9 +662,9 @@ describe("CV workspace boundary", () => {
       },
     );
 
-    const saved = await workspace.save(draft);
+    const saved = await workspace.createCvEditingSession(draft);
 
-    expect(await workspace.open(saved.id)).toMatchObject({
+    expect(await workspace.resumeEditingSession(saved.id)).toMatchObject({
       selections: [
         {
           blockId: "block-1",
@@ -689,8 +721,8 @@ describe("CV workspace boundary", () => {
       content: { text: "Rebuilt acquisition planning." },
     });
 
-    const saved = await workspace.save(draft);
-    const reopened = await workspace.open(saved.id);
+    const saved = await workspace.createCvEditingSession(draft);
+    const reopened = await workspace.resumeEditingSession(saved.id);
 
     expect(reopened.selections.map((selection) => selection.group)).toEqual([
       expect.objectContaining({

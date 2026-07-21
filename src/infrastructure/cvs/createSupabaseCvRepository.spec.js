@@ -94,7 +94,9 @@ describe("Supabase CV repository list boundary", () => {
       owner_id: "user-1",
       name: "Owned CV",
       status: "draft",
-      profile: {},
+      theme_id: "legacy-theme",
+      profile: { basics: { name: "Legacy mutable content" } },
+      summary: "Legacy mutable summary",
     }, {
       id: "other-cv",
       owner_id: "user-2",
@@ -126,8 +128,18 @@ describe("Supabase CV repository list boundary", () => {
     const repository = createSupabaseCvRepository({ client });
 
     await expect(repository.list()).resolves.toEqual([
-      expect.objectContaining({ id: "owned-cv", name: "Owned CV" }),
+      expect.objectContaining({
+        id: "owned-cv",
+        name: "Owned CV",
+        themeId: null,
+        profile: {},
+        summary: "",
+        selections: [],
+      }),
     ]);
+    expect(query.select).toHaveBeenCalledWith(
+      "id, name, slug, status, published_at, published_revision_id",
+    );
     expect(query.eq).toHaveBeenCalledWith("owner_id", "user-1");
   });
 });
@@ -521,69 +533,14 @@ describe("Supabase CV repository Editing Session boundary", () => {
   });
 });
 
-describe("Supabase CV repository authenticated save boundary", () => {
-  it("saves the document and exact composition through one transactional RPC", async () => {
-    const documentQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn().mockResolvedValue({
-        data: {
-          id: "cv-1",
-          owner_id: "user-1",
-          name: "Product CV",
-          status: "draft",
-          theme_id: "editorial",
-          profile: { basics: { name: "Nic" } },
-          summary: "Product leader.",
-          summary_provenance: null,
-        },
-        error: null,
-      }),
+describe("Supabase CV repository initial Editing Session boundary", () => {
+  it("creates a CV lineage and initial Working Composition through one transactional RPC", async () => {
+    const created = {
+      id: "session-1", cv_id: "cv-1", base_revision_id: null, status: "open", optimistic_version: 1,
+      working_name: "Product CV", working_theme_id: "editorial", working_profile: { basics: { name: "Nic" } },
+      working_summary: "Product leader.", working_summary_provenance: null,
+      selections: [{ block_id: "block-1", version_id: "version-1", section: "experience", position: 0, content: { text: "Shipped" }, display: { title: "Platform delivery" } }],
     };
-    const compositionQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      then(resolve) {
-        return Promise.resolve({
-          data: [{
-            block_id: "block-1",
-            version_id: "version-1",
-            section: "experience",
-            position: 0,
-            display: {
-              title: "Platform delivery",
-              grouping: {
-                employerId: "e2",
-                employer: "E2",
-                occasionId: "e2-product-2024",
-                role: "Product Lead",
-                startDate: "2024-01",
-                endDate: "present",
-              },
-            },
-          }],
-          error: null,
-        }).then(resolve);
-      },
-    };
-    const versionQuery = {
-      select: vi.fn().mockReturnThis(),
-      in: vi.fn().mockResolvedValue({
-        data: [{
-          id: "version-1",
-          content: { text: "Shipped the platform." },
-          source_type: "manual",
-          source_metadata: {},
-        }],
-        error: null,
-      }),
-    };
-    const from = vi.fn((table) => ({
-      cv_documents: documentQuery,
-      cv_compositions: compositionQuery,
-      cv_block_versions: versionQuery,
-    })[table]);
     const client = {
       auth: {
         getSession: vi.fn().mockResolvedValue({
@@ -591,13 +548,13 @@ describe("Supabase CV repository authenticated save boundary", () => {
           error: null,
         }),
       },
-      rpc: vi.fn().mockResolvedValue({ data: "cv-1", error: null }),
-      from,
+      rpc: vi.fn(async (name) => name === "create_cv_with_editing_session"
+        ? { data: "session-1", error: null }
+        : { data: created, error: null }),
     };
     const repository = createSupabaseCvRepository({ client });
 
-    const saved = await repository.save({
-      id: "cv-1",
+    const saved = await repository.createCvEditingSession({
       name: "Product CV",
       themeId: "editorial",
       profile: { basics: { name: "Nic" } },
@@ -619,63 +576,26 @@ describe("Supabase CV repository authenticated save boundary", () => {
       }],
     });
 
-    expect(client.rpc).toHaveBeenCalledOnce();
-    expect(client.rpc).toHaveBeenCalledWith("save_cv_document", {
-      p_cv_id: "cv-1",
-      p_name: "Product CV",
-      p_theme_id: "editorial",
-      p_profile: { basics: { name: "Nic" } },
-      p_summary: "Product leader.",
-      p_summary_provenance: null,
-      p_selections: [{
-        block_id: "block-1",
-        version_id: "version-1",
-        section: "experience",
-        position: 0,
-        display: {
-          title: "Platform delivery",
-          grouping: {
-            employerId: "e2",
-            employer: "E2",
-            occasionId: "e2-product-2024",
-            role: "Product Lead",
-            roleId: "product-lead",
-            startDate: "2024-01",
-            endDate: "present",
-          },
-        },
-      }],
+    expect(client.rpc).toHaveBeenCalledWith("create_cv_with_editing_session", {
+      p_state: {
+        name: "Product CV", themeId: "editorial", profile: { basics: { name: "Nic" } },
+        summary: "Product leader.", summaryProvenance: null,
+        selections: [expect.objectContaining({ blockId: "block-1", versionId: "version-1" })],
+      },
     });
-    expect(documentQuery.update).toBeUndefined();
-    expect(compositionQuery.delete).toBeUndefined();
-    expect(from).not.toHaveBeenCalled();
+    expect(client.rpc).toHaveBeenCalledWith("get_cv_editing_session", { p_session_id: "session-1" });
+    expect(saved).toMatchObject({ id: "session-1", cvId: "cv-1", baseRevisionId: null, status: "open" });
     expect(saved.selections[0]).toMatchObject({
-      versionId: "version-1",
-      group: { occasionId: "e2-product-2024" },
+      versionId: "version-1", content: { text: "Shipped" },
     });
   });
 
-  it("returns a useful domain error when the atomic save cannot update the CV", async () => {
-    const client = {
-      auth: {
-        getSession: vi.fn().mockResolvedValue({
-          data: { session: { user: { id: "user-1" } } },
-          error: null,
-        }),
-      },
-      rpc: vi.fn().mockResolvedValue({
-        data: null,
-        error: { code: "P0002", message: "CV not found." },
-      }),
-      from: vi.fn(() => {
-        throw new Error("A failed transaction must not trigger follow-up reads.");
-      }),
-    };
+  it("does not expose the removed mutable save path", () => {
+    const client = { rpc: vi.fn() };
     const repository = createSupabaseCvRepository({ client });
 
-    await expect(repository.save({ id: "missing", name: "Product CV" }))
-      .rejects.toMatchObject({ code: "not-found", message: "CV not found." });
-    expect(client.from).not.toHaveBeenCalled();
+    expect(repository.save).toBeUndefined();
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 });
 

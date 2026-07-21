@@ -21,10 +21,20 @@ const sessionChangeProposal = ref(null);
 const proposingChange = ref(false);
 const copyRoleName = ref("");
 const selectedVersions = reactive({});
-const draft = reactive(normalizeDraft({ name: "", profile: { basics: {} }, selections: [] }));
+function normalizeEditorDraft(input) {
+  const normalized = normalizeDraft(input);
+  return {
+    ...normalized,
+    profile: {
+      ...normalized.profile,
+      basics: normalized.profile?.basics || {},
+    },
+  };
+}
+const draft = reactive(normalizeEditorDraft({ name: "", profile: { basics: {} }, selections: [] }));
 const themes = listThemes();
 
-function replaceDraft(next) { Object.assign(draft, normalizeDraft(next)); }
+function replaceDraft(next) { Object.assign(draft, normalizeEditorDraft(next)); }
 function sectionFor(kind) { return { experience:"experience", skill:"skills", certification:"certifications", education:"education", interest:"interests" }[kind]; }
 function selectedVersion(block) { return block.versions.find((item)=>item.id===(selectedVersions[block.id]||block.currentVersion.id))||block.currentVersion; }
 function selectionFor(block, version, section = sectionFor(block.kind)) { return { blockId:block.id, versionId:version.id, section, block:{ title:block.title, kind:block.kind, contexts:block.contexts, versionNumber:version.number }, content:version.content }; }
@@ -54,6 +64,11 @@ const openEditingSessions = computed(() => editingSessions.value.filter((item) =
 const archivedEditingSessions = computed(() => editingSessions.value.filter((item) => item.status === "archived"));
 const activeBaseRevisionNumber = computed(() => activeSession.value?.baseRevisionNumber || revisions.value.find((item) => item.id === activeSession.value?.baseRevisionId)?.number || null);
 const publishedRevisionNumber = computed(() => revisions.value.find((item) => item.id === draft.publishedRevisionId)?.number || null);
+function editingSessionLabel(session) {
+  return session.baseRevisionNumber
+    ? `Editing Session based on Revision ${session.baseRevisionNumber}`
+    : "Initial Editing Session";
+}
 
 function activateEditingSession(session, baseRevisionNumber = null) {
   const publication = {
@@ -157,10 +172,14 @@ async function save() {
       notice.value = "Editing Session saved.";
       return saved;
     }
-    const saved = await cvWorkspace.save(draft);
-    replaceDraft(saved);
-    if (!route.params.cvId) await router.replace(`/app/cvs/${saved.id}`);
-    return saved;
+    if (draft.id) throw new Error("Resume or start an Editing Session before changing this CV.");
+    const session = await cvWorkspace.createCvEditingSession(normalizeDraft(draft));
+    replaceDraft({ ...draft, id: session.cvId });
+    activateEditingSession(session);
+    await refreshEditingContext();
+    await router.replace(`/app/cvs/${session.cvId}`);
+    notice.value = "CV and initial Editing Session created.";
+    return session;
   } catch(reason) {
     error.value=reason.message;
     return null;
@@ -383,7 +402,7 @@ function generateTaskProposal(instruction) {
         <h2 id="editing-sessions-heading">Open Editing Sessions</h2>
         <p v-if="!openEditingSessions.length">No open Editing Sessions.</p>
         <article v-for="session in openEditingSessions" :key="session.id" class="session-row">
-          <span>Editing Session based on Revision {{ session.baseRevisionNumber }} · working version {{ session.optimisticVersion }}</span>
+          <span>{{ editingSessionLabel(session) }} · working version {{ session.optimisticVersion }}</span>
           <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="resumeEditingSession(session)">Resume Editing Session</button>
         </article>
         <template v-if="archivedEditingSessions.length">
@@ -393,7 +412,7 @@ function generateTaskProposal(instruction) {
             <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="proposeSessionLifecycle(session, 'restore_editing_session')">Restore Editing Session</button>
           </article>
         </template>
-        <p v-if="activeSession"><strong>Editing Session based on Revision {{ activeBaseRevisionNumber }}</strong> · working version {{ activeSession.optimisticVersion }}</p>
+        <p v-if="activeSession"><strong>{{ editingSessionLabel({ baseRevisionNumber: activeBaseRevisionNumber }) }}</strong> · working version {{ activeSession.optimisticVersion }}</p>
       </section>
       <label>CV name<input v-model="draft.name" placeholder="Product lead CV" /></label>
       <div class="grid"><label>Name<input v-model="draft.profile.basics.name" /></label><label>Target role<input v-model="draft.profile.basics.label" /></label></div>
@@ -414,7 +433,7 @@ function generateTaskProposal(instruction) {
       <section class="section-list experience-composition"><h3>experience</h3><p v-if="!selectedExperienceGroups.length"><small>No selected Block Versions.</small></p><section v-for="employer in selectedExperienceGroups" :key="employer.employerId" class="selection-employer"><h4>{{ employer.employer }}</h4><div v-for="occasion in employer.occasions" :key="occasion.occasionId"><h5>{{ occasion.role }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</h5><article v-for="item in occasion.items" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection.experience.length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></div></section></section>
       <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
       <button v-if="draft.status !== 'archived' && draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear selected Block Versions…</button>
-      <button v-if="draft.status !== 'archived'" class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">{{ activeSession ? "Save Editing Session" : "Save CV" }}</button>
+      <button v-if="draft.status !== 'archived' && (activeSession || !draft.id)" class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">{{ activeSession ? "Save Editing Session" : "Create CV Editing Session" }}</button>
       <button v-if="activeSession" class="secondary control-standard" :aria-busy="proposingChange" :disabled="saving || proposingChange" @click="proposeEditingSessionChange">Review Change Proposal</button>
       <button v-if="activeSession" class="secondary control-standard" :disabled="saving" @click="finishEditingSession">Finish as CV Revision</button>
       <label v-if="draft.id">New role-focused CV name<input v-model="copyRoleName" placeholder="Head of Marketing at Facebook" /></label>
@@ -449,7 +468,7 @@ function generateTaskProposal(instruction) {
       <details v-if="draft.id && draft.status !== 'archived'"><summary>Publishing</summary><label>Stable public slug<input v-model="publishSlug" :disabled="Boolean(draft.slug)" placeholder="product-lead" /></label><p>Select an exact immutable Revision below, review its Change Proposal, then apply.</p><template v-if="draft.status === 'published'"><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="proposeLifecycleChange({ type: 'withdraw_publication', target: { type: 'cv', id: draft.id } })">Withdraw publication</button></template></details>
       <section v-if="draft.id" aria-labelledby="revision-history-heading">
         <h2 id="revision-history-heading">Revision history</h2>
-        <p v-if="!revisions.length">No immutable CV Revisions yet. <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="startEditingSession(null)">Start first Editing Session</button></p>
+        <p v-if="!revisions.length">No immutable CV Revisions yet. <button v-if="draft.status !== 'archived' && !openEditingSessions.length" class="secondary control-compact" @click="startEditingSession(null)">Start first Editing Session</button></p>
         <ol v-else>
           <li v-for="revision in revisions" :key="revision.id">
             <strong>Revision {{ revision.number }}</strong>

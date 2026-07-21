@@ -225,28 +225,31 @@ describe("Nuxt runtime", async () => {
           owner_id: "t02-browser-owner",
           name: "Native private CV",
           status: "draft",
-          theme_id: "editorial",
-          profile: { basics: { name: "Nic", label: "Product Manager" } },
-          summary: "A saved private CV rendered through Nuxt.",
+          theme_id: null,
+          profile: {},
+          summary: null,
           summary_provenance: null,
           slug: null,
           published_at: null,
         };
-      } else if (resource === "cv_compositions") {
+      } else if (resource === "cv_revisions") {
         body = [{
-          block_id: "block-native",
-          version_id: "version-native",
-          section: "experience",
-          position: 0,
-          display: { title: "Native product launch", kind: "experience" },
+          id: "revision-native", cv_id: "cv-native", revision_number: 1, base_revision_id: null,
+          theme_id: "editorial", profile: { basics: { name: "Nic", label: "Product Manager" } },
+          summary: "A saved private CV rendered through Nuxt.", summary_provenance: null,
+          created_at: "2026-07-21T00:00:00.000Z",
         }];
-      } else if (resource === "cv_block_versions") {
-        body = [{
-          id: "version-native",
-          content: { text: "Shipped a saved composition through native Nuxt pages." },
-          source_type: "human",
-          source_metadata: {},
-        }];
+      } else if (resource === "get_cv_revision_snapshot") {
+        body = {
+          id: "revision-native", cvId: "cv-native", number: 1, baseRevisionId: null,
+          themeId: "editorial", profile: { basics: { name: "Nic", label: "Product Manager" } },
+          summary: "A saved private CV rendered through Nuxt.", summaryProvenance: null,
+          selections: [{
+            blockId: "block-native", versionId: "version-native", section: "experience", order: 0,
+            content: { text: "Shipped a saved composition through native Nuxt pages." },
+            block: { title: "Native product launch", kind: "experience" },
+          }],
+        };
       }
 
       return route.fulfill({

@@ -26,6 +26,10 @@ boundaries. Apply `database/cv_revision_publication.sql` to replace legacy
 publication writes with reviewed exact-Revision publish, rollback, and
 withdrawal proposals. Apply `database/cv_revision_export.sql` to expose the
 owner-scoped immutable Revision snapshot used by composition adapters. Apply
+`database/cv_legacy_contraction.sql` after migrated Revisions, Editing Sessions,
+and Change Proposals have been verified; it creates new CVs directly with an
+initial Editing Session and removes authenticated access to the legacy mutable
+document/Composition writes. Apply
 `database/cv_public_read.sql`. The Revision migration is transactional and
 idempotent: it rejects duplicate CV Block identities before backfilling immutable
 v1 snapshots and pinning existing public slugs to those snapshots. Finishing an
@@ -66,6 +70,14 @@ immutable Block Version with same-identity base provenance. Duplicating starts
 an independent CV Block at v1. Referenced identities cannot be deleted and
 return archive as the safe recovery action; archived CV Blocks remain available
 for deliberate restoration.
+
+CV lineage rows now retain identity, lifecycle, stable slug, and publication
+state only. New profile, summary, theme, and selected Block Version content is
+created in an Editing Session, and supported edits change its Working
+Composition through the shared CV workspace service. The historical
+`cv_compositions` table and `save_cv_document` migration remain only so existing
+installations can be migrated and verified before the contraction migration
+revokes their write surface.
 
 OpenRouter requests run through the Nuxt server at `/api/openrouter`. The private
 service-role key is used only server-side to call the restricted Vault RPCs in

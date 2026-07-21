@@ -119,6 +119,14 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
       });
     },
 
+    async createCvEditingSession(input) {
+      const draft = normalizeDraft(input);
+      if (!draft.name || draft.name === "Untitled CV") {
+        throw new CvWorkspaceError("invalid-name", "Enter a name for this CV.");
+      }
+      return decorateEditingSession(await repository.createCvEditingSession(draft));
+    },
+
     async startEditingSession(cvId, baseRevisionId = null) {
       return decorateEditingSession(
         await repository.startEditingSession(cvId, baseRevisionId),
@@ -234,17 +242,12 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
       return normalizeDraft(cv);
     },
 
-    async save(input) {
-      const draft = normalizeDraft(input);
-      if (!draft.name || draft.name === "Untitled CV") {
-        throw new CvWorkspaceError("invalid-name", "Enter a name for this CV.");
-      }
-      return repository.save(draft);
-    },
-
     async preview(id) {
       const cv = await this.open(id);
-      return { ...cv, preview: true };
+      const [latest] = await repository.listRevisions(id);
+      if (!latest) return { ...cv, preview: true };
+      const revision = await repository.getRevision(id, latest.id);
+      return { ...normalizeDraft({ ...cv, ...revision, id: cv.id }), preview: true };
     },
 
     async publish(id, requestedSlug) {

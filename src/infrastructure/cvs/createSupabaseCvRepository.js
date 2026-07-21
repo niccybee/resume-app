@@ -4,6 +4,9 @@ import { nextChangeProposalActions } from "../../domain/cvs/changeProposal";
 
 function mapError(error) {
   if (!error) return;
+  if (/Archived CVs must be restored/i.test(error.message || "")) {
+    throw new CvWorkspaceError("invalid-lifecycle-transition", error.message);
+  }
   if (/stale-proposal/i.test(error.message || "")) {
     let context;
     try {
@@ -197,6 +200,15 @@ export function createSupabaseCvRepository({ client }) {
       : null;
   }
 
+  async function fetchChangeProposal(id) {
+    await actor();
+    const { data, error } = await client.rpc("get_cv_change_proposal", {
+      p_proposal_id: id,
+    });
+    mapError(error);
+    return mapChangeProposal(data);
+  }
+
   async function fetchOne(column, value, { published = false } = {}) {
     let request = client.from("cv_documents").select("*").eq(column, value);
     if (published) request = request.eq("status", "published");
@@ -289,31 +301,36 @@ export function createSupabaseCvRepository({ client }) {
 
     async createChangeProposal(input) {
       await actor();
-      const { data, error } = await client.rpc("create_cv_change_proposal", {
-        p_schema_version: input.schemaVersion,
-        p_operation_type: input.operationType,
-        p_target_session_id: input.target.id,
-        p_base_optimistic_version: input.baseOptimisticVersion,
-        p_normalized_operations: input.operations,
-      });
+      const lifecycle = input.operationType !== "replace_working_state";
+      const { data, error } = await client.rpc(
+        lifecycle ? "create_cv_lifecycle_proposal" : "create_cv_change_proposal",
+        lifecycle
+          ? { p_schema_version: input.schemaVersion, p_operation: input.operations[0] }
+          : {
+              p_schema_version: input.schemaVersion,
+              p_operation_type: input.operationType,
+              p_target_session_id: input.target.id,
+              p_base_optimistic_version: input.baseOptimisticVersion,
+              p_normalized_operations: input.operations,
+            },
+      );
       mapError(error);
       return mapChangeProposal(data);
     },
 
-    async getChangeProposal(id) {
-      await actor();
-      const { data, error } = await client.rpc("get_cv_change_proposal", {
-        p_proposal_id: id,
-      });
-      mapError(error);
-      return mapChangeProposal(data);
-    },
+    getChangeProposal: fetchChangeProposal,
 
     async applyChangeProposal(id) {
       await actor();
-      const { data, error } = await client.rpc("apply_cv_change_proposal", {
+      const current = await fetchChangeProposal(id);
+      const { data, error } = await client.rpc(
+        current.operationType === "replace_working_state"
+          ? "apply_cv_change_proposal"
+          : "apply_cv_lifecycle_proposal",
+        {
         p_proposal_id: id,
-      });
+        },
+      );
       mapError(error);
       const proposal = mapChangeProposal(data);
       if (proposal.status === "expired") {
@@ -374,16 +391,12 @@ export function createSupabaseCvRepository({ client }) {
     },
 
     async unpublish(id) {
-      const user = await actor();
-      const { data, error } = await client
-        .from("cv_documents")
-        .update({ status: "draft", published_at: null })
-        .eq("id", id)
-        .eq("owner_id", user.id)
-        .select()
-        .single();
+      await actor();
+      const { data, error } = await client.rpc("unpublish_cv_document", {
+        p_cv_id: id,
+      });
       mapError(error);
-      return mapDocument(data, await selectionsFor(id));
+      return fetchOne("id", data || id);
     },
 
     async getPublished(slug) {

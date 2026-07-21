@@ -18,7 +18,8 @@ CV document, CV Block, and Composition schema. Apply
 atomic start, save, and finish boundaries. Apply
 `database/cv_change_proposals.sql` after Editing Sessions to add immutable,
 owner-scoped Change Proposals with atomic explicit apply and discard operations,
-then apply
+then `database/cv_lifecycle.sql` to add copy and archive/restore proposal
+operations. Apply
 `database/cv_public_read.sql`. The Revision migration is transactional and
 idempotent: it rejects duplicate CV Block identities before backfilling immutable
 v1 snapshots and pinning existing public slugs to those snapshots. Finishing an
@@ -31,6 +32,13 @@ apply revalidates the proposal's expiry and base optimistic version, then change
 the Working Composition atomically. Repeated apply returns the original result,
 while stale proposals return refreshed target context for recovery. The Nuxt UI
 and future MCP handlers use the same CV workspace application-service methods.
+
+“Copy to New Version” creates another open Editing Session in the same CV.
+“Copy for New Role” creates an independent CV and open Editing Session whose
+first finished Revision is v1. Both copy from an exact CV Revision or current
+Editing Session snapshot without changing the source. CVs and Editing Sessions
+are archived and restored through the same reviewed Change Proposal boundary;
+their compositions remain retained, and CV archival never cascades to CV Blocks.
 
 OpenRouter requests run through the Nuxt server at `/api/openrouter`. The private
 service-role key is used only server-side to call the restricted Vault RPCs in

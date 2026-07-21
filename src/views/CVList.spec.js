@@ -51,4 +51,17 @@ describe("native CV list interactions", () => {
 
     expect(wrapper.text()).toContain("Create a role-focused CV from your CV Blocks.");
   });
+
+  it("keeps archived CVs outside the active workspace with a restoration path", async () => {
+    cvWorkspace.list.mockResolvedValue([{
+      id: "cv-active", name: "Active CV", status: "draft",
+    }, {
+      id: "cv-archived", name: "Archived CV", status: "archived",
+    }]);
+    const wrapper = mountList();
+    await flushPromises();
+    expect(wrapper.get("details summary").text()).toContain("Archived CVs (1)");
+    expect(wrapper.get('[data-to="/app/cvs/cv-archived"]').text()).toBe("Review archived CV");
+    expect(wrapper.get('[data-to="/app/cvs/cv-active"]').text()).toBe("Edit CV");
+  });
 });

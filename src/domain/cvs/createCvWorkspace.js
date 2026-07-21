@@ -158,6 +158,49 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
       });
     },
 
+    async proposeLifecycleChange(input) {
+      const operation = input?.operation;
+      const supported = new Set([
+        "copy_to_new_version",
+        "copy_for_new_role",
+        "archive_editing_session",
+        "restore_editing_session",
+        "archive_cv",
+        "restore_cv",
+      ]);
+      if (!supported.has(operation?.type)) {
+        throw new CvWorkspaceError("validation-failed", "Unsupported lifecycle Change Proposal operation.");
+      }
+      if (operation.type.startsWith("copy_")) {
+        if (!operation.source?.id || !["editing_session", "cv_revision"].includes(operation.source.type)) {
+          throw new CvWorkspaceError("validation-failed", "A CV Revision or Editing Session source is required.");
+        }
+        if (operation.type === "copy_for_new_role" && !String(operation.name || "").trim()) {
+          throw new CvWorkspaceError("validation-failed", "Enter a name for the new role-focused CV.");
+        }
+      } else if (!operation.target?.id) {
+        throw new CvWorkspaceError("validation-failed", "A lifecycle target is required.");
+      }
+      if (operation.type.endsWith("editing_session") && operation.target?.type !== "editing_session") {
+        throw new CvWorkspaceError("validation-failed", "Editing Session lifecycle operations require an Editing Session target.");
+      }
+      const sessionSource = operation.source?.type === "editing_session";
+      const sessionTarget = operation.target?.type === "editing_session";
+      if ((sessionSource || sessionTarget) && !Number.isInteger(operation.baseOptimisticVersion)) {
+        throw new CvWorkspaceError("validation-failed", "An Editing Session base optimistic version is required.");
+      }
+      if (["archive_cv", "restore_cv"].includes(operation.type) && operation.target?.type !== "cv") {
+        throw new CvWorkspaceError("validation-failed", "CV lifecycle operations require a CV target.");
+      }
+      return repository.createChangeProposal({
+        schemaVersion: "1",
+        operationType: operation.type,
+        target: operation.target || operation.source,
+        baseOptimisticVersion: operation.baseOptimisticVersion ?? null,
+        operations: [{ ...operation, ...(operation.name ? { name: String(operation.name).trim() } : {}) }],
+      });
+    },
+
     getChangeProposal: (id) => repository.getChangeProposal(id),
     applyChangeProposal: (id) => repository.applyChangeProposal(id),
     discardChangeProposal: (id) => repository.discardChangeProposal(id),

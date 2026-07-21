@@ -47,6 +47,21 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
     return value;
   }
 
+  function invalidateForArchivedParent(current, target) {
+    const context = { target: copy(target), reason: "archived-cv" };
+    changeProposals.set(current.id, {
+      ...current,
+      status: "invalidated",
+      result: context,
+      nextActions: nextChangeProposalActions("invalidated"),
+    });
+    throw new CvWorkspaceError(
+      "invalid-lifecycle-transition",
+      "Restore the CV before changing its Editing Sessions.",
+      context,
+    );
+  }
+
   function proposalDiff(before, after) {
     const fields = [];
     for (const path of ["name", "themeId", "profile", "summary", "summaryProvenance"]) {
@@ -104,6 +119,7 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
     async startEditingSession(cvId, requestedBaseRevisionId = null) {
       const document = records.get(cvId);
       if (!document) throw new CvWorkspaceError("not-found", "CV not found.");
+      if (document.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before starting an Editing Session.");
       const history = revisions.get(cvId) || [];
       if (!history.length && !requestedBaseRevisionId) {
         history.push({
@@ -149,6 +165,7 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
     },
     async saveEditingSession(input) {
       const current = session(input.id);
+      if (records.get(current.cvId)?.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before changing its Editing Sessions.");
       if (current.status !== "open") {
         throw new CvWorkspaceError("session-finished", "Editing Session is not open.");
       }
@@ -175,6 +192,7 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
     },
     async finishEditingSession(id, expectedVersion) {
       const current = session(id);
+      if (records.get(current.cvId)?.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before finishing its Editing Sessions.");
       if (current.status === "finished") return copy(current);
       if (current.status !== "open") {
         throw new CvWorkspaceError("session-finished", "Editing Session is not open.");
@@ -213,7 +231,58 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       return copy(finished);
     },
     async createChangeProposal(input) {
+      if (input.operationType !== "replace_working_state") {
+        const operation = input.operations[0];
+        let source;
+        if (operation.type.startsWith("copy_")) {
+          if (operation.source.type === "editing_session") {
+            source = session(operation.source.id);
+            if (source.status !== "open" || source.optimisticVersion !== operation.baseOptimisticVersion) {
+              throw new CvWorkspaceError("stale-proposal", "Copy source changed before proposal creation.", { target: copy(source) });
+            }
+          } else {
+            source = [...revisions.values()].flat().find((item) => item.id === operation.source.id && item.cvId === operation.source.cvId);
+            if (!source) throw new CvWorkspaceError("not-found", "Source CV Revision not found.");
+          }
+          if (operation.type === "copy_to_new_version" && records.get(source.cvId)?.status === "archived") {
+            throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before copying within its lineage.");
+          }
+        } else if (operation.target.type === "editing_session") {
+          source = session(operation.target.id);
+          if (records.get(source.cvId)?.status === "archived") {
+            throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before changing its Editing Sessions.");
+          }
+          const expectedStatus = operation.type === "archive_editing_session" ? "open" : "archived";
+          if (source.status !== expectedStatus) throw new CvWorkspaceError("invalid-lifecycle-transition", `Editing Session cannot ${operation.type.startsWith("archive") ? "be archived" : "be restored"}.`);
+          if (source.optimisticVersion !== operation.baseOptimisticVersion) {
+            throw new CvWorkspaceError("stale-proposal", "Editing Session changed before proposal creation.", { target: copy(source) });
+          }
+        } else {
+          source = records.get(operation.target.id);
+          if (!source) throw new CvWorkspaceError("not-found", "CV not found.");
+          const expectedStatus = operation.type === "archive_cv" ? ["draft", "published"] : ["archived"];
+          if (!expectedStatus.includes(source.status)) throw new CvWorkspaceError("invalid-lifecycle-transition", "CV cannot make that lifecycle transition.");
+        }
+        const createdAt = nowIso();
+        const value = {
+          id: `proposal-${++proposalSequence}`,
+          ...copy(input),
+          target: copy(input.target),
+          diff: { lifecycle: { operation: operation.type, source: copy(input.target) } },
+          warnings: operation.type === "archive_cv" && source.status === "published"
+            ? ["Archiving this CV withdraws its active publication without changing shared CV Blocks."]
+            : [],
+          createdAt,
+          expiresAt: new Date(clock().getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          status: "pending",
+          result: null,
+          nextActions: nextChangeProposalActions("pending"),
+        };
+        changeProposals.set(value.id, value);
+        return copy(value);
+      }
       const target = session(input.target.id);
+      if (records.get(target.cvId)?.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before proposing Working Composition changes.");
       if (target.status !== "open") {
         throw new CvWorkspaceError("invalid-lifecycle-transition", "Editing Session is not open.");
       }
@@ -262,6 +331,13 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
         throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
       }
       if (current.status === "invalidated") {
+        if (current.result?.reason === "archived-cv") {
+          throw new CvWorkspaceError(
+            "invalid-lifecycle-transition",
+            "Restore the CV before changing its Editing Sessions.",
+            current.result,
+          );
+        }
         throw new CvWorkspaceError("stale-proposal", "Change Proposal is based on stale Editing Session state.", current.result);
       }
       if (current.status !== "pending") {
@@ -271,7 +347,98 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
         changeProposals.set(id, { ...current, status: "expired", nextActions: nextChangeProposalActions("expired") });
         throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
       }
+      if (current.operationType !== "replace_working_state") {
+        const operation = current.operations[0];
+        let result;
+        if (operation.type.startsWith("copy_")) {
+          let source;
+          if (operation.source.type === "editing_session") {
+            source = session(operation.source.id);
+            if (source.status !== "open" || source.optimisticVersion !== operation.baseOptimisticVersion) {
+              const context = { target: copy(source) };
+              changeProposals.set(id, { ...current, status: "invalidated", result: context, nextActions: [] });
+              throw new CvWorkspaceError("stale-proposal", "Copy source changed.", context);
+            }
+          } else {
+            source = [...revisions.values()].flat().find((item) => item.id === operation.source.id && item.cvId === operation.source.cvId);
+            if (!source) throw new CvWorkspaceError("not-found", "Source CV Revision not found.");
+          }
+          if (operation.type === "copy_to_new_version" && records.get(source.cvId)?.status === "archived") {
+            invalidateForArchivedParent(current, source);
+          }
+          const now = nowIso();
+          let cvId = source.cvId;
+          let baseRevisionId = operation.source.type === "cv_revision" ? source.id : source.baseRevisionId;
+          let name = operation.type === "copy_for_new_role" ? operation.name : records.get(cvId).name;
+          if (operation.type === "copy_for_new_role") {
+            cvId = `cv-${++sequence}`;
+            baseRevisionId = null;
+            records.set(cvId, normalizeDraft({ id: cvId, name, status: "draft", selections: [] }));
+            revisions.set(cvId, []);
+          }
+          const copied = {
+            id: `session-${++sessionSequence}`,
+            cvId,
+            baseRevisionId,
+            copiedFromSessionId: operation.source.type === "editing_session" ? source.id : null,
+            copyIntent: operation.type,
+            status: "open",
+            optimisticVersion: 1,
+            finishedRevisionId: null,
+            name,
+            themeId: source.themeId,
+            profile: copy(source.profile),
+            summary: source.summary,
+            summaryProvenance: copy(source.summaryProvenance),
+            selections: copy(source.selections || []),
+            createdAt: now,
+            updatedAt: now,
+            finishedAt: null,
+          };
+          editingSessions.set(copied.id, copied);
+          result = { cvId, editingSessionId: copied.id, optimisticVersion: 1 };
+        } else if (operation.target.type === "editing_session") {
+          const target = session(operation.target.id);
+          if (records.get(target.cvId)?.status === "archived") {
+            invalidateForArchivedParent(current, target);
+          }
+          const expectedStatus = operation.type === "archive_editing_session" ? "open" : "archived";
+          if (target.status !== expectedStatus || target.optimisticVersion !== operation.baseOptimisticVersion) {
+            const context = { target: copy(target) };
+            changeProposals.set(id, { ...current, status: "invalidated", result: context, nextActions: [] });
+            throw new CvWorkspaceError("stale-proposal", "Editing Session changed.", context);
+          }
+          const saved = {
+            ...target,
+            status: operation.type === "archive_editing_session" ? "archived" : "open",
+            optimisticVersion: target.optimisticVersion + 1,
+            updatedAt: nowIso(),
+          };
+          editingSessions.set(saved.id, saved);
+          result = { cvId: saved.cvId, editingSessionId: saved.id, optimisticVersion: saved.optimisticVersion };
+        } else {
+          const target = records.get(operation.target.id);
+          if (!target) throw new CvWorkspaceError("not-found", "CV not found.");
+          if (operation.type === "archive_cv" && !["draft", "published"].includes(target.status)) {
+            throw new CvWorkspaceError("invalid-lifecycle-transition", "CV cannot be archived.");
+          }
+          if (operation.type === "restore_cv" && target.status !== "archived") {
+            throw new CvWorkspaceError("invalid-lifecycle-transition", "CV cannot be restored.");
+          }
+          const saved = operation.type === "archive_cv"
+            ? { ...target, statusBeforeArchive: target.status, status: "archived", publishedAt: null }
+            : { ...target, status: target.statusBeforeArchive === "published" ? "draft" : (target.statusBeforeArchive || "draft"), statusBeforeArchive: null };
+          records.set(saved.id, saved);
+          result = { cvId: saved.id, status: saved.status };
+        }
+        const applied = { ...current, status: "applied", result, nextActions: nextChangeProposalActions("applied") };
+        changeProposals.set(id, applied);
+        return copy(applied);
+      }
       const target = session(current.target.id);
+      if (records.get(target.cvId)?.status === "archived") {
+        invalidateForArchivedParent(current, target);
+      }
       if (target.status !== "open" || target.optimisticVersion !== current.baseOptimisticVersion) {
         const result = { target: copy(target) };
         changeProposals.set(id, { ...current, status: "invalidated", result, nextActions: nextChangeProposalActions("invalidated") });
@@ -314,6 +481,9 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
     },
     async save(input) {
       const draft = normalizeDraft(input);
+      if (draft.id && records.get(draft.id)?.status === "archived") {
+        throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before changing it.");
+      }
       const id = draft.id || `cv-${++sequence}`;
       const saved = { ...draft, id };
       records.set(id, saved);
@@ -322,6 +492,7 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
     async publish(id, slug) {
       const current = records.get(id);
       if (!current) throw new CvWorkspaceError("not-found", "CV not found.");
+      if (current.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before publishing it.");
       if ([...records.values()].some((cv) => cv.id !== id && cv.slug === slug)) {
         throw new CvWorkspaceError("slug-conflict", "That public slug is already in use.");
       }
@@ -337,6 +508,7 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
     async unpublish(id) {
       const current = records.get(id);
       if (!current) throw new CvWorkspaceError("not-found", "CV not found.");
+      if (current.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before changing publication.");
       const saved = { ...current, status: "draft", publishedAt: null };
       records.set(id, saved);
       return copy(saved);

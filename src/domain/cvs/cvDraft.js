@@ -31,7 +31,7 @@ export function normalizeDraft(input = {}) {
     id: input.id || null,
     name: String(input.name || "Untitled CV").trim(),
     slug: input.slug || null,
-    status: input.status === "published" ? "published" : "draft",
+    status: ["published", "archived"].includes(input.status) ? input.status : "draft",
     themeId: input.themeId || null,
     profile: input.profile || {},
     summary: input.summary || "",

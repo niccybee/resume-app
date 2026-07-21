@@ -29,6 +29,7 @@ vi.mock("../services/cvWorkspace", () => ({
     saveEditingSession: vi.fn(),
     finishEditingSession: vi.fn(),
     proposeEditingSessionChange: vi.fn(),
+    proposeLifecycleChange: vi.fn(),
     applyChangeProposal: vi.fn(),
     discardChangeProposal: vi.fn(),
     save: vi.fn(),
@@ -329,6 +330,144 @@ describe("CV summary proposals", () => {
     expect(cvWorkspace.discardChangeProposal).toHaveBeenCalledWith("proposal-1");
     expect(cvWorkspace.applyChangeProposal).not.toHaveBeenCalled();
     expect(wrapper.find('[aria-label="Editing Session Change Proposal"]').exists()).toBe(false);
+  });
+
+  it("reviews and applies Copy to New Version without closing the source session", async () => {
+    const source = {
+      id: "session-1", cvId: "cv-1", status: "open", baseRevisionId: "revision-1",
+      baseRevisionNumber: 1, optimisticVersion: 2, name: "Product CV",
+      profile: { basics: {} }, summary: "Source work", selections: [],
+    };
+    const copied = { ...source, id: "session-2", optimisticVersion: 1 };
+    cvWorkspace.history.mockResolvedValue([{ id: "revision-1", cvId: "cv-1", number: 1 }]);
+    cvWorkspace.editingSessions.mockResolvedValue([source]);
+    cvWorkspace.resumeEditingSession.mockResolvedValueOnce(source).mockResolvedValueOnce(copied);
+    cvWorkspace.proposeLifecycleChange.mockResolvedValue({
+      id: "proposal-copy", operationType: "copy_to_new_version", status: "pending",
+      target: { type: "editing_session", id: "session-1" }, baseOptimisticVersion: 2,
+      diff: { lifecycle: { operation: "copy_to_new_version" } }, warnings: [],
+      expiresAt: "2026-07-22T00:00:00.000Z",
+    });
+    cvWorkspace.applyChangeProposal.mockResolvedValue({
+      id: "proposal-copy", operationType: "copy_to_new_version", status: "applied",
+      result: { cvId: "cv-1", editingSessionId: "session-2", optimisticVersion: 1 },
+    });
+    const wrapper = await mountEditor();
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Copy to New Version").trigger("click");
+    await flushPromises();
+    expect(cvWorkspace.proposeLifecycleChange).toHaveBeenCalledWith({
+      operation: {
+        type: "copy_to_new_version",
+        source: { type: "editing_session", id: "session-1" },
+        baseOptimisticVersion: 2,
+      },
+    });
+    expect(cvWorkspace.applyChangeProposal).not.toHaveBeenCalled();
+    await button(wrapper, "Apply Proposed Changes").trigger("click");
+    await flushPromises();
+    expect(cvWorkspace.resumeEditingSession).toHaveBeenLastCalledWith("session-2");
+    expect(wrapper.text()).toContain("working version 1");
+  });
+
+  it("reviews archive and restore proposals while retaining the session", async () => {
+    const open = {
+      id: "session-1", cvId: "cv-1", status: "open", baseRevisionId: "revision-1",
+      baseRevisionNumber: 1, optimisticVersion: 1, name: "Product CV", profile: { basics: {} }, selections: [],
+    };
+    const archived = { ...open, status: "archived", optimisticVersion: 2 };
+    cvWorkspace.history.mockResolvedValue([{ id: "revision-1", cvId: "cv-1", number: 1 }]);
+    cvWorkspace.editingSessions.mockResolvedValueOnce([open]).mockResolvedValue([archived]);
+    cvWorkspace.resumeEditingSession.mockResolvedValue(open);
+    cvWorkspace.proposeLifecycleChange.mockResolvedValue({
+      id: "proposal-archive", operationType: "archive_editing_session", status: "pending",
+      target: { type: "editing_session", id: "session-1" }, baseOptimisticVersion: 1,
+      diff: { lifecycle: { operation: "archive_editing_session" } }, warnings: [], expiresAt: "later",
+    });
+    cvWorkspace.applyChangeProposal.mockResolvedValue({
+      operationType: "archive_editing_session", status: "applied",
+      result: { cvId: "cv-1", editingSessionId: "session-1", optimisticVersion: 2 },
+    });
+    const wrapper = await mountEditor();
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Archive Editing Session").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Apply Proposed Changes").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Archived Editing Sessions");
+    expect(button(wrapper, "Restore Editing Session")).toBeDefined();
+  });
+
+  it("allows a Revision copy for a new role without an active session", async () => {
+    cvWorkspace.history.mockResolvedValue([{ id: "revision-1", cvId: "cv-1", number: 1 }]);
+    cvWorkspace.proposeLifecycleChange.mockResolvedValue({
+      id: "proposal-role", operationType: "copy_for_new_role", status: "pending",
+      target: { type: "cv_revision", id: "revision-1", cvId: "cv-1" },
+      diff: { lifecycle: { operation: "copy_for_new_role" } }, warnings: [], expiresAt: "later",
+    });
+    const wrapper = await mountEditor();
+    await wrapper.get('input[placeholder="Head of Marketing at Facebook"]').setValue("Head of Marketing at Facebook");
+    await button(wrapper, "Copy for New Role").trigger("click");
+    await flushPromises();
+    expect(cvWorkspace.proposeLifecycleChange).toHaveBeenCalledWith({
+      operation: {
+        type: "copy_for_new_role",
+        source: { type: "cv_revision", id: "revision-1", cvId: "cv-1" },
+        name: "Head of Marketing at Facebook",
+      },
+    });
+  });
+
+  it("removes Editing Session and publication actions after archiving a CV", async () => {
+    const session = {
+      id: "session-1", cvId: "cv-1", status: "open", baseRevisionId: "revision-1",
+      baseRevisionNumber: 1, optimisticVersion: 1, name: "Product CV", profile: { basics: {} }, selections: [],
+    };
+    cvWorkspace.history.mockResolvedValue([{ id: "revision-1", cvId: "cv-1", number: 1 }]);
+    cvWorkspace.editingSessions.mockResolvedValue([session]);
+    cvWorkspace.resumeEditingSession.mockResolvedValue(session);
+    cvWorkspace.proposeLifecycleChange.mockResolvedValue({
+      id: "proposal-cv-archive", operationType: "archive_cv", status: "pending",
+      target: { type: "cv", id: "cv-1" }, diff: { lifecycle: { operation: "archive_cv" } }, warnings: [], expiresAt: "later",
+    });
+    cvWorkspace.applyChangeProposal.mockResolvedValue({
+      operationType: "archive_cv", status: "applied", result: { cvId: "cv-1", status: "archived" },
+    });
+    cvWorkspace.open.mockResolvedValueOnce({
+      id: "cv-1", name: "Product CV", status: "draft", profile: { basics: {} }, selections: [],
+    }).mockResolvedValueOnce({
+      id: "cv-1", name: "Product CV", status: "archived", profile: { basics: {} }, selections: [],
+    });
+    const wrapper = await mountEditor();
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Archive CV").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Apply Proposed Changes").trigger("click");
+    await flushPromises();
+    expect(button(wrapper, "Finish as CV Revision")).toBeUndefined();
+    expect(button(wrapper, "Save CV")).toBeUndefined();
+    expect(wrapper.text()).not.toContain("Publishing");
+    expect(button(wrapper, "Resume Editing Session")).toBeUndefined();
+    expect(button(wrapper, "Restore CV")).toBeDefined();
+  });
+
+  it("does not offer to restore an Editing Session until its archived CV is restored", async () => {
+    cvWorkspace.open.mockResolvedValue({
+      id: "cv-1", name: "Product CV", status: "archived", profile: { basics: {} }, selections: [],
+    });
+    cvWorkspace.editingSessions.mockResolvedValue([{
+      id: "session-1", cvId: "cv-1", status: "archived", baseRevisionId: "revision-1",
+      baseRevisionNumber: 1, optimisticVersion: 2, name: "Product CV", profile: { basics: {} }, selections: [],
+    }]);
+
+    const wrapper = await mountEditor();
+
+    expect(wrapper.text()).toContain("Archived Editing Sessions");
+    expect(button(wrapper, "Restore Editing Session")).toBeUndefined();
+    expect(button(wrapper, "Restore CV")).toBeDefined();
   });
 
   it("resolves a finish retry after the server already committed the Revision", async () => {

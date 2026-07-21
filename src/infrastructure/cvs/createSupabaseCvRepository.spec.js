@@ -180,6 +180,31 @@ describe("Supabase CV repository Revision history boundary", () => {
 });
 
 describe("Supabase CV repository Editing Session boundary", () => {
+  it("routes lifecycle Change Proposals through the generic proposal contract", async () => {
+    const row = {
+      id: "proposal-copy", schema_version: "1", operation_type: "copy_to_new_version",
+      target_type: "editing_session", target_id: "session-1", target_cv_id: "cv-1",
+      base_optimistic_version: 2,
+      normalized_operations: [{ type: "copy_to_new_version", source: { type: "editing_session", id: "session-1" }, baseOptimisticVersion: 2 }],
+      structured_diff: { lifecycle: { operation: "copy_to_new_version" } }, warnings: [], status: "pending",
+    };
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } }, error: null }) },
+      rpc: vi.fn().mockResolvedValue({ data: row, error: null }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+    const input = {
+      schemaVersion: "1", operationType: "copy_to_new_version",
+      target: { type: "editing_session", id: "session-1" }, baseOptimisticVersion: 2,
+      operations: row.normalized_operations,
+    };
+    await expect(repository.createChangeProposal(input)).resolves.toMatchObject({
+      operationType: "copy_to_new_version", status: "pending",
+    });
+    expect(client.rpc).toHaveBeenCalledWith("create_cv_lifecycle_proposal", {
+      p_schema_version: "1", p_operation: row.normalized_operations[0],
+    });
+  });
   it("creates, reads, applies, and discards Change Proposals through owner-scoped atomic RPCs", async () => {
     const proposal = {
       id: "proposal-1",

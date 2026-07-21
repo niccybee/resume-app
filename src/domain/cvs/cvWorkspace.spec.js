@@ -18,6 +18,173 @@ const employmentContext = {
 };
 
 describe("CV workspace boundary", () => {
+  it("copies current Editing Session work to a new open session without changing its source", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product Manager at Google", summary: "Revision one", selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const source = await workspace.startEditingSession("cv-1");
+    const savedSource = await workspace.saveEditingSession({
+      ...source, summary: "Alternative direction", selections: [skill],
+    });
+
+    const proposal = await workspace.proposeLifecycleChange({
+      operation: {
+        type: "copy_to_new_version",
+        source: { type: "editing_session", id: savedSource.id },
+        baseOptimisticVersion: savedSource.optimisticVersion,
+      },
+    });
+    expect(proposal).toMatchObject({ status: "pending", operationType: "copy_to_new_version" });
+    await expect(workspace.editingSessions("cv-1")).resolves.toHaveLength(1);
+
+    const applied = await workspace.applyChangeProposal(proposal.id);
+    const copied = await workspace.resumeEditingSession(applied.result.editingSessionId);
+    expect(copied).toMatchObject({
+      cvId: "cv-1", status: "open", baseRevisionId: savedSource.baseRevisionId,
+      summary: "Alternative direction", selections: [{ ...skill, order: 0 }],
+    });
+    expect(copied.id).not.toBe(savedSource.id);
+    await expect(workspace.resumeEditingSession(savedSource.id)).resolves.toMatchObject({
+      status: "open", optimisticVersion: 2, summary: "Alternative direction",
+    });
+  });
+
+  it("copies a CV Revision into a new role-focused lineage whose first finish is Revision 1", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product Manager at Google", summary: "Google focus", selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const [revision] = await workspace.history("cv-1");
+    const proposal = await workspace.proposeLifecycleChange({
+      operation: {
+        type: "copy_for_new_role",
+        source: { type: "cv_revision", id: revision.id, cvId: "cv-1" },
+        name: "Head of Marketing at Facebook",
+      },
+    });
+    const applied = await workspace.applyChangeProposal(proposal.id);
+    const copied = await workspace.resumeEditingSession(applied.result.editingSessionId);
+
+    expect(copied).toMatchObject({
+      cvId: applied.result.cvId, baseRevisionId: null, status: "open",
+      name: "Head of Marketing at Facebook", summary: "Google focus",
+    });
+    expect(copied.cvId).not.toBe("cv-1");
+    const finished = await workspace.finishEditingSession(copied.id, copied.optimisticVersion);
+    expect(finished.revisionNumber).toBe(1);
+    await expect(workspace.open("cv-1")).resolves.toMatchObject({ name: "Product Manager at Google" });
+  });
+
+  it("archives and restores Editing Sessions and CVs through proposals without losing work", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product CV", summary: "Retained", selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const session = await workspace.startEditingSession("cv-1");
+    const saved = await workspace.saveEditingSession({ ...session, selections: [skill] });
+
+    for (const type of ["archive_editing_session", "restore_editing_session"]) {
+      const proposal = await workspace.proposeLifecycleChange({
+        operation: {
+          type,
+          target: { type: "editing_session", id: saved.id },
+          baseOptimisticVersion: type === "archive_editing_session" ? 2 : 3,
+        },
+      });
+      await workspace.applyChangeProposal(proposal.id);
+    }
+    await expect(workspace.resumeEditingSession(saved.id)).resolves.toMatchObject({
+      status: "open", optimisticVersion: 4, selections: [{ ...skill, order: 0 }],
+    });
+
+    for (const type of ["archive_cv", "restore_cv"]) {
+      const proposal = await workspace.proposeLifecycleChange({
+        operation: { type, target: { type: "cv", id: "cv-1" } },
+      });
+      await workspace.applyChangeProposal(proposal.id);
+      if (type === "archive_cv") {
+        await expect(workspace.saveEditingSession({ ...saved, optimisticVersion: 4 }))
+          .rejects.toMatchObject({ code: "invalid-lifecycle-transition" });
+        await expect(workspace.resumeEditingSession(saved.id)).resolves.toMatchObject({
+          status: "open", selections: [{ ...skill, order: 0 }],
+        });
+        await expect(workspace.publish("cv-1", "product-cv"))
+          .rejects.toMatchObject({ code: "invalid-lifecycle-transition" });
+        await expect(workspace.save({ ...await workspace.open("cv-1"), name: "Changed while archived" }))
+          .rejects.toMatchObject({ code: "invalid-lifecycle-transition" });
+      }
+    }
+    await expect(workspace.open("cv-1")).resolves.toMatchObject({
+      status: "draft", summary: "Retained",
+    });
+    await expect(workspace.resumeEditingSession(saved.id)).resolves.toMatchObject({
+      status: "open", selections: [{ ...skill, order: 0 }],
+    });
+  });
+
+  it("invalidates reviewed session mutations if their parent CV is archived before apply", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product CV", summary: "Before", selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const session = await workspace.startEditingSession("cv-1");
+    const workingStateProposal = await workspace.proposeEditingSessionChange({
+      sessionId: session.id,
+      baseOptimisticVersion: session.optimisticVersion,
+      operations: [{ type: "replace_working_state", value: { ...session, summary: "After" } }],
+    });
+    const copyProposal = await workspace.proposeLifecycleChange({
+      operation: {
+        type: "copy_to_new_version",
+        source: { type: "editing_session", id: session.id },
+        baseOptimisticVersion: session.optimisticVersion,
+      },
+    });
+    const sessionArchiveProposal = await workspace.proposeLifecycleChange({
+      operation: {
+        type: "archive_editing_session",
+        target: { type: "editing_session", id: session.id },
+        baseOptimisticVersion: session.optimisticVersion,
+      },
+    });
+    const cvArchiveProposal = await workspace.proposeLifecycleChange({
+      operation: { type: "archive_cv", target: { type: "cv", id: "cv-1" } },
+    });
+    await workspace.applyChangeProposal(cvArchiveProposal.id);
+
+    for (const proposal of [workingStateProposal, copyProposal, sessionArchiveProposal]) {
+      await expect(workspace.applyChangeProposal(proposal.id)).rejects.toMatchObject({
+        code: "invalid-lifecycle-transition",
+        context: { reason: "archived-cv", target: { cvId: "cv-1" } },
+      });
+      await expect(workspace.applyChangeProposal(proposal.id)).rejects.toMatchObject({
+        code: "invalid-lifecycle-transition",
+      });
+      await expect(workspace.getChangeProposal(proposal.id)).resolves.toMatchObject({
+        status: "invalidated", result: { reason: "archived-cv" },
+      });
+    }
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      status: "open", optimisticVersion: 1, summary: "Before",
+    });
+    await expect(workspace.editingSessions("cv-1")).resolves.toHaveLength(1);
+  });
+
+  it("rejects mismatched lifecycle operation targets before proposal persistence", async () => {
+    let calls = 0;
+    const workspace = createCvWorkspace({
+      repository: { async createChangeProposal() { calls += 1; } },
+    });
+    await expect(workspace.proposeLifecycleChange({
+      operation: { type: "archive_editing_session", target: { type: "cv", id: "cv-1" }, baseOptimisticVersion: 1 },
+    })).rejects.toMatchObject({ code: "validation-failed" });
+    await expect(workspace.proposeLifecycleChange({
+      operation: { type: "archive_cv", target: { type: "cv_revision", id: "revision-1" } },
+    })).rejects.toMatchObject({ code: "validation-failed" });
+    expect(calls).toBe(0);
+  });
+
   it("creates a normalized Change Proposal without mutating its Editing Session, then applies it once", async () => {
     const repository = createMemoryCvRepository([{
       id: "cv-1",

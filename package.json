@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "packageManager": "bun@1.2.15",
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "nuxt dev --dotenv .env.local",
     "build": "node scripts/static-cvs.mjs && nuxt build",
-    "preview": "nuxt preview",
+    "preview": "nuxt preview --dotenv .env.local",
+    "pretest": "playwright-core install chromium",
     "test": "vitest run",
     "typecheck": "nuxt typecheck",
     "postinstall": "nuxt prepare"
@@ -25,6 +26,7 @@
     "@vitejs/plugin-vue": "^6.0.0",
     "@vue/test-utils": "^2.4.6",
     "jsdom": "^27.4.0",
+    "playwright-core": "^1.61.1",
     "typescript": "^5.9.0",
     "vite": "^7.0.0",
     "vitest": "^4.0.2",

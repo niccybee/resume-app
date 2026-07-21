@@ -39,10 +39,15 @@ await writeFile(
   '<p data-static-cv-runtime="true">Static CV from Nuxt output</p>',
 );
 
-afterAll(() => rm(staticCvStage, { recursive: true, force: true }));
+afterAll(
+  () => rm(staticCvStage, { recursive: true, force: true }),
+  60_000,
+);
 
 describe("Nuxt runtime", async () => {
   await setup({
+    setupTimeout: 240_000,
+    teardownTimeout: 60_000,
     rootDir: projectRoot,
     build: true,
     browser: true,
@@ -92,6 +97,19 @@ describe("Nuxt runtime", async () => {
     );
 
     expect(Buffer.concat(publicOutput).includes(serverOnlySecret)).toBe(false);
+  });
+
+  it("serves the authenticated OpenRouter boundary from Nuxt", async () => {
+    await expect($fetch("/api/openrouter", {
+      method: "POST",
+      body: { action: "status" },
+    })).rejects.toMatchObject({
+      statusCode: 401,
+      data: {
+        code: "authentication-required",
+        error: "Sign in to manage OpenRouter.",
+      },
+    });
   });
 
   it("redirects a signed-out browser without rendering the protected shell", async () => {

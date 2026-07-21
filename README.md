@@ -12,6 +12,11 @@ A Nuxt 4 workspace for maintaining versioned CV content, composing role-specific
 
 The checked-in SQL in `database/` is the reproducible PRM2 schema. New public-schema objects use explicit Data API grants and row-level security.
 
+OpenRouter requests run through the Nuxt server at `/api/openrouter`. The private
+service-role key is used only server-side to call the restricted Vault RPCs in
+`database/cv_ai_settings.sql`; provider keys are never placed in Nuxt public
+runtime config or returned to the browser.
+
 ## Access model
 
 The owner workspace uses Supabase passwordless email magic links with account creation disabled. `/app/**` routes require a session, and PRM2 RLS enforces ownership for documents, compositions, blocks, versions, contexts, and generation records.

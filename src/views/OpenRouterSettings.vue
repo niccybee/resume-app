@@ -59,6 +59,20 @@ async function disconnect() {
     saving.value = false;
   }
 }
+
+async function verify() {
+  error.value = "";
+  message.value = "";
+  saving.value = true;
+  try {
+    applyStatus(await openRouter.verifyKey());
+    message.value = "OpenRouter connection verified.";
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    saving.value = false;
+  }
+}
 </script>
 
 <template>
@@ -105,9 +119,18 @@ async function disconnect() {
           class="secondary control-standard"
           :disabled="saving"
           type="button"
+          @click="verify"
+        >
+          Verify connection
+        </button>
+        <button
+          v-if="status.configured"
+          class="secondary control-standard"
+          :disabled="saving"
+          type="button"
           @click="disconnect"
         >
-          Disconnect
+          Remove OpenRouter
         </button>
       </div>
     </form>

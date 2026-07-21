@@ -281,7 +281,7 @@ describe("CV summary proposals", () => {
     });
     const wrapper = await mountEditor();
     await wrapper.get('input[placeholder="Focus on product leadership"]').setValue("Target a platform role");
-    await button(wrapper, "Generate proposal").trigger("click");
+    await button(wrapper, "Generate Summary Change Proposal").trigger("click");
     await flushPromises();
 
     expect(cvWorkspace.suggestSummary).toHaveBeenCalledWith(
@@ -291,8 +291,12 @@ describe("CV summary proposals", () => {
     expect(wrapper.get(".live-preview").text()).toContain("Existing summary");
     expect(wrapper.get(".live-preview").text()).not.toContain("Generated proposal");
 
-    await button(wrapper, "Accept").trigger("click");
-    expect(wrapper.get(".live-preview").text()).toContain("Generated proposal");
+    const proposalEditor = wrapper.get('[aria-label="Edit Summary Change Proposal"]');
+    await proposalEditor.setValue("Reviewed generated proposal");
+    expect(wrapper.get(".live-preview").text()).not.toContain("Reviewed generated proposal");
+
+    await button(wrapper, "Apply Change Proposal").trigger("click");
+    expect(wrapper.get(".live-preview").text()).toContain("Reviewed generated proposal");
   });
 
   it("shows loading and leaves the existing summary unchanged after failure", async () => {
@@ -302,14 +306,43 @@ describe("CV summary proposals", () => {
     }));
     const wrapper = await mountEditor();
     await wrapper.get('input[placeholder="Focus on product leadership"]').setValue("Improve it");
-    await button(wrapper, "Generate proposal").trigger("click");
+    await button(wrapper, "Generate Summary Change Proposal").trigger("click");
 
-    expect(button(wrapper, "Generate proposal").attributes("aria-busy")).toBe("true");
-    expect(button(wrapper, "Generate proposal").attributes("disabled")).toBeDefined();
+    expect(button(wrapper, "Generate Summary Change Proposal").attributes("aria-busy")).toBe("true");
+    expect(button(wrapper, "Generate Summary Change Proposal").attributes("disabled")).toBeDefined();
     rejectRequest(new Error("Connect OpenRouter in AI settings before generating content."));
     await flushPromises();
 
     expect(wrapper.get('[role="alert"]').text()).toContain("Connect OpenRouter");
+    expect(wrapper.get(".live-preview").text()).toContain("Existing summary");
+  });
+
+  it("retains an edited Summary Change Proposal when regeneration fails", async () => {
+    cvWorkspace.suggestSummary
+      .mockResolvedValueOnce({
+        text: "First proposal",
+        provenance: { type: "ai", provider: "openrouter" },
+      })
+      .mockRejectedValueOnce(new Error("OpenRouter is temporarily unavailable."));
+    const wrapper = await mountEditor();
+    const instruction = wrapper.get('input[placeholder="Focus on product leadership"]');
+
+    await instruction.setValue("First direction");
+    await button(wrapper, "Generate Summary Change Proposal").trigger("click");
+    await flushPromises();
+    await wrapper.get('[aria-label="Edit Summary Change Proposal"]').setValue(
+      "Reviewed first proposal",
+    );
+
+    await instruction.setValue("Second direction");
+    await button(wrapper, "Generate Summary Change Proposal").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.get('[role="alert"]').text()).toContain("temporarily unavailable");
+    expect(wrapper.get('[aria-label="Edit Summary Change Proposal"]').element.value).toBe(
+      "Reviewed first proposal",
+    );
+    expect(instruction.element.value).toBe("Second direction");
     expect(wrapper.get(".live-preview").text()).toContain("Existing summary");
   });
 });

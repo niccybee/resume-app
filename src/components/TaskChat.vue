@@ -16,7 +16,7 @@ const generating = ref(false);
 const messages = ref([
   {
     role: "assistant",
-    text: "Describe one or more employment tasks. I’ll return reviewable JSON before anything is added.",
+    text: "Describe one or more employment achievements. I’ll return a reviewable Change Proposal before anything is applied.",
   },
 ]);
 
@@ -34,7 +34,7 @@ function submitPrompt() {
     messages.value.push({ role: "user", text: prompt.value.trim() });
     messages.value.push({
       role: "assistant",
-      text: `Prepared ${result.tasks.length} draft task${result.tasks.length === 1 ? "" : "s"}. Review the JSON before creating them.`,
+      text: `Prepared ${result.tasks.length} proposed CV Block${result.tasks.length === 1 ? "" : "s"}. Review the JSON before applying the Change Proposal.`,
     });
     output.value = result;
     reviewJson.value = JSON.stringify(result, null, 2);
@@ -47,8 +47,6 @@ function submitPrompt() {
 async function generateWithAi() {
   if (!props.generateTasksHandler) return;
   errorMessage.value = "";
-  output.value = null;
-  reviewJson.value = "";
   generating.value = true;
   try {
     const instruction = prompt.value.trim();
@@ -63,7 +61,7 @@ async function generateWithAi() {
     messages.value.push({ role: "user", text: instruction });
     messages.value.push({
       role: "assistant",
-      text: `Prepared ${result.tasks.length} AI draft task${result.tasks.length === 1 ? "" : "s"}. Review and edit the JSON before creating them.`,
+      text: `Prepared ${result.tasks.length} AI-proposed CV Block${result.tasks.length === 1 ? "" : "s"}. Review and edit the Change Proposal before applying it.`,
     });
     output.value = result;
     reviewJson.value = JSON.stringify(result, null, 2);
@@ -95,7 +93,7 @@ async function createTasks() {
     }
     messages.value.push({
       role: "assistant",
-      text: `${output.value.tasks.length} task${output.value.tasks.length === 1 ? "" : "s"} added to the active draft.`,
+      text: `${output.value.tasks.length} CV Block${output.value.tasks.length === 1 ? "" : "s"} added to the current CV.`,
     });
     output.value = null;
     reviewJson.value = "";
@@ -112,7 +110,7 @@ async function createTasks() {
     <header class="task-chat-header">
       <div>
         <p class="task-chat-eyebrow">Structured assistant</p>
-        <h2 id="task-chat-title">Turn work notes into tasks</h2>
+        <h2 id="task-chat-title">Turn work notes into CV Blocks</h2>
       </div>
       <button type="button" class="control-compact secondary" @click="useExample">
         Use example
@@ -171,8 +169,8 @@ async function createTasks() {
     <div v-if="output" class="json-review">
       <div class="json-review-heading">
         <div>
-          <p class="task-chat-eyebrow">Proposed mutation</p>
-          <h3>JSON output</h3>
+          <p class="task-chat-eyebrow">Change Proposal</p>
+          <h3>Proposed CV Blocks</h3>
         </div>
         <button
           type="button"
@@ -182,7 +180,7 @@ async function createTasks() {
           :disabled="creating"
           @click="createTasks"
         >
-          Create {{ output.tasks.length }} task{{ output.tasks.length === 1 ? "" : "s" }}
+          Apply Change Proposal
         </button>
         <button
           type="button"
@@ -195,11 +193,11 @@ async function createTasks() {
         </button>
       </div>
       <label class="review-editor-label">
-        Edit proposed task JSON
+        Edit Change Proposal JSON
         <textarea
           v-model="reviewJson"
           data-testid="edit-task-json"
-          aria-label="Edit proposed task JSON"
+          aria-label="Edit Change Proposal JSON"
           rows="12"
           spellcheck="false"
         ></textarea>

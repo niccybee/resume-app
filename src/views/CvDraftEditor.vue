@@ -63,7 +63,6 @@ async function publish() { try { if (!draft.id) await save(); const saved=await 
 async function unpublish() { try { replaceDraft(await cvWorkspace.unpublish(draft.id)); } catch(reason){error.value=reason.message;} }
 async function generateSummary() {
   error.value = "";
-  proposal.value = null;
   generatingSummary.value = true;
   try {
     proposal.value = await cvWorkspace.suggestSummary(draft, instruction.value);
@@ -105,7 +104,7 @@ function generateTaskProposal(instruction) {
       <div class="grid"><label>Name<input v-model="draft.profile.basics.name" /></label><label>Target role<input v-model="draft.profile.basics.label" /></label></div>
       <label>Email<input v-model="draft.profile.basics.email" type="email" /></label>
       <label>Theme<select v-model="draft.themeId"><option :value="null">Default — Editorial</option><option v-for="theme in themes" :key="theme.id" :value="theme.id">{{ theme.name }} — {{ theme.description }}</option></select></label>
-      <details><summary>Summary generator</summary><label>Direction<input v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary control-standard" :aria-busy="generatingSummary" :disabled="generatingSummary" @click="generateSummary">Generate proposal</button><article v-if="proposal"><p>{{ proposal.text }}</p><div class="grid"><button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Accept</button><button class="secondary control-standard" @click="proposal=null">Discard</button></div></article></details>
+      <details><summary>Summary generator</summary><label>Direction<input v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary control-standard" :aria-busy="generatingSummary" :disabled="generatingSummary" @click="generateSummary">Generate Summary Change Proposal</button><article v-if="proposal"><label>Edit Summary Change Proposal<textarea v-model="proposal.text" aria-label="Edit Summary Change Proposal"></textarea></label><div class="grid"><button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Apply Change Proposal</button><button class="secondary control-standard" @click="proposal=null">Discard</button></div></article></details>
 
       <TaskChat
         :generate-tasks-handler="generateTaskProposal"

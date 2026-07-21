@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import CvDocument from "../components/CvDocument.vue";
 import { cvWorkspace } from "../services/cvWorkspace";
@@ -8,6 +8,20 @@ const route = useRoute();
 const status = ref("loading");
 const document = ref(null);
 const error = ref("");
+
+const existingRobotsMeta = window.document.head.querySelector('meta[name="robots"]');
+const robotsMeta = existingRobotsMeta || window.document.createElement("meta");
+const previousRobotsContent = existingRobotsMeta?.content || "";
+if (!existingRobotsMeta) {
+  robotsMeta.name = "robots";
+  window.document.head.append(robotsMeta);
+}
+robotsMeta.content = "noindex, nofollow, noarchive";
+
+onBeforeUnmount(() => {
+  if (existingRobotsMeta) robotsMeta.content = previousRobotsContent;
+  else robotsMeta.remove();
+});
 
 onMounted(async () => {
   try {

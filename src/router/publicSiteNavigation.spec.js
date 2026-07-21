@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createPinia } from "pinia";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory } from "vue-router";
 import { beforeEach, expect, it, vi } from "vitest";
 import App from "../App.vue";
@@ -23,6 +23,7 @@ vi.mock("../supabase", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  document.head.querySelector('meta[name="robots"]')?.remove();
 });
 
 async function mountPublicSite(path) {
@@ -53,6 +54,15 @@ it("keeps a shared CV slug inside the public site shell", async () => {
 
   expect(router.currentRoute.value.name).toBe("Public Resume");
   expect(wrapper.find("[data-workspace-navigation]").exists()).toBe(false);
+});
+
+it("marks shared CVs as unlisted for search crawlers", async () => {
+  await mountPublicSite("/cv/example");
+  await flushPromises();
+
+  expect(document.head.querySelector('meta[name="robots"]')?.content).toBe(
+    "noindex, nofollow, noarchive",
+  );
 });
 
 it("renders unknown public URLs inside the public shell", async () => {

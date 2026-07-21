@@ -174,8 +174,12 @@ export function createSupabaseCvRepository({ client }) {
       return mapDocument(data, await selectionsFor(id));
     },
 
-    getPublished(slug) {
-      return fetchOne("slug", slug, { published: true });
+    async getPublished(slug) {
+      const { data, error } = await client.rpc("get_published_cv", {
+        p_slug: slug,
+      });
+      mapError(error);
+      return data ? normalizeDraft(data) : null;
     },
   };
 }

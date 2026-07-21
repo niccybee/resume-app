@@ -11,6 +11,39 @@ export class CvWorkspaceError extends Error {
 export function createCvWorkspace({ repository, summaryGenerator } = {}) {
   if (!repository) throw new CvWorkspaceError("missing-repository", "A CV repository is required.");
 
+  function normalizeEditingSession(input) {
+    const draft = normalizeDraft({ ...input, id: input.cvId });
+    return {
+      ...draft,
+      id: input.id,
+      cvId: input.cvId,
+      baseRevisionId: input.baseRevisionId,
+      optimisticVersion: input.optimisticVersion,
+      status: input.status,
+      finishedRevisionId: input.finishedRevisionId || null,
+      createdAt: input.createdAt || null,
+      updatedAt: input.updatedAt || null,
+      finishedAt: input.finishedAt || null,
+    };
+  }
+
+  async function revisionNumbers(cvId) {
+    const revisions = await repository.listRevisions(cvId);
+    return new Map(revisions.map((revision) => [revision.id, revision.number]));
+  }
+
+  async function decorateEditingSession(input) {
+    const session = normalizeEditingSession(input);
+    const numberById = await revisionNumbers(session.cvId);
+    return {
+      ...session,
+      baseRevisionNumber: numberById.get(session.baseRevisionId) || null,
+      revisionNumber: session.finishedRevisionId
+        ? numberById.get(session.finishedRevisionId) || null
+        : null,
+    };
+  }
+
   return {
     list: () => repository.list(),
 
@@ -23,6 +56,51 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
           ? numberById.get(revision.baseRevisionId) || null
           : null,
       }));
+    },
+
+    async editingSessions(cvId) {
+      const sessions = await repository.listEditingSessions(cvId);
+      const numberById = await revisionNumbers(cvId);
+      return sessions.map((input) => {
+        const session = normalizeEditingSession(input);
+        return {
+          ...session,
+          baseRevisionNumber: numberById.get(session.baseRevisionId) || null,
+          revisionNumber: session.finishedRevisionId
+            ? numberById.get(session.finishedRevisionId) || null
+            : null,
+        };
+      });
+    },
+
+    async startEditingSession(cvId, baseRevisionId = null) {
+      return decorateEditingSession(
+        await repository.startEditingSession(cvId, baseRevisionId),
+      );
+    },
+
+    async resumeEditingSession(sessionId) {
+      const session = await repository.getEditingSession(sessionId);
+      if (!session) {
+        throw new CvWorkspaceError("not-found", "Editing Session not found.");
+      }
+      return decorateEditingSession(session);
+    },
+
+    async saveEditingSession(input) {
+      const session = normalizeEditingSession(input);
+      if (!session.name || session.name === "Untitled CV") {
+        throw new CvWorkspaceError("invalid-name", "Enter a name for this CV.");
+      }
+      return decorateEditingSession(
+        await repository.saveEditingSession(session),
+      );
+    },
+
+    async finishEditingSession(sessionId, expectedVersion) {
+      return decorateEditingSession(
+        await repository.finishEditingSession(sessionId, expectedVersion),
+      );
     },
 
     async open(id) {

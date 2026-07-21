@@ -23,6 +23,11 @@ vi.mock("../services/cvWorkspace", () => ({
   cvWorkspace: {
     open: vi.fn(),
     history: vi.fn(),
+    editingSessions: vi.fn(),
+    startEditingSession: vi.fn(),
+    resumeEditingSession: vi.fn(),
+    saveEditingSession: vi.fn(),
+    finishEditingSession: vi.fn(),
     save: vi.fn(),
     publish: vi.fn(),
     unpublish: vi.fn(),
@@ -58,6 +63,7 @@ describe("CV summary proposals", () => {
     blockLibrary.browse.mockResolvedValue({ blocks: [], experience: [], sidebar: {} });
     createTaskBlocks.mockResolvedValue([]);
     cvWorkspace.history.mockResolvedValue([]);
+    cvWorkspace.editingSessions.mockResolvedValue([]);
     cvWorkspace.open.mockResolvedValue({
       id: "cv-1",
       name: "Product CV",
@@ -90,6 +96,210 @@ describe("CV summary proposals", () => {
     expect(wrapper.text()).toContain("Revision 2 · based on Revision 1");
     expect(wrapper.text()).toContain("Revision 1");
     expect(wrapper.text()).not.toContain("revision-1");
+  });
+
+  it("starts and resumes durable Editing Sessions from any CV Revision", async () => {
+    cvWorkspace.history.mockResolvedValue([{
+      id: "revision-2",
+      cvId: "cv-1",
+      number: 2,
+      baseRevisionId: "revision-1",
+      baseRevisionNumber: 1,
+    }, {
+      id: "revision-1",
+      cvId: "cv-1",
+      number: 1,
+      baseRevisionId: null,
+      baseRevisionNumber: null,
+    }]);
+    cvWorkspace.editingSessions.mockResolvedValue([{
+      id: "session-1",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: "revision-1",
+      baseRevisionNumber: 1,
+      optimisticVersion: 3,
+    }]);
+    cvWorkspace.startEditingSession.mockResolvedValue({
+      id: "session-2",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: "revision-2",
+      optimisticVersion: 1,
+      name: "Product CV",
+      profile: { basics: { name: "Nic" } },
+      summary: "Revision two",
+      selections: [],
+    });
+    cvWorkspace.resumeEditingSession.mockResolvedValue({
+      id: "session-1",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: "revision-1",
+      optimisticVersion: 3,
+      name: "Product CV",
+      profile: { basics: { name: "Nic" } },
+      summary: "Persisted session work",
+      selections: [],
+    });
+    const wrapper = await mountEditor();
+
+    expect(wrapper.text()).toContain("Open Editing Sessions");
+    expect(wrapper.text()).toContain("based on Revision 1");
+    expect(button(wrapper, "Start from Revision 2")).toBeTruthy();
+    expect(button(wrapper, "Start from Revision 1")).toBeTruthy();
+
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    expect(cvWorkspace.resumeEditingSession).toHaveBeenCalledWith("session-1");
+    expect(wrapper.text()).toContain("Editing Session based on Revision 1");
+    expect(wrapper.get(".live-preview").text()).toContain("Persisted session work");
+
+    await button(wrapper, "Start from Revision 2").trigger("click");
+    await flushPromises();
+    expect(cvWorkspace.startEditingSession).toHaveBeenCalledWith("cv-1", "revision-2");
+    expect(wrapper.text()).toContain("Editing Session based on Revision 2");
+  });
+
+  it("starts the first Editing Session for a newly created draft CV", async () => {
+    cvWorkspace.history.mockResolvedValue([]);
+    cvWorkspace.startEditingSession.mockResolvedValue({
+      id: "session-first",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: "revision-1",
+      baseRevisionNumber: 1,
+      optimisticVersion: 1,
+      name: "Product CV",
+      profile: { basics: { name: "Nic" } },
+      summary: "Existing summary",
+      selections: [],
+    });
+    const wrapper = await mountEditor();
+
+    await button(wrapper, "Start first Editing Session").trigger("click");
+    await flushPromises();
+
+    expect(cvWorkspace.startEditingSession).toHaveBeenCalledWith("cv-1", null);
+    expect(wrapper.text()).toContain("Editing Session based on Revision 1");
+  });
+
+  it("persists and finishes the active Editing Session through optimistic versions", async () => {
+    const summary = {
+      id: "session-1",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: "revision-1",
+      baseRevisionNumber: 1,
+      optimisticVersion: 3,
+    };
+    cvWorkspace.history.mockResolvedValue([{
+      id: "revision-1",
+      cvId: "cv-1",
+      number: 1,
+      baseRevisionId: null,
+    }]);
+    cvWorkspace.editingSessions.mockResolvedValue([summary]);
+    cvWorkspace.resumeEditingSession.mockResolvedValue({
+      ...summary,
+      name: "Product CV",
+      profile: { basics: { name: "Nic" } },
+      summary: "Persisted session work",
+      selections: [],
+    });
+    cvWorkspace.saveEditingSession.mockImplementation(async (session) => ({
+      ...session,
+      optimisticVersion: session.optimisticVersion + 1,
+    }));
+    cvWorkspace.finishEditingSession.mockResolvedValue({
+      ...summary,
+      status: "finished",
+      optimisticVersion: 6,
+      finishedRevisionId: "revision-2",
+      revisionNumber: 2,
+    });
+    const wrapper = await mountEditor();
+
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    await wrapper.get('input[placeholder="Product lead CV"]').setValue(
+      "Google Product Manager",
+    );
+    await button(wrapper, "Save Editing Session").trigger("click");
+    await flushPromises();
+
+    expect(cvWorkspace.saveEditingSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        id: "session-1",
+        cvId: "cv-1",
+        optimisticVersion: 3,
+        name: "Google Product Manager",
+      }),
+    );
+    expect(wrapper.text()).toContain("working version 4");
+
+    await button(wrapper, "Finish as CV Revision").trigger("click");
+    await flushPromises();
+    expect(cvWorkspace.finishEditingSession).toHaveBeenCalledWith("session-1", 5);
+    expect(wrapper.get('[role="status"]').text()).toContain(
+      "finished as Revision 2",
+    );
+  });
+
+  it("resolves a finish retry after the server already committed the Revision", async () => {
+    const openSession = {
+      id: "session-1",
+      cvId: "cv-1",
+      status: "open",
+      baseRevisionId: "revision-1",
+      baseRevisionNumber: 1,
+      optimisticVersion: 3,
+      name: "Product CV",
+      profile: { basics: { name: "Nic" } },
+      summary: "Persisted session work",
+      selections: [],
+    };
+    const finishedSession = {
+      ...openSession,
+      status: "finished",
+      optimisticVersion: 5,
+      finishedRevisionId: "revision-2",
+      revisionNumber: 2,
+    };
+    let resolveFinishedReload;
+    cvWorkspace.history.mockResolvedValue([{
+      id: "revision-1",
+      cvId: "cv-1",
+      number: 1,
+      baseRevisionId: null,
+    }]);
+    cvWorkspace.editingSessions.mockResolvedValue([openSession]);
+    cvWorkspace.resumeEditingSession
+      .mockResolvedValueOnce(openSession)
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveFinishedReload = resolve;
+      }));
+    cvWorkspace.saveEditingSession.mockRejectedValue(
+      Object.assign(new Error("Editing Session is not open."), {
+        code: "session-finished",
+      }),
+    );
+    const wrapper = await mountEditor();
+
+    await button(wrapper, "Resume Editing Session").trigger("click");
+    await flushPromises();
+    await button(wrapper, "Finish as CV Revision").trigger("click");
+    await flushPromises();
+
+    expect(button(wrapper, "Finish as CV Revision").attributes("disabled")).toBeDefined();
+    expect(cvWorkspace.finishEditingSession).not.toHaveBeenCalled();
+
+    resolveFinishedReload(finishedSession);
+    await flushPromises();
+    expect(wrapper.get('[role="status"]').text()).toContain(
+      "finished as Revision 2",
+    );
+    expect(button(wrapper, "Finish as CV Revision")).toBeUndefined();
   });
 
   it("adds, regroups, reorders, removes, and saves exact Block Versions", async () => {

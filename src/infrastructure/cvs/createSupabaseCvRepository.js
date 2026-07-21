@@ -3,6 +3,15 @@ import { normalizeDraft } from "../../domain/cvs/cvDraft";
 
 function mapError(error) {
   if (!error) return;
+  if (error.code === "40001" || /session-conflict/i.test(error.message || "")) {
+    throw new CvWorkspaceError(
+      "session-conflict",
+      "Editing Session changed elsewhere. Resume it before trying again.",
+    );
+  }
+  if (error.code === "55000") {
+    throw new CvWorkspaceError("session-finished", error.message || "Editing Session is not open.");
+  }
   if (error.code === "23505") {
     throw new CvWorkspaceError("slug-conflict", "That public slug is already in use.");
   }
@@ -42,6 +51,54 @@ function mapRevision(row) {
     summaryProvenance: row.summary_provenance,
     createdAt: row.created_at,
   };
+}
+
+function mapEditingSession(row, selections = []) {
+  return {
+    id: row.id,
+    cvId: row.cv_id,
+    baseRevisionId: row.base_revision_id,
+    status: row.status,
+    optimisticVersion: row.optimistic_version,
+    finishedRevisionId: row.finished_revision_id,
+    name: row.working_name,
+    themeId: row.working_theme_id,
+    profile: row.working_profile || {},
+    summary: row.working_summary || "",
+    summaryProvenance: row.working_summary_provenance,
+    selections,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    finishedAt: row.finished_at,
+  };
+}
+
+function mapEditingSessionSelection(item) {
+  return {
+    blockId: item.block_id,
+    versionId: item.version_id,
+    section: item.section,
+    order: item.position,
+    content: item.content || {},
+    block: item.display || {},
+    group: item.display?.grouping || undefined,
+    source: item.source_type
+      ? { type: item.source_type, ...(item.source_metadata || {}) }
+      : null,
+  };
+}
+
+function serializeSelections(selections = []) {
+  return selections.map((selection) => ({
+    block_id: selection.blockId,
+    version_id: selection.versionId,
+    section: selection.section,
+    position: selection.order,
+    display: {
+      ...(selection.block || {}),
+      ...(selection.group ? { grouping: selection.group } : {}),
+    },
+  }));
 }
 
 export function createSupabaseCvRepository({ client }) {
@@ -87,6 +144,17 @@ export function createSupabaseCvRepository({ client }) {
     }));
   }
 
+  async function fetchEditingSession(id) {
+    await actor();
+    const { data, error } = await client.rpc("get_cv_editing_session", {
+      p_session_id: id,
+    });
+    mapError(error);
+    return data
+      ? mapEditingSession(data, (data.selections || []).map(mapEditingSessionSelection))
+      : null;
+  }
+
   async function fetchOne(column, value, { published = false } = {}) {
     let request = client.from("cv_documents").select("*").eq(column, value);
     if (published) request = request.eq("status", "published");
@@ -126,6 +194,57 @@ export function createSupabaseCvRepository({ client }) {
       return (data || []).map(mapRevision);
     },
 
+    async listEditingSessions(cvId) {
+      const user = await actor();
+      const { data, error } = await client
+        .from("cv_editing_sessions")
+        .select("id, cv_id, owner_id, base_revision_id, status, optimistic_version, working_name, working_theme_id, working_profile, working_summary, working_summary_provenance, finished_revision_id, created_at, updated_at, finished_at")
+        .eq("cv_id", cvId)
+        .eq("owner_id", user.id)
+        .order("updated_at", { ascending: false });
+      mapError(error);
+      return (data || []).map((row) => mapEditingSession(row));
+    },
+
+    getEditingSession: fetchEditingSession,
+
+    async startEditingSession(cvId, baseRevisionId = null) {
+      await actor();
+      const { data: id, error } = await client.rpc("start_cv_editing_session", {
+        p_cv_id: cvId,
+        p_base_revision_id: baseRevisionId,
+      });
+      mapError(error);
+      return fetchEditingSession(id);
+    },
+
+    async saveEditingSession(input) {
+      await actor();
+      const draft = normalizeDraft(input);
+      const { data: id, error } = await client.rpc("save_cv_editing_session", {
+        p_session_id: input.id,
+        p_expected_version: input.optimisticVersion,
+        p_name: draft.name,
+        p_theme_id: draft.themeId,
+        p_profile: draft.profile,
+        p_summary: draft.summary || null,
+        p_summary_provenance: draft.summaryProvenance,
+        p_selections: serializeSelections(draft.selections),
+      });
+      mapError(error);
+      return fetchEditingSession(id);
+    },
+
+    async finishEditingSession(id, expectedVersion) {
+      await actor();
+      const { error } = await client.rpc("finish_cv_editing_session", {
+        p_session_id: id,
+        p_expected_version: expectedVersion,
+      });
+      mapError(error);
+      return fetchEditingSession(id);
+    },
+
     async save(input) {
       await actor();
       const draft = normalizeDraft(input);
@@ -136,16 +255,7 @@ export function createSupabaseCvRepository({ client }) {
         p_profile: draft.profile,
         p_summary: draft.summary || null,
         p_summary_provenance: draft.summaryProvenance,
-        p_selections: draft.selections.map((selection) => ({
-            block_id: selection.blockId,
-            version_id: selection.versionId,
-            section: selection.section,
-            position: selection.order,
-            display: {
-              ...(selection.block || {}),
-                ...(selection.group ? { grouping: selection.group } : {}),
-            },
-        })),
+        p_selections: serializeSelections(draft.selections),
       });
       mapError(error);
       return normalizeDraft({ ...draft, id });

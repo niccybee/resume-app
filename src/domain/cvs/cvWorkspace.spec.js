@@ -70,6 +70,140 @@ describe("CV workspace boundary", () => {
     ]);
   });
 
+  it("starts multiple durable Editing Sessions from any CV Revision", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Google Product Manager",
+      themeId: "modern",
+      profile: { basics: { name: "Nic" } },
+      summary: "Revision one",
+      selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+
+    const first = await workspace.startEditingSession(
+      "cv-1",
+      "cv-1-revision-1",
+    );
+    const second = await workspace.startEditingSession("cv-1");
+    const saved = await workspace.saveEditingSession({
+      ...first,
+      summary: "Persisted working summary",
+      selections: [skill],
+    });
+
+    expect(first.id).not.toBe(second.id);
+    expect(saved.optimisticVersion).toBe(2);
+    await expect(workspace.editingSessions("cv-1")).resolves.toEqual([
+      expect.objectContaining({ id: first.id, status: "open", baseRevisionNumber: 1 }),
+      expect.objectContaining({ id: second.id, status: "open", baseRevisionNumber: 1 }),
+    ]);
+    await expect(workspace.resumeEditingSession(first.id)).resolves.toMatchObject({
+      id: first.id,
+      cvId: "cv-1",
+      baseRevisionId: "cv-1-revision-1",
+      optimisticVersion: 2,
+      themeId: "modern",
+      profile: { basics: { name: "Nic" } },
+      summary: "Persisted working summary",
+      selections: [{ ...skill, order: 0 }],
+    });
+  });
+
+  it("creates an initial Revision when a newly saved CV starts its first Editing Session", async () => {
+    const workspace = createCvWorkspace({
+      repository: createMemoryCvRepository(),
+    });
+    const saved = await workspace.save({
+      name: "New Product CV",
+      summary: "Legacy working summary",
+      selections: [employment],
+    });
+
+    const session = await workspace.startEditingSession(saved.id);
+
+    expect(session).toMatchObject({
+      cvId: saved.id,
+      baseRevisionNumber: 1,
+      summary: "Legacy working summary",
+      selections: [{ ...employment, order: 0 }],
+    });
+    await expect(workspace.history(saved.id)).resolves.toEqual([
+      expect.objectContaining({ number: 1, baseRevisionId: null }),
+    ]);
+  });
+
+  it("finishes sessions once with sequential completion numbers and separate ancestry", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Google Product Manager",
+      slug: "google-product-manager",
+      status: "published",
+      publishedAt: "2026-07-21T00:00:00.000Z",
+      summary: "Published Revision one",
+      selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const slower = await workspace.startEditingSession("cv-1");
+    const faster = await workspace.startEditingSession("cv-1");
+    const savedFaster = await workspace.saveEditingSession({
+      ...faster,
+      name: "Stale parallel CV name",
+      summary: "Finished first",
+    });
+
+    const firstFinish = await workspace.finishEditingSession(
+      savedFaster.id,
+      savedFaster.optimisticVersion,
+    );
+    const secondFinish = await workspace.finishEditingSession(
+      slower.id,
+      slower.optimisticVersion,
+    );
+    const retried = await workspace.finishEditingSession(
+      savedFaster.id,
+      savedFaster.optimisticVersion,
+    );
+
+    expect(firstFinish).toMatchObject({ status: "finished", revisionNumber: 2 });
+    expect(secondFinish).toMatchObject({ status: "finished", revisionNumber: 3 });
+    expect(retried.finishedRevisionId).toBe(firstFinish.finishedRevisionId);
+    await expect(workspace.history("cv-1")).resolves.toEqual([
+      expect.objectContaining({ number: 3, baseRevisionNumber: 1 }),
+      expect.objectContaining({ number: 2, baseRevisionNumber: 1 }),
+      expect.objectContaining({ number: 1, baseRevisionNumber: null }),
+    ]);
+    await expect(workspace.open("cv-1")).resolves.toMatchObject({
+      status: "published",
+      slug: "google-product-manager",
+      publishedAt: "2026-07-21T00:00:00.000Z",
+      name: "Google Product Manager",
+    });
+  });
+
+  it("rejects stale Editing Session saves without losing persisted work", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Product CV",
+      selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+    const session = await workspace.startEditingSession("cv-1");
+    const saved = await workspace.saveEditingSession({
+      ...session,
+      summary: "Winning update",
+    });
+
+    await expect(workspace.saveEditingSession({
+      ...session,
+      summary: "Stale update",
+    })).rejects.toMatchObject({ code: "session-conflict" });
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      optimisticVersion: saved.optimisticVersion,
+      summary: "Winning update",
+    });
+  });
+
   it("composes, saves, and reloads exact block versions", async () => {
     const repository = createMemoryCvRepository();
     const workspace = createCvWorkspace({ repository });

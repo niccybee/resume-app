@@ -13,10 +13,14 @@ A Nuxt 4 workspace for maintaining versioned CV content, composing role-specific
 The checked-in SQL in `database/` is the reproducible PRM2 schema. New public-schema objects use explicit Data API grants and row-level security.
 
 For the CV lineage expansion, apply `database/cv_revisions.sql` after the existing
-CV document, CV Block, and Composition schema, then apply
+CV document, CV Block, and Composition schema. Apply
+`database/cv_editing_sessions.sql` next to add durable Working Compositions and
+atomic start, save, and finish boundaries, then apply
 `database/cv_public_read.sql`. The Revision migration is transactional and
 idempotent: it rejects duplicate CV Block identities before backfilling immutable
-v1 snapshots and pinning existing public slugs to those snapshots.
+v1 snapshots and pinning existing public slugs to those snapshots. Finishing an
+Editing Session allocates its Revision number under a CV-lineage lock and never
+changes the Published Revision.
 
 OpenRouter requests run through the Nuxt server at `/api/openrouter`. The private
 service-role key is used only server-side to call the restricted Vault RPCs in

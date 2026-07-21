@@ -12,9 +12,11 @@ import { cvWorkspace } from "../services/cvWorkspace";
 import { openRouter } from "../services/openRouter";
 
 const route = useRoute(); const router = useRouter();
-const status = ref("loading"); const error = ref(""); const saving = ref(false); const generatingSummary = ref(false);
+const status = ref("loading"); const error = ref(""); const notice = ref(""); const saving = ref(false); const generatingSummary = ref(false);
 const blocks = ref([]); const proposal = ref(null); const instruction = ref(""); const publishSlug = ref("");
 const revisions = ref([]);
+const editingSessions = ref([]);
+const activeSession = ref(null);
 const selectedVersions = reactive({});
 const draft = reactive(normalizeDraft({ name: "", profile: { basics: {} }, selections: [] }));
 const themes = listThemes();
@@ -45,16 +47,76 @@ function changeSection(item, section) { replaceDraft(moveSelection(draft, item.v
 function clearDraft() { if (window.confirm("Remove every selected Block Version from this CV?")) replaceDraft({ ...draft, selections: [] }); }
 const selectedBySection = computed(() => Object.groupBy(draft.selections, (item) => item.section));
 const selectedExperienceGroups = computed(() => groupExperienceSelections(selectedBySection.value.experience));
+const openEditingSessions = computed(() => editingSessions.value.filter((item) => item.status === "open"));
+const activeBaseRevisionNumber = computed(() => activeSession.value?.baseRevisionNumber || revisions.value.find((item) => item.id === activeSession.value?.baseRevisionId)?.number || null);
+
+function activateEditingSession(session, baseRevisionNumber = null) {
+  const publication = {
+    slug: draft.slug,
+    status: draft.status,
+    publishedAt: draft.publishedAt,
+  };
+  activeSession.value = {
+    ...session,
+    baseRevisionNumber: session.baseRevisionNumber || baseRevisionNumber,
+  };
+  replaceDraft({
+    ...publication,
+    id: session.cvId,
+    name: session.name,
+    themeId: session.themeId,
+    profile: session.profile,
+    summary: session.summary,
+    summaryProvenance: session.summaryProvenance,
+    selections: session.selections,
+  });
+  alignSelectedVersions();
+}
+
+async function refreshEditingContext() {
+  if (!draft.id) return;
+  const [history, sessions] = await Promise.all([
+    cvWorkspace.history(draft.id),
+    cvWorkspace.editingSessions(draft.id),
+  ]);
+  revisions.value = history;
+  editingSessions.value = sessions;
+}
+
+async function startEditingSession(revision) {
+  error.value = "";
+  notice.value = "";
+  try {
+    const session = await cvWorkspace.startEditingSession(draft.id, revision?.id || null);
+    activateEditingSession(session, revision?.number || session.baseRevisionNumber);
+    await refreshEditingContext();
+  } catch (reason) {
+    error.value = reason.message;
+  }
+}
+
+async function resumeEditingSession(summary) {
+  error.value = "";
+  notice.value = "";
+  try {
+    const session = await cvWorkspace.resumeEditingSession(summary.id);
+    activateEditingSession(session, summary.baseRevisionNumber);
+  } catch (reason) {
+    error.value = reason.message;
+  }
+}
 
 onMounted(async () => {
   try {
-    const [catalog, existing, history] = await Promise.all([
+    const [catalog, existing, history, sessions] = await Promise.all([
       blockLibrary.browse(),
       route.params.cvId ? cvWorkspace.open(route.params.cvId) : Promise.resolve(null),
       route.params.cvId ? cvWorkspace.history(route.params.cvId) : Promise.resolve([]),
+      route.params.cvId ? cvWorkspace.editingSessions(route.params.cvId) : Promise.resolve([]),
     ]);
     blocks.value = catalog.blocks;
     revisions.value = history;
+    editingSessions.value = sessions;
     if (existing) {
       replaceDraft(existing);
       publishSlug.value = existing.slug || "";
@@ -64,7 +126,83 @@ onMounted(async () => {
   } catch (reason) { error.value = reason.message; status.value = reason.code === "not-found" ? "missing" : "failed"; }
 });
 
-async function save() { saving.value=true; error.value=""; try { const saved=await cvWorkspace.save(draft); replaceDraft(saved); if (!route.params.cvId) await router.replace(`/app/cvs/${saved.id}`); } catch(reason){error.value=reason.message;} finally{saving.value=false;} }
+async function persistActiveEditingSession({ refresh = true } = {}) {
+  const saved = await cvWorkspace.saveEditingSession({
+    ...activeSession.value,
+    ...draft,
+    id: activeSession.value.id,
+    cvId: draft.id,
+    optimisticVersion: activeSession.value.optimisticVersion,
+  });
+  activateEditingSession(saved, activeBaseRevisionNumber.value);
+  if (refresh) await refreshEditingContext();
+  return saved;
+}
+
+async function save() {
+  saving.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    if (activeSession.value) {
+      const saved = await persistActiveEditingSession();
+      notice.value = "Editing Session saved.";
+      return saved;
+    }
+    const saved = await cvWorkspace.save(draft);
+    replaceDraft(saved);
+    if (!route.params.cvId) await router.replace(`/app/cvs/${saved.id}`);
+    return saved;
+  } catch(reason) {
+    error.value=reason.message;
+    return null;
+  } finally {
+    saving.value=false;
+  }
+}
+async function resolveFinishedSession(sessionId, originalError) {
+  const session = await cvWorkspace.resumeEditingSession(sessionId);
+  if (session.status !== "finished") throw originalError;
+  return session;
+}
+
+async function finishEditingSession() {
+  if (!activeSession.value || saving.value) return;
+  saving.value = true;
+  error.value = "";
+  notice.value = "";
+  const sessionId = activeSession.value.id;
+  try {
+    let saved;
+    try {
+      saved = await persistActiveEditingSession({ refresh: false });
+    } catch (reason) {
+      if (reason.code !== "session-finished") throw reason;
+      const finished = await resolveFinishedSession(sessionId, reason);
+      activeSession.value = null;
+      await refreshEditingContext();
+      notice.value = `Editing Session finished as Revision ${finished.revisionNumber}.`;
+      return;
+    }
+
+    let finished;
+    try {
+      finished = await cvWorkspace.finishEditingSession(
+        saved.id,
+        saved.optimisticVersion,
+      );
+    } catch (reason) {
+      finished = await resolveFinishedSession(sessionId, reason);
+    }
+    activeSession.value = null;
+    await refreshEditingContext();
+    notice.value = `Editing Session finished as Revision ${finished.revisionNumber}.`;
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    saving.value = false;
+  }
+}
 async function publish() { try { if (!draft.id) await save(); const saved=await cvWorkspace.publish(draft.id,publishSlug.value); replaceDraft(saved); publishSlug.value=saved.slug; } catch(reason){error.value=reason.message;} }
 async function unpublish() { try { replaceDraft(await cvWorkspace.unpublish(draft.id)); } catch(reason){error.value=reason.message;} }
 async function generateSummary() {
@@ -106,6 +244,16 @@ function generateTaskProposal(instruction) {
   <div v-else class="editor-layout">
     <section class="editor-controls">
       <div v-if="error" role="alert">{{ error }}</div>
+      <p v-if="notice" role="status">{{ notice }}</p>
+      <section v-if="draft.id" aria-labelledby="editing-sessions-heading">
+        <h2 id="editing-sessions-heading">Open Editing Sessions</h2>
+        <p v-if="!openEditingSessions.length">No open Editing Sessions.</p>
+        <article v-for="session in openEditingSessions" :key="session.id" class="session-row">
+          <span>Editing Session based on Revision {{ session.baseRevisionNumber }} · working version {{ session.optimisticVersion }}</span>
+          <button class="secondary control-compact" @click="resumeEditingSession(session)">Resume Editing Session</button>
+        </article>
+        <p v-if="activeSession"><strong>Editing Session based on Revision {{ activeBaseRevisionNumber }}</strong> · working version {{ activeSession.optimisticVersion }}</p>
+      </section>
       <label>CV name<input v-model="draft.name" placeholder="Product lead CV" /></label>
       <div class="grid"><label>Name<input v-model="draft.profile.basics.name" /></label><label>Target role<input v-model="draft.profile.basics.label" /></label></div>
       <label>Email<input v-model="draft.profile.basics.email" type="email" /></label>
@@ -125,16 +273,18 @@ function generateTaskProposal(instruction) {
       <section class="section-list experience-composition"><h3>experience</h3><p v-if="!selectedExperienceGroups.length"><small>No selected Block Versions.</small></p><section v-for="employer in selectedExperienceGroups" :key="employer.employerId" class="selection-employer"><h4>{{ employer.employer }}</h4><div v-for="occasion in employer.occasions" :key="occasion.occasionId"><h5>{{ occasion.role }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</h5><article v-for="item in occasion.items" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection.experience.length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></div></section></section>
       <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
       <button v-if="draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear selected Block Versions…</button>
-      <button class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">Save CV</button>
+      <button class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">{{ activeSession ? "Save Editing Session" : "Save CV" }}</button>
+      <button v-if="activeSession" class="secondary control-standard" :disabled="saving" @click="finishEditingSession">Finish as CV Revision</button>
       <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
       <details v-if="draft.id"><summary>Publishing</summary><label>Public slug<input v-model="publishSlug" placeholder="product-lead" /></label><button v-if="draft.status !== 'published'" @click="publish">Publish unlisted link</button><template v-else><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="unpublish">Unpublish</button></template></details>
       <section v-if="draft.id" aria-labelledby="revision-history-heading">
         <h2 id="revision-history-heading">Revision history</h2>
-        <p v-if="!revisions.length">No immutable CV Revisions yet.</p>
+        <p v-if="!revisions.length">No immutable CV Revisions yet. <button class="secondary control-compact" @click="startEditingSession(null)">Start first Editing Session</button></p>
         <ol v-else>
           <li v-for="revision in revisions" :key="revision.id">
             <strong>Revision {{ revision.number }}</strong>
             <span v-if="revision.baseRevisionNumber"> · based on Revision {{ revision.baseRevisionNumber }}</span>
+            <button class="secondary control-compact" @click="startEditingSession(revision)">Start from Revision {{ revision.number }}</button>
           </li>
         </ol>
       </section>
@@ -143,4 +293,4 @@ function generateTaskProposal(instruction) {
   </div>
 </template>
 
-<style scoped>.editor-layout{display:grid;grid-template-columns:minmax(22rem,.8fr) minmax(36rem,1.2fr);gap:2rem;align-items:start}.editor-controls{min-width:0}.live-preview{position:sticky;top:1rem;transform-origin:top left}.library-row,.selection{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.7rem;margin:.5rem 0;border:1px solid #dce3df;box-shadow:none}.library-row strong{display:block}.selection button{width:auto;margin:0 .15rem}.selection select{display:inline-block;width:auto;margin:0 .3rem}.section-list{margin:1.2rem 0}.selection-employer{margin:.75rem 0 1.25rem;padding-left:.75rem;border-left:3px solid #37624e}.selection-employer h4{margin:0 0 .6rem}.selection-employer h5{margin:.7rem 0 .35rem;color:#52635b}@media(max-width:1100px){.editor-layout{grid-template-columns:1fr}.live-preview{position:static}}@media print{.editor-controls{display:none}.editor-layout{display:block}}</style>
+<style scoped>.editor-layout{display:grid;grid-template-columns:minmax(22rem,.8fr) minmax(36rem,1.2fr);gap:2rem;align-items:start}.editor-controls{min-width:0}.live-preview{position:sticky;top:1rem;transform-origin:top left}.library-row,.selection,.session-row{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.7rem;margin:.5rem 0;border:1px solid #dce3df;box-shadow:none}.library-row strong{display:block}.selection button{width:auto;margin:0 .15rem}.selection select{display:inline-block;width:auto;margin:0 .3rem}.section-list{margin:1.2rem 0}.selection-employer{margin:.75rem 0 1.25rem;padding-left:.75rem;border-left:3px solid #37624e}.selection-employer h4{margin:0 0 .6rem}.selection-employer h5{margin:.7rem 0 .35rem;color:#52635b}@media(max-width:1100px){.editor-layout{grid-template-columns:1fr}.live-preview{position:static}}@media print{.editor-controls{display:none}.editor-layout{display:block}}</style>

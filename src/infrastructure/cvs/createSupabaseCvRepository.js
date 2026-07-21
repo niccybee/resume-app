@@ -4,6 +4,17 @@ import { nextChangeProposalActions } from "../../domain/cvs/changeProposal";
 
 function mapError(error) {
   if (!error) return;
+  if (/stale-block-version/i.test(error.message || "")) {
+    let context;
+    try {
+      context = JSON.parse(error.message.slice(error.message.indexOf(":") + 1).trim());
+    } catch {}
+    throw new CvWorkspaceError(
+      "stale-block-version",
+      "The CV Block has a newer current Block Version.",
+      context,
+    );
+  }
   if (/Archived CVs must be restored/i.test(error.message || "")) {
     throw new CvWorkspaceError("invalid-lifecycle-transition", error.message);
   }
@@ -301,22 +312,36 @@ export function createSupabaseCvRepository({ client, getActor } = {}) {
 
     async createChangeProposal(input) {
       await actor();
-      const lifecycle = input.operationType !== "replace_working_state";
+      const content = ["edit_content", "replace_working_state"].includes(input.operationType);
+      const lifecycle = !content;
       const publication = ["publish_revision", "withdraw_publication"].includes(input.operationType);
-      const { data, error } = await client.rpc(
-        publication
-          ? "create_cv_publication_proposal"
-          : lifecycle ? "create_cv_lifecycle_proposal" : "create_cv_change_proposal",
-        lifecycle
-          ? { p_schema_version: input.schemaVersion, p_operation: input.operations[0] }
-          : {
-              p_schema_version: input.schemaVersion,
-              p_operation_type: input.operationType,
-              p_target_session_id: input.target.id,
-              p_base_optimistic_version: input.baseOptimisticVersion,
-              p_normalized_operations: input.operations,
-            },
-      );
+      let rpcName;
+      let params;
+      if (publication) {
+        rpcName = "create_cv_publication_proposal";
+        params = { p_schema_version: input.schemaVersion, p_operation: input.operations[0] };
+      } else if (input.operationType === "edit_content") {
+        rpcName = "create_cv_content_change_proposal";
+        params = {
+          p_schema_version: input.schemaVersion,
+          p_target_session_id: input.target.id,
+          p_base_optimistic_version: input.baseOptimisticVersion,
+          p_normalized_operations: input.operations,
+        };
+      } else if (lifecycle) {
+        rpcName = "create_cv_lifecycle_proposal";
+        params = { p_schema_version: input.schemaVersion, p_operation: input.operations[0] };
+      } else {
+        rpcName = "create_cv_change_proposal";
+        params = {
+          p_schema_version: input.schemaVersion,
+          p_operation_type: input.operationType,
+          p_target_session_id: input.target.id,
+          p_base_optimistic_version: input.baseOptimisticVersion,
+          p_normalized_operations: input.operations,
+        };
+      }
+      const { data, error } = await client.rpc(rpcName, params);
       mapError(error);
       return mapChangeProposal(data);
     },
@@ -326,22 +351,37 @@ export function createSupabaseCvRepository({ client, getActor } = {}) {
     async applyChangeProposal(id) {
       await actor();
       const current = await fetchChangeProposal(id);
-      const { data, error } = await client.rpc(
-        current.operationType === "replace_working_state"
-          ? "apply_cv_change_proposal"
-          : ["publish_revision", "withdraw_publication"].includes(current.operationType)
-            ? "apply_cv_publication_proposal"
-            : "apply_cv_lifecycle_proposal",
-        {
-        p_proposal_id: id,
-        },
-      );
+      let rpcName;
+      if (current.operationType === "edit_content") {
+        rpcName = "apply_cv_content_change_proposal";
+      } else if (current.operationType === "replace_working_state") {
+        rpcName = "apply_cv_change_proposal";
+      } else if (["publish_revision", "withdraw_publication"].includes(current.operationType)) {
+        rpcName = "apply_cv_publication_proposal";
+      } else {
+        rpcName = "apply_cv_lifecycle_proposal";
+      }
+      const { data, error } = await client.rpc(rpcName, { p_proposal_id: id });
       mapError(error);
       const proposal = mapChangeProposal(data);
       if (proposal.status === "expired") {
         throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
       }
       if (proposal.status === "invalidated") {
+        if (proposal.operationType === "edit_content" && proposal.result?.reason === "archived-cv") {
+          throw new CvWorkspaceError(
+            "invalid-lifecycle-transition",
+            "Restore the CV before applying content changes.",
+            proposal.result,
+          );
+        }
+        if (proposal.operationType === "edit_content" && proposal.result?.blockId) {
+          throw new CvWorkspaceError(
+            "stale-block-version",
+            "The CV Block has a newer current Block Version.",
+            proposal.result,
+          );
+        }
         if (["publish_revision", "withdraw_publication"].includes(proposal.operationType)) {
           throw new CvWorkspaceError(
             "stale-proposal",

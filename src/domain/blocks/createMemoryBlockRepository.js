@@ -30,6 +30,7 @@ export function createMemoryBlockRepository({ isBlockReferenced = () => false } 
 
       return blocks
         .filter((block) => query.includeArchived || block.status === "active")
+        .filter((block) => !query.blockId || block.id === query.blockId)
         .filter((block) => !query.kind || block.kind === query.kind)
         .map(blockView)
         .filter((block) => {

@@ -302,7 +302,7 @@ async function applySessionChangeProposal() {
   const operationType = sessionChangeProposal.value.operationType || "replace_working_state";
   try {
     const applied = await cvWorkspace.applyChangeProposal(proposalId);
-    if (["replace_working_state", "copy_to_new_version", "copy_for_new_role", "restore_editing_session"].includes(operationType)) {
+    if (["edit_content", "replace_working_state", "copy_to_new_version", "copy_for_new_role", "restore_editing_session"].includes(operationType)) {
       const session = await cvWorkspace.resumeEditingSession(applied.result.editingSessionId);
       activateEditingSession(session, activeBaseRevisionNumber.value);
       if (operationType === "copy_for_new_role") await router.replace(`/app/cvs/${applied.result.cvId}`);

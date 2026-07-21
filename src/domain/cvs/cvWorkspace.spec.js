@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { createBlockLibrary } from "../blocks/blockLibrary";
+import { createMemoryBlockRepository } from "../blocks/createMemoryBlockRepository";
 import { addSelection, moveSelection, removeSelection } from "./cvDraft";
 import { createCvWorkspace } from "./createCvWorkspace";
 import { createMemoryCvRepository } from "./createMemoryCvRepository";
@@ -211,7 +213,7 @@ describe("CV workspace boundary", () => {
 
     expect(proposal).toMatchObject({
       schemaVersion: "1",
-      operationType: "replace_working_state",
+      operationType: "edit_content",
       target: { type: "editing_session", id: session.id, cvId: "cv-1" },
       baseOptimisticVersion: 1,
       status: "pending",
@@ -251,6 +253,141 @@ describe("CV workspace boundary", () => {
       optimisticVersion: 2,
       summary: "After",
       selections: [{ ...skill, order: 0 }],
+    });
+  });
+
+  it("proposes validated Block Versions and applies them once through the same content boundary", async () => {
+    const blockRepository = createMemoryBlockRepository();
+    const blockLibrary = createBlockLibrary({ repository: blockRepository });
+    const initialVersion = await blockLibrary.saveVersion({
+      kind: "experience",
+      title: "Product launch",
+      content: { text: "Launched the original product." },
+    });
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Product Manager at Google",
+      selections: [{
+        blockId: initialVersion.blockId,
+        versionId: initialVersion.id,
+        section: "experience",
+      }],
+    }], { blockRepository });
+    const workspace = createCvWorkspace({ repository, blockLibrary });
+    const session = await workspace.startEditingSession("cv-1");
+
+    const proposal = await workspace.proposeContentChanges({
+      schemaVersion: "1",
+      target: { type: "editing_session", id: session.id },
+      baseVersion: session.optimisticVersion,
+      operations: [{
+        type: "append_block_version",
+        blockId: initialVersion.blockId,
+        basedOnVersionId: initialVersion.id,
+        schemaVersion: "1",
+        content: { text: "Launched the product to one million users." },
+        source: { type: "mcp", clientId: "chat-client" },
+      }],
+    });
+
+    expect(proposal).toMatchObject({
+      schemaVersion: "1",
+      operationType: "edit_content",
+      target: { type: "editing_session", id: session.id, cvId: "cv-1" },
+      baseOptimisticVersion: 1,
+      operations: [{
+        type: "append_block_version",
+        kind: "experience",
+        blockId: initialVersion.blockId,
+        basedOnVersionId: initialVersion.id,
+      }],
+      diff: {
+        blocks: [{
+          blockId: initialVersion.blockId,
+          beforeVersionId: initialVersion.id,
+          after: { text: "Launched the product to one million users." },
+        }],
+      },
+      status: "pending",
+      nextActions: ["apply", "discard"],
+    });
+    await expect(blockLibrary.getBlock(initialVersion.blockId)).resolves.toMatchObject({
+      currentVersion: { id: initialVersion.id },
+      versions: [{ id: initialVersion.id }],
+    });
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      optimisticVersion: 1,
+    });
+
+    const applied = await workspace.applyChangeProposal(proposal.id);
+    const retried = await workspace.applyChangeProposal(proposal.id);
+    expect(applied).toMatchObject({
+      status: "applied",
+      result: {
+        editingSessionId: session.id,
+        optimisticVersion: 2,
+        affectedIdentities: {
+          cvId: "cv-1",
+          blockIds: [initialVersion.blockId],
+          versionIds: ["version-2"],
+        },
+      },
+    });
+    expect(retried).toEqual(applied);
+    await expect(blockLibrary.getBlock(initialVersion.blockId)).resolves.toMatchObject({
+      currentVersion: { id: "version-2" },
+      versions: [{ id: initialVersion.id }, { id: "version-2" }],
+    });
+  });
+
+  it("rejects invalid Block content and stale Block Versions before proposal persistence", async () => {
+    const blockRepository = createMemoryBlockRepository();
+    const blockLibrary = createBlockLibrary({ repository: blockRepository });
+    const initialVersion = await blockLibrary.saveVersion({
+      kind: "skill",
+      title: "Product strategy",
+      content: { name: "Product strategy" },
+    });
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product CV", selections: [],
+    }], { blockRepository });
+    const workspace = createCvWorkspace({ repository, blockLibrary });
+    const session = await workspace.startEditingSession("cv-1");
+    const base = {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: session.id },
+      baseVersion: session.optimisticVersion,
+    };
+
+    await expect(workspace.proposeContentChanges({
+      ...base,
+      operations: [{
+        type: "append_block_version",
+        blockId: initialVersion.blockId,
+        basedOnVersionId: initialVersion.id,
+        schemaVersion: "1",
+        content: { name: 42 },
+      }],
+    })).rejects.toMatchObject({ code: "validation-failed" });
+
+    const latest = await blockLibrary.saveVersion({
+      blockId: initialVersion.blockId,
+      kind: "skill",
+      basedOnVersionId: initialVersion.id,
+      content: { name: "Portfolio strategy" },
+    });
+    await expect(workspace.proposeContentChanges({
+      ...base,
+      operations: [{
+        type: "append_block_version",
+        blockId: initialVersion.blockId,
+        basedOnVersionId: initialVersion.id,
+        schemaVersion: "1",
+        content: { name: "Go-to-market strategy" },
+      }],
+    })).rejects.toMatchObject({
+      code: "stale-block-version",
+      context: { blockId: initialVersion.blockId, currentVersionId: latest.id },
     });
   });
 

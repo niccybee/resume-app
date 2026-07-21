@@ -1,6 +1,10 @@
 import { normalizeDraft, normalizeSlug } from "./cvDraft";
 import { exportCvRevision } from "./compositionAdapterRegistry";
-import { LIFECYCLE_CHANGE_PROPOSAL_OPERATION_TYPES } from "./changeProposal";
+import { validateBlockContent } from "../blocks/blockSchemaRegistry";
+import {
+  CONTENT_CHANGE_OPERATION_TYPES,
+  LIFECYCLE_CHANGE_PROPOSAL_OPERATION_TYPES,
+} from "./changeProposal";
 
 export class CvWorkspaceError extends Error {
   constructor(code, message, context = undefined) {
@@ -11,7 +15,7 @@ export class CvWorkspaceError extends Error {
   }
 }
 
-export function createCvWorkspace({ repository, summaryGenerator } = {}) {
+export function createCvWorkspace({ repository, blockLibrary, summaryGenerator } = {}) {
   if (!repository) throw new CvWorkspaceError("missing-repository", "A CV repository is required.");
 
   function normalizeEditingSession(input) {
@@ -63,6 +67,91 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
         selections: value.selections,
       },
     }];
+  }
+
+  async function normalizeContentOperations(operations) {
+    if (!Array.isArray(operations) || operations.length === 0 || operations.length > 50) {
+      throw new CvWorkspaceError("validation-failed", "A Change Proposal requires between one and 50 supported operations.");
+    }
+    const supported = new Set(CONTENT_CHANGE_OPERATION_TYPES);
+    if (operations.some((operation) => !supported.has(operation?.type))) {
+      throw new CvWorkspaceError("validation-failed", "Unsupported content Change Proposal operation.");
+    }
+    if (operations.filter((operation) => operation.type === "replace_working_state").length > 1) {
+      throw new CvWorkspaceError("validation-failed", "A Change Proposal can replace the Working Composition only once.");
+    }
+    const appendedBlockIds = new Set();
+    const normalized = [];
+    for (const operation of operations) {
+      if (operation.type === "replace_working_state") {
+        normalized.push(normalizeProposalOperations([operation])[0]);
+        continue;
+      }
+      if (!blockLibrary) {
+        throw new CvWorkspaceError("validation-failed", "CV Block changes require the Block Library boundary.");
+      }
+      if (!operation.blockId || !operation.basedOnVersionId) {
+        throw new CvWorkspaceError("validation-failed", "Appending a Block Version requires a CV Block and exact base Block Version.");
+      }
+      if (appendedBlockIds.has(operation.blockId)) {
+        throw new CvWorkspaceError("validation-failed", "A proposal can append at most one Version for each CV Block.");
+      }
+      appendedBlockIds.add(operation.blockId);
+      const block = await blockLibrary.getBlock(operation.blockId);
+      if (block.status !== "active") {
+        throw new CvWorkspaceError(
+          "invalid-lifecycle-transition",
+          "Restore the CV Block before appending a Block Version.",
+          { blockId: block.id },
+        );
+      }
+      if (block.currentVersion?.id !== operation.basedOnVersionId) {
+        throw new CvWorkspaceError(
+          "stale-block-version",
+          "The CV Block has a newer current Block Version.",
+          { blockId: block.id, currentVersionId: block.currentVersion?.id || null },
+        );
+      }
+      const schemaVersion = operation.schemaVersion || "1";
+      try {
+        validateBlockContent({ kind: block.kind, schemaVersion, content: operation.content });
+      } catch (cause) {
+        throw new CvWorkspaceError(
+          cause?.code === "unsupported-schema-version" ? "unsupported-schema" : "validation-failed",
+          cause?.message || "CV Block content is invalid.",
+        );
+      }
+      normalized.push({
+        type: "append_block_version",
+        blockId: block.id,
+        kind: block.kind,
+        basedOnVersionId: operation.basedOnVersionId,
+        schemaVersion,
+        content: structuredClone(operation.content),
+        source: structuredClone(operation.source || { type: "human" }),
+      });
+    }
+    return normalized;
+  }
+
+  async function proposeContentChanges(input) {
+    if (input?.schemaVersion !== "1") {
+      throw new CvWorkspaceError("unsupported-schema", "Unsupported Change Proposal schema version.");
+    }
+    if (input?.target?.type !== "editing_session" || !input.target.id
+      || !Number.isInteger(input.baseVersion) || input.baseVersion < 1) {
+      throw new CvWorkspaceError("validation-failed", "An Editing Session target and base Working Composition version are required.");
+    }
+    const target = await repository.getEditingSession(input.target.id);
+    if (!target) throw new CvWorkspaceError("not-found", "Editing Session not found.");
+    const operations = await normalizeContentOperations(input.operations);
+    return repository.createChangeProposal({
+      schemaVersion: "1",
+      operationType: "edit_content",
+      target: { type: "editing_session", id: target.id, cvId: target.cvId },
+      baseOptimisticVersion: input.baseVersion,
+      operations,
+    });
   }
 
   async function revisionNumbers(cvId) {
@@ -167,17 +256,15 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
           "A target Editing Session and base optimistic version are required.",
         );
       }
-      const target = await repository.getEditingSession(input.sessionId);
-      if (!target) throw new CvWorkspaceError("not-found", "Editing Session not found.");
-      const operations = normalizeProposalOperations(input.operations);
-      return repository.createChangeProposal({
+      return proposeContentChanges({
         schemaVersion: "1",
-        operationType: "replace_working_state",
-        target: { type: "editing_session", id: target.id, cvId: target.cvId },
-        baseOptimisticVersion: input.baseOptimisticVersion,
-        operations,
+        target: { type: "editing_session", id: input.sessionId },
+        baseVersion: input.baseOptimisticVersion,
+        operations: input.operations,
       });
     },
+
+    proposeContentChanges,
 
     async proposeLifecycleChange(input) {
       const operation = input?.operation;

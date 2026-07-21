@@ -9,7 +9,7 @@ alter table public.cv_change_proposals drop constraint if exists cv_change_propo
 alter table public.cv_change_proposals add constraint cv_change_proposals_base_optimistic_version_check
   check (base_optimistic_version is null or base_optimistic_version > 0);
 alter table public.cv_change_proposals add constraint cv_change_proposals_operation_type_check
-  check (operation_type in ('replace_working_state', 'copy_to_new_version', 'copy_for_new_role', 'archive_editing_session', 'restore_editing_session', 'archive_cv', 'restore_cv'));
+  check (operation_type in ('edit_content', 'replace_working_state', 'copy_to_new_version', 'copy_for_new_role', 'archive_editing_session', 'restore_editing_session', 'archive_cv', 'restore_cv'));
 alter table public.cv_change_proposals add constraint cv_change_proposals_target_type_check
   check (target_type in ('editing_session', 'cv_revision', 'cv'));
 alter table public.cv_documents drop constraint if exists cv_documents_status_check;

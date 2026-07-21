@@ -10,6 +10,7 @@ import {
 import {
   CHANGE_PROPOSAL_OPERATION_TYPES,
   CHANGE_PROPOSAL_STATUSES,
+  CONTENT_CHANGE_OPERATION_TYPES,
   nextChangeProposalActions,
 } from "../cvs/changeProposal";
 
@@ -55,15 +56,18 @@ export function changeProposalSchema() {
     explicitApplyRequired: true,
     statuses: [...CHANGE_PROPOSAL_STATUSES],
     operations: [...CHANGE_PROPOSAL_OPERATION_TYPES],
+    contentOperations: [...CONTENT_CHANGE_OPERATION_TYPES],
     required: [
       "id",
       "schemaVersion",
       "operationType",
       "target",
+      "baseOptimisticVersion",
       "operations",
       "diff",
       "warnings",
       "status",
+      "createdAt",
       "expiresAt",
       "nextActions",
     ],

@@ -20,7 +20,10 @@ function lineage(item) {
   };
 }
 
-export function createMemoryCvRepository(initial = [], { clock = () => new Date() } = {}) {
+export function createMemoryCvRepository(initial = [], {
+  clock = () => new Date(),
+  blockRepository = null,
+} = {}) {
   const records = new Map(initial.map((item) => [item.id, lineage(item)]));
   const revisions = new Map(initial
     .filter((item) => item.id)
@@ -261,6 +264,48 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       return copy(finished);
     },
     async createChangeProposal(input) {
+      if (input.operationType === "edit_content") {
+        const target = session(input.target.id);
+        if (records.get(target.cvId)?.status === "archived") {
+          throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before proposing content changes.");
+        }
+        if (target.status !== "open") {
+          throw new CvWorkspaceError("invalid-lifecycle-transition", "Editing Session is not open.");
+        }
+        if (target.optimisticVersion !== input.baseOptimisticVersion) {
+          throw new CvWorkspaceError("stale-proposal", "Editing Session changed before the proposal was created.", {
+            target: copy(target),
+          });
+        }
+        const replacement = input.operations.find((operation) => operation.type === "replace_working_state");
+        const proposed = replacement
+          ? normalizeDraft({ ...replacement.value, id: target.cvId })
+          : normalizeDraft({ ...target, id: target.cvId });
+        const diff = {
+          ...proposalDiff(target, proposed),
+          blocks: input.operations
+            .filter((operation) => operation.type === "append_block_version")
+            .map((operation) => ({
+              blockId: operation.blockId,
+              beforeVersionId: operation.basedOnVersionId,
+              after: copy(operation.content),
+            })),
+        };
+        const createdAt = nowIso();
+        const value = {
+          id: `proposal-${++proposalSequence}`,
+          ...copy(input),
+          diff,
+          warnings: [],
+          createdAt,
+          expiresAt: new Date(clock().getTime() + 24 * 60 * 60 * 1000).toISOString(),
+          status: "pending",
+          result: null,
+          nextActions: nextChangeProposalActions("pending"),
+        };
+        changeProposals.set(value.id, value);
+        return copy(value);
+      }
       if (input.operationType !== "replace_working_state") {
         const operation = input.operations[0];
         let source;
@@ -409,6 +454,80 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       if (clock().getTime() > new Date(current.expiresAt).getTime()) {
         changeProposals.set(id, { ...current, status: "expired", nextActions: nextChangeProposalActions("expired") });
         throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
+      }
+      if (current.operationType === "edit_content") {
+        const target = session(current.target.id);
+        if (records.get(target.cvId)?.status === "archived") {
+          invalidateForArchivedParent(current, target);
+        }
+        if (target.status !== "open" || target.optimisticVersion !== current.baseOptimisticVersion) {
+          const result = { target: copy(target) };
+          changeProposals.set(id, { ...current, status: "invalidated", result, nextActions: [] });
+          throw new CvWorkspaceError("stale-proposal", "Change Proposal is based on stale Editing Session state.", result);
+        }
+        const appendOperations = current.operations.filter((operation) => operation.type === "append_block_version");
+        if (appendOperations.length > 0 && !blockRepository) {
+          throw new CvWorkspaceError("repository-error", "Block repository is required to apply content changes.");
+        }
+        for (const operation of appendOperations) {
+          const [block] = await blockRepository.browse({ blockId: operation.blockId, includeArchived: true });
+          if (block?.currentVersion?.id !== operation.basedOnVersionId) {
+            const context = { blockId: operation.blockId, currentVersionId: block?.currentVersion?.id || null };
+            changeProposals.set(id, { ...current, status: "invalidated", result: context, nextActions: [] });
+            throw new CvWorkspaceError("stale-block-version", "The CV Block has a newer current Block Version.", context);
+          }
+        }
+        const appended = [];
+        for (const operation of appendOperations) {
+          appended.push(await blockRepository.saveVersion({
+            blockId: operation.blockId,
+            kind: operation.kind,
+            basedOnVersionId: operation.basedOnVersionId,
+            schemaVersion: operation.schemaVersion,
+            content: operation.content,
+            source: operation.source,
+          }));
+        }
+        const replacement = current.operations.find((operation) => operation.type === "replace_working_state");
+        const next = replacement
+          ? normalizeDraft({ ...replacement.value, id: target.cvId })
+          : normalizeDraft({ ...target, id: target.cvId });
+        const saved = {
+          ...target,
+          name: next.name,
+          themeId: next.themeId,
+          profile: next.profile,
+          summary: next.summary,
+          summaryProvenance: next.summaryProvenance,
+          selections: next.selections,
+          optimisticVersion: target.optimisticVersion + 1,
+          updatedAt: nowIso(),
+        };
+        editingSessions.set(saved.id, saved);
+        const affectedBlockIds = [...new Set([
+          ...appended.map((version) => version.blockId),
+          ...(replacement ? saved.selections.map((selection) => selection.blockId) : []),
+        ])];
+        const affectedVersionIds = [...new Set([
+          ...appended.map((version) => version.id),
+          ...(replacement ? saved.selections.map((selection) => selection.versionId) : []),
+        ])];
+        const applied = {
+          ...current,
+          status: "applied",
+          result: {
+            editingSessionId: saved.id,
+            optimisticVersion: saved.optimisticVersion,
+            affectedIdentities: {
+              cvId: saved.cvId,
+              blockIds: affectedBlockIds,
+              versionIds: affectedVersionIds,
+            },
+          },
+          nextActions: nextChangeProposalActions("applied"),
+        };
+        changeProposals.set(id, applied);
+        return copy(applied);
       }
       if (current.operationType !== "replace_working_state") {
         const operation = current.operations[0];

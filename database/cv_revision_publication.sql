@@ -3,7 +3,7 @@ begin;
 alter table public.cv_change_proposals drop constraint if exists cv_change_proposals_operation_type_check;
 alter table public.cv_change_proposals add constraint cv_change_proposals_operation_type_check
   check (operation_type in (
-    'replace_working_state', 'copy_to_new_version', 'copy_for_new_role',
+    'edit_content', 'replace_working_state', 'copy_to_new_version', 'copy_for_new_role',
     'archive_editing_session', 'restore_editing_session', 'archive_cv', 'restore_cv',
     'publish_revision', 'withdraw_publication'
   ));

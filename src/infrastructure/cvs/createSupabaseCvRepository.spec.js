@@ -314,6 +314,103 @@ describe("Supabase CV repository Editing Session boundary", () => {
     expect(client.rpc).toHaveBeenCalledWith("discard_cv_change_proposal", { p_proposal_id: "proposal-1" });
   });
 
+  it("routes generic content proposals through the atomic content RPC", async () => {
+    const proposal = {
+      id: "proposal-content",
+      schema_version: "1",
+      operation_type: "edit_content",
+      target_type: "editing_session",
+      target_id: "session-1",
+      target_cv_id: "cv-1",
+      base_optimistic_version: 3,
+      normalized_operations: [{
+        type: "append_block_version",
+        kind: "experience",
+        blockId: "block-1",
+        basedOnVersionId: "version-1",
+        schemaVersion: "1",
+        content: { text: "Improved result." },
+        source: { type: "mcp" },
+      }],
+      structured_diff: { blocks: [] },
+      warnings: [],
+      status: "pending",
+    };
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } } }) },
+      rpc: vi.fn(async (name) => {
+        if (name === "create_cv_content_change_proposal") return { data: proposal, error: null };
+        if (name === "get_cv_change_proposal") return { data: proposal, error: null };
+        if (name === "apply_cv_content_change_proposal") return {
+          data: { ...proposal, status: "applied", result: {
+            editingSessionId: "session-1",
+            optimisticVersion: 4,
+            affectedIdentities: { cvId: "cv-1", blockIds: ["block-1"], versionIds: ["version-2"] },
+          } },
+          error: null,
+        };
+        throw new Error(`Unexpected RPC: ${name}`);
+      }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+    const input = {
+      schemaVersion: "1",
+      operationType: "edit_content",
+      target: { type: "editing_session", id: "session-1", cvId: "cv-1" },
+      baseOptimisticVersion: 3,
+      operations: proposal.normalized_operations,
+    };
+
+    await expect(repository.createChangeProposal(input)).resolves.toMatchObject({
+      id: "proposal-content", operationType: "edit_content",
+    });
+    await expect(repository.applyChangeProposal("proposal-content")).resolves.toMatchObject({
+      status: "applied", result: { optimisticVersion: 4 },
+    });
+    expect(client.rpc).toHaveBeenCalledWith("create_cv_content_change_proposal", {
+      p_schema_version: "1",
+      p_target_session_id: "session-1",
+      p_base_optimistic_version: 3,
+      p_normalized_operations: proposal.normalized_operations,
+    });
+    expect(client.rpc).toHaveBeenCalledWith("apply_cv_content_change_proposal", {
+      p_proposal_id: "proposal-content",
+    });
+  });
+
+  it.each([
+    {
+      result: { code: "stale-block-version", blockId: "block-1", currentVersionId: "version-2" },
+      code: "stale-block-version",
+    },
+    {
+      result: { code: "invalid-lifecycle-transition", reason: "archived-cv", cvId: "cv-1", status: "archived" },
+      code: "invalid-lifecycle-transition",
+    },
+  ])("maps invalidated content proposals to $code", async ({ result, code }) => {
+    const pending = {
+      id: "proposal-content", schema_version: "1", operation_type: "edit_content",
+      target_type: "editing_session", target_id: "session-1", target_cv_id: "cv-1",
+      base_optimistic_version: 3, normalized_operations: [], structured_diff: {},
+      warnings: [], status: "pending", result: null,
+    };
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } } }) },
+      rpc: vi.fn(async (name) => ({
+        data: name === "get_cv_change_proposal"
+          ? pending
+          : { ...pending, status: "invalidated", result },
+        error: null,
+      })),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.applyChangeProposal("proposal-content")).rejects.toMatchObject({
+      code,
+      context: result,
+    });
+  });
+
   it("maps stale proposal failures with refreshed target context", async () => {
     const client = {
       auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } }, error: null }) },

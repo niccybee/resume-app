@@ -18,7 +18,8 @@ CV document, CV Block, and Composition schema. Apply
 atomic start, save, and finish boundaries. Apply
 `database/cv_change_proposals.sql` after Editing Sessions to add immutable,
 owner-scoped Change Proposals with atomic explicit apply and discard operations,
-then `database/cv_lifecycle.sql` to add copy and archive/restore proposal
+then `database/cv_content_change_proposals.sql` to add validated CV Block and
+Working Composition content operations, and `database/cv_lifecycle.sql` to add copy and archive/restore proposal
 operations. Apply `database/cv_block_identity_lifecycle.sql` after those
 composition tables exist to add versioned CV Block content validation,
 owner/identity triggers, independent duplication, and archive/restore/delete
@@ -119,6 +120,17 @@ Versions, publication state, supported schemas, and JSON Resume export. These
 reads return `{ schemaVersion: "1", data: ... }` envelopes and do not require a
 Change Proposal or confirmation. They run through the same application services
 as the Nuxt UI and stay scoped to the authenticated user's RLS-visible rows.
+
+Content mutations are available only through `propose_content_changes`,
+`apply_change_proposal`, and `discard_change_proposal`. The proposal tool accepts
+a schema-versioned discriminated operation list for appending immutable Block
+Versions and replacing an Editing Session's Working Composition. It validates
+Block content, exact base Block Versions, Composition identity uniqueness, and
+the base Working Composition version before returning a structured diff. A
+proposal does not change its target. Applying is a separate explicit call,
+revalidates stale state atomically, and returns affected CV Block and Block
+Version identities plus the new Working Composition version. No direct content
+write tool is exposed.
 
 The MCP resource catalog publishes versioned product contracts at
 `resume-studio://schemas/block-content/v1`,

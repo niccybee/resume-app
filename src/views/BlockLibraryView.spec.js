@@ -13,6 +13,11 @@ const mocks = vi.hoisted(() => ({
   restoreBlock: vi.fn(),
   deleteBlock: vi.fn(),
   backfill: vi.fn(),
+  listCvs: vi.fn(),
+  editingSessions: vi.fn(),
+  proposeContentChanges: vi.fn(),
+  applyChangeProposal: vi.fn(),
+  discardChangeProposal: vi.fn(),
 }));
 
 vi.mock("../services/blockLibrary", () => ({
@@ -29,6 +34,16 @@ vi.mock("../services/blockLibrary", () => ({
 
 vi.mock("../domain/blocks/backfillLegacyHomepageBlocks", () => ({
   backfillLegacyHomepageBlocks: mocks.backfill,
+}));
+
+vi.mock("../services/cvWorkspace", () => ({
+  cvWorkspace: {
+    list: mocks.listCvs,
+    editingSessions: mocks.editingSessions,
+    proposeContentChanges: mocks.proposeContentChanges,
+    applyChangeProposal: mocks.applyChangeProposal,
+    discardChangeProposal: mocks.discardChangeProposal,
+  },
 }));
 
 const experienceBlock = {
@@ -149,6 +164,15 @@ const catalog = {
 
 async function mountLibrary() {
   mocks.browse.mockResolvedValue(catalog);
+  mocks.listCvs.mockResolvedValue([{ id: "cv-1", name: "Product Manager at Google" }]);
+  mocks.editingSessions.mockResolvedValue([{
+    id: "session-1", cvId: "cv-1", status: "open", optimisticVersion: 2,
+  }]);
+  mocks.proposeContentChanges.mockResolvedValue({
+    id: "proposal-1", status: "pending", baseOptimisticVersion: 2,
+  });
+  mocks.applyChangeProposal.mockResolvedValue({ id: "proposal-1", status: "applied" });
+  mocks.discardChangeProposal.mockResolvedValue({ id: "proposal-1", status: "discarded" });
   const wrapper = mount(BlockLibraryView);
   await flushPromises();
   return wrapper;
@@ -259,9 +283,9 @@ describe("native CV Block Library interactions", () => {
   });
 
   it("refreshes the current Block Version after a stale conflict before retrying", async () => {
-    mocks.saveVersion.mockRejectedValueOnce(
+    mocks.proposeContentChanges.mockRejectedValueOnce(
       Object.assign(new Error("This CV Block changed since you opened it. Reload and try again."), {
-        code: "conflict",
+        code: "stale-block-version",
       }),
     );
     const wrapper = await mountLibrary();
@@ -302,33 +326,39 @@ describe("native CV Block Library interactions", () => {
     const dialog = wrapper.get("dialog");
     await dialog.get("textarea").setValue("Updated launch evidence.");
     await dialog.findAll("button").find((button) =>
-      button.text().includes("Save immutable Block Version")).trigger("click");
+      button.text().includes("Review Block Version Change")).trigger("click");
     await flushPromises();
 
-    expect(mocks.saveVersion).toHaveBeenCalledWith(expect.objectContaining({
-      blockId: "block-experience",
-      basedOnVersionId: "version-experience-1",
-      content: { text: "Updated launch evidence." },
+    expect(mocks.proposeContentChanges).toHaveBeenCalledWith(expect.objectContaining({
+      target: { type: "editing_session", id: "session-1" },
+      baseVersion: 2,
+      operations: [expect.objectContaining({
+        blockId: "block-experience",
+        basedOnVersionId: "version-experience-1",
+        content: { text: "Updated launch evidence." },
+      })],
     }));
     expect(wrapper.get('[role="alert"]').text()).toContain(
       "changed since you opened it",
     );
 
     await dialog.findAll("button").find((button) =>
-      button.text().includes("Save immutable Block Version")).trigger("click");
+      button.text().includes("Review Block Version Change")).trigger("click");
     await flushPromises();
 
-    expect(mocks.saveVersion).toHaveBeenLastCalledWith(expect.objectContaining({
-      blockId: "block-experience",
-      basedOnVersionId: "version-experience-2",
-      content: { text: "Updated launch evidence." },
+    expect(mocks.proposeContentChanges).toHaveBeenLastCalledWith(expect.objectContaining({
+      operations: [expect.objectContaining({
+        blockId: "block-experience",
+        basedOnVersionId: "version-experience-2",
+        content: { text: "Updated launch evidence." },
+      })],
     }));
   });
 
   it("closes the stale editor when the latest Block Version cannot be loaded", async () => {
-    mocks.saveVersion.mockRejectedValueOnce(
+    mocks.proposeContentChanges.mockRejectedValueOnce(
       Object.assign(new Error("This CV Block changed since you opened it."), {
-        code: "conflict",
+        code: "stale-block-version",
       }),
     );
     const wrapper = await mountLibrary();
@@ -339,11 +369,11 @@ describe("native CV Block Library interactions", () => {
     const dialog = wrapper.get("dialog");
     await dialog.get("textarea").setValue("A stale change.");
     await dialog.findAll("button").find((button) =>
-      button.text().includes("Save immutable Block Version")).trigger("click");
+      button.text().includes("Review Block Version Change")).trigger("click");
     await flushPromises();
 
     expect(dialog.attributes("open")).toBeUndefined();
-    expect(mocks.saveVersion).toHaveBeenCalledOnce();
+    expect(mocks.proposeContentChanges).toHaveBeenCalledOnce();
     expect(wrapper.get('[role="alert"]').text()).toContain(
       "latest Block Version could not be loaded",
     );
@@ -368,14 +398,42 @@ describe("native CV Block Library interactions", () => {
 
     expect(dialog.text()).toContain("Unsaved Change Proposal");
     await dialog.findAll("button").find((button) =>
-      button.text() === "Apply as new Block Version").trigger("click");
+      button.text() === "Review as Change Proposal").trigger("click");
     await flushPromises();
 
-    expect(mocks.saveVersion).toHaveBeenCalledWith(expect.objectContaining({
-      blockId: "block-experience",
-      basedOnVersionId: "version-experience-1",
-      content: { text: "Led a product launch across three markets." },
-      source: { type: "ai", generator: "openrouter" },
+    expect(mocks.proposeContentChanges).toHaveBeenCalledWith(expect.objectContaining({
+      operations: [expect.objectContaining({
+        blockId: "block-experience",
+        basedOnVersionId: "version-experience-1",
+        content: { text: "Led a product launch across three markets." },
+        source: { type: "ai", generator: "openrouter" },
+      })],
     }));
+    expect(mocks.applyChangeProposal).not.toHaveBeenCalled();
+
+    await dialog.findAll("button").find((button) =>
+      button.text() === "Apply reviewed Change Proposal").trigger("click");
+    await flushPromises();
+
+    expect(mocks.applyChangeProposal).toHaveBeenCalledWith("proposal-1");
+  });
+
+  it("discards a reviewed Block Version Change Proposal without applying it", async () => {
+    const wrapper = await mountLibrary();
+    await wrapper.findAll("button").find((button) =>
+      button.text().includes("Edit & Block Versions")).trigger("click");
+    await flushPromises();
+    const dialog = wrapper.get("dialog");
+    await dialog.findAll("button").find((button) =>
+      button.text() === "Review Block Version Change").trigger("click");
+    await flushPromises();
+
+    await dialog.findAll("button").find((button) =>
+      button.text() === "Discard reviewed Change Proposal").trigger("click");
+    await flushPromises();
+
+    expect(mocks.discardChangeProposal).toHaveBeenCalledWith("proposal-1");
+    expect(mocks.applyChangeProposal).not.toHaveBeenCalled();
+    expect(dialog.find('[aria-label="Reviewed Block Version Change Proposal"]').exists()).toBe(false);
   });
 });

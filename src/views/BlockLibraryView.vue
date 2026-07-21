@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { BLOCK_KINDS } from "../domain/blocks/blockLibrary";
 import { blockLibrary } from "../services/blockLibrary";
+import { cvWorkspace } from "../services/cvWorkspace";
 import { backfillLegacyHomepageBlocks } from "../domain/blocks/backfillLegacyHomepageBlocks";
 import { createEmploymentContext, formatEmploymentPeriod, normalizeEmploymentGroup } from "../domain/employment/occasion";
 
@@ -15,6 +16,9 @@ const editing = ref(null);
 const editValue = ref("");
 const instruction = ref("");
 const proposal = ref(null);
+const reviewedProposal = ref(null);
+const editingSessions = ref([]);
+const editingSessionId = ref("");
 const importing = ref(false);
 const importResult = ref(null);
 
@@ -98,13 +102,54 @@ async function createBlock() {
   finally { saving.value = false; }
 }
 
-function edit(block) { editing.value = block; editValue.value = currentValue(block); proposal.value = null; }
-async function saveEdit(content = contentFor(editing.value.kind, editValue.value), source = { type: "human" }) {
+async function loadEditingSessions() {
+  const cvs = await cvWorkspace.list();
+  const groups = await Promise.all(cvs.map(async (cv) => ({
+    cv,
+    sessions: (await cvWorkspace.editingSessions(cv.id)).filter((session) => session.status === "open"),
+  })));
+  editingSessions.value = groups.flatMap(({ cv, sessions }) => sessions.map((session) => ({
+    ...session,
+    label: `${cv.name} · Working Composition ${session.optimisticVersion}`,
+  })));
+  editingSessionId.value = editingSessions.value.length === 1 ? editingSessions.value[0].id : "";
+}
+
+async function edit(block) {
+  editing.value = block;
+  editValue.value = currentValue(block);
+  proposal.value = null;
+  reviewedProposal.value = null;
+  try {
+    await loadEditingSessions();
+  } catch (reason) {
+    error.value = reason.message;
+  }
+}
+
+async function reviewEdit(content = contentFor(editing.value.kind, editValue.value), source = { type: "human" }) {
   saving.value = true;
   error.value = "";
-  try { await blockLibrary.saveVersion({ blockId: editing.value.id, kind: editing.value.kind, content, basedOnVersionId: editing.value.currentVersion.id, source }); editing.value = null; proposal.value = null; await load(); }
+  try {
+    const session = editingSessions.value.find((candidate) => candidate.id === editingSessionId.value);
+    if (!session) throw new Error("Choose an open Editing Session for this CV Block change.");
+    reviewedProposal.value = await cvWorkspace.proposeContentChanges({
+      schemaVersion: "1",
+      target: { type: "editing_session", id: session.id },
+      baseVersion: session.optimisticVersion,
+      operations: [{
+        type: "append_block_version",
+        blockId: editing.value.id,
+        basedOnVersionId: editing.value.currentVersion.id,
+        schemaVersion: "1",
+        content,
+        source,
+      }],
+    });
+    proposal.value = null;
+  }
   catch (reason) {
-    if (reason.code === "conflict") {
+    if (["conflict", "stale-block-version"].includes(reason.code)) {
       const editingId = editing.value.id;
       const refreshed = await load();
       if (!refreshed) {
@@ -117,6 +162,35 @@ async function saveEdit(content = contentFor(editing.value.kind, editValue.value
     error.value = reason.message;
   }
   finally { saving.value = false; }
+}
+
+async function applyReviewedEdit() {
+  saving.value = true;
+  error.value = "";
+  try {
+    await cvWorkspace.applyChangeProposal(reviewedProposal.value.id);
+    editing.value = null;
+    proposal.value = null;
+    reviewedProposal.value = null;
+    await load();
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function discardReviewedEdit() {
+  saving.value = true;
+  error.value = "";
+  try {
+    await cvWorkspace.discardChangeProposal(reviewedProposal.value.id);
+    reviewedProposal.value = null;
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    saving.value = false;
+  }
 }
 async function suggest() {
   try { proposal.value = await blockLibrary.suggestVersion({ blockId: editing.value.id, basedOnVersionId: editing.value.currentVersion.id, instruction: instruction.value }); }
@@ -221,10 +295,13 @@ onMounted(load);
 
   <dialog :open="Boolean(editing)">
     <article v-if="editing"><header><button aria-label="Close" rel="prev" @click="editing = null"></button><h2>{{ editing.title }}</h2></header>
-      <label>New Block Version<textarea v-model="editValue"></textarea></label><button :disabled="saving" @click="saveEdit()">Save immutable Block Version</button>
+      <label>Editing Session<select v-model="editingSessionId"><option value="">Choose an open Editing Session</option><option v-for="session in editingSessions" :key="session.id" :value="session.id">{{ session.label }}</option></select></label>
+      <p v-if="!editingSessions.length"><small>Start or resume an Editing Session before changing this CV Block.</small></p>
+      <label>New Block Version<textarea v-model="editValue"></textarea></label><button :disabled="saving || !editingSessionId" @click="reviewEdit()">Review Block Version Change</button>
       <details><summary>Block Version history</summary><ol><li v-for="version in [...editing.versions].reverse()" :key="version.id">v{{ version.number }} · {{ version.source.type }}<br /><small>{{ JSON.stringify(version.content) }}</small></li></ol></details>
       <hr /><label>AI change instruction<input v-model="instruction" placeholder="Emphasise stakeholder leadership…" /></label><button class="secondary" @click="suggest">Generate Change Proposal</button>
-      <article v-if="proposal"><strong>Unsaved Change Proposal</strong><p>{{ proposal.content.text || proposal.content.name || proposal.content.institution }}</p><div class="grid"><button @click="saveEdit(proposal.content, proposal.source)">Apply as new Block Version</button><button class="secondary" @click="proposal = null">Reject</button></div></article>
+      <article v-if="proposal"><strong>Unsaved Change Proposal</strong><p>{{ proposal.content.text || proposal.content.name || proposal.content.institution }}</p><div class="grid"><button @click="reviewEdit(proposal.content, proposal.source)">Review as Change Proposal</button><button class="secondary" @click="proposal = null">Reject</button></div></article>
+      <article v-if="reviewedProposal" aria-label="Reviewed Block Version Change Proposal"><strong>Reviewed Change Proposal</strong><p>Applying appends an immutable Block Version and advances Working Composition {{ reviewedProposal.baseOptimisticVersion }}.</p><div class="grid"><button :disabled="saving" @click="applyReviewedEdit">Apply reviewed Change Proposal</button><button class="secondary" :disabled="saving" @click="discardReviewedEdit">Discard reviewed Change Proposal</button></div></article>
     </article>
   </dialog>
 </template>

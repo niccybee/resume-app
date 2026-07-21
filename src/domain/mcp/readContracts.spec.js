@@ -26,6 +26,8 @@ describe("MCP read contracts", () => {
     expect(changeProposalSchema()).toMatchObject({
       schemaVersion: "1",
       explicitApplyRequired: true,
+      operations: expect.arrayContaining(["edit_content", "replace_working_state"]),
+      contentOperations: ["append_block_version", "replace_working_state"],
       statuses: ["pending", "applied", "discarded", "expired", "invalidated"],
     });
   });

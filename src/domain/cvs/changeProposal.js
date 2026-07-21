@@ -1,4 +1,5 @@
 export const CHANGE_PROPOSAL_OPERATION_TYPES = Object.freeze([
+  "edit_content",
   "replace_working_state",
   "copy_to_new_version",
   "copy_for_new_role",
@@ -11,8 +12,13 @@ export const CHANGE_PROPOSAL_OPERATION_TYPES = Object.freeze([
 ]);
 
 export const LIFECYCLE_CHANGE_PROPOSAL_OPERATION_TYPES = Object.freeze(
-  CHANGE_PROPOSAL_OPERATION_TYPES.filter((type) => type !== "replace_working_state"),
+  CHANGE_PROPOSAL_OPERATION_TYPES.filter((type) => !["edit_content", "replace_working_state"].includes(type)),
 );
+
+export const CONTENT_CHANGE_OPERATION_TYPES = Object.freeze([
+  "append_block_version",
+  "replace_working_state",
+]);
 
 const NEXT_ACTIONS_BY_STATUS = Object.freeze({
   pending: Object.freeze(["apply", "discard"]),

@@ -55,6 +55,22 @@ const mcpEditingSessionRow = {
   updated_at: "2026-07-21T02:00:00.000Z",
   finished_at: null,
 };
+const mcpInitialBlockVersion = {
+  id: "version-mcp",
+  block_id: "block-mcp",
+  owner_id: "mcp-owner",
+  version_number: 1,
+  schema_version: "1",
+  content: { text: "Launched a product used by one million people." },
+  source_type: "human",
+  source_metadata: {},
+  based_on_version_id: null,
+  created_at: "2026-07-21T00:00:00.000Z",
+};
+let mcpCurrentBlockVersion = mcpInitialBlockVersion;
+let mcpContentProposal = null;
+let mcpContentProposalSequence = 0;
+let mcpContentApplyCount = 0;
 
 const publicationServer = createServer(async (request, response) => {
   if (request.url === "/auth/v1/user") {
@@ -136,21 +152,11 @@ const publicationServer = createServer(async (request, response) => {
       kind: "experience",
       title: "Product launch",
       status: "active",
-      current_version_id: "version-mcp",
+      current_version_id: mcpCurrentBlockVersion.id,
       created_at: "2026-07-21T00:00:00.000Z",
       updated_at: "2026-07-21T00:00:00.000Z",
       cv_block_contexts: [],
-      versions: [{
-        id: "version-mcp",
-        block_id: "block-mcp",
-        version_number: 1,
-        schema_version: "1",
-        content: { text: "Launched a product used by one million people." },
-        source_type: "human",
-        source_metadata: {},
-        based_on_version_id: null,
-        created_at: "2026-07-21T00:00:00.000Z",
-      }],
+      versions: [mcpInitialBlockVersion, ...(mcpCurrentBlockVersion.id === mcpInitialBlockVersion.id ? [] : [mcpCurrentBlockVersion])],
     }];
     response.end(JSON.stringify(rows));
     return;
@@ -158,18 +164,11 @@ const publicationServer = createServer(async (request, response) => {
   if (requestUrl.pathname === "/rest/v1/cv_block_versions") {
     response.setHeader("Content-Type", "application/json");
     const requestedIds = requestUrl.searchParams.get("id") || "";
-    const rows = requestedIds.includes("version-another-user") ? [] : [{
-      id: "version-mcp",
-      block_id: "block-mcp",
-      owner_id: "mcp-owner",
-      version_number: 1,
-      schema_version: "1",
-      content: { text: "Launched a product used by one million people." },
-      source_type: "human",
-      source_metadata: {},
-      based_on_version_id: null,
-      created_at: "2026-07-21T00:00:00.000Z",
-    }];
+    const candidates = [mcpInitialBlockVersion, mcpCurrentBlockVersion];
+    const rows = requestedIds.includes("version-another-user")
+      ? []
+      : [...new Map(candidates.map((version) => [version.id, version])).values()]
+          .filter((version) => requestedIds.includes(version.id));
     response.end(JSON.stringify(rows));
     return;
   }
@@ -217,6 +216,93 @@ const publicationServer = createServer(async (request, response) => {
       return;
     }
     response.end(JSON.stringify(mcpEditingSessionRow));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/create_cv_content_change_proposal") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    response.setHeader("Content-Type", "application/json");
+    if (input.p_base_optimistic_version !== mcpEditingSessionRow.optimistic_version) {
+      response.writeHead(409).end(JSON.stringify({
+        code: "40001",
+        message: `stale-proposal: ${JSON.stringify({ target: {
+          id: mcpEditingSessionRow.id,
+          optimisticVersion: mcpEditingSessionRow.optimistic_version,
+        } })}`,
+      }));
+      return;
+    }
+    const append = input.p_normalized_operations.find((operation) => operation.type === "append_block_version");
+    mcpContentProposal = {
+      id: `proposal-mcp-${++mcpContentProposalSequence}`,
+      schema_version: "1",
+      operation_type: "edit_content",
+      target_type: "editing_session",
+      target_id: mcpEditingSessionRow.id,
+      target_cv_id: mcpEditingSessionRow.cv_id,
+      base_optimistic_version: input.p_base_optimistic_version,
+      normalized_operations: input.p_normalized_operations,
+      structured_diff: {
+        blocks: append ? [{
+          blockId: append.blockId,
+          beforeVersionId: append.basedOnVersionId,
+          after: append.content,
+        }] : [],
+      },
+      warnings: [],
+      status: "pending",
+      created_at: "2026-07-21T03:00:00.000Z",
+      expires_at: "2026-07-22T03:00:00.000Z",
+      result: null,
+    };
+    response.end(JSON.stringify(mcpContentProposal));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/get_cv_change_proposal") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(mcpContentProposal));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/apply_cv_content_change_proposal") {
+    response.setHeader("Content-Type", "application/json");
+    if (mcpContentProposal?.status !== "applied") {
+      const append = mcpContentProposal.normalized_operations.find((operation) => operation.type === "append_block_version");
+      mcpCurrentBlockVersion = {
+        id: "version-mcp-2",
+        block_id: append.blockId,
+        owner_id: "mcp-owner",
+        version_number: 2,
+        schema_version: append.schemaVersion,
+        content: append.content,
+        source_type: append.source?.type || "mcp",
+        source_metadata: append.source || {},
+        based_on_version_id: append.basedOnVersionId,
+        created_at: "2026-07-21T03:01:00.000Z",
+      };
+      mcpEditingSessionRow.optimistic_version += 1;
+      mcpContentApplyCount += 1;
+      mcpContentProposal = {
+        ...mcpContentProposal,
+        status: "applied",
+        result: {
+          editingSessionId: mcpEditingSessionRow.id,
+          optimisticVersion: mcpEditingSessionRow.optimistic_version,
+          affectedIdentities: {
+            cvId: mcpEditingSessionRow.cv_id,
+            blockIds: [append.blockId],
+            versionIds: [mcpCurrentBlockVersion.id],
+          },
+        },
+      };
+    }
+    response.end(JSON.stringify(mcpContentProposal));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/discard_cv_change_proposal") {
+    response.setHeader("Content-Type", "application/json");
+    mcpContentProposal = { ...mcpContentProposal, status: "discarded" };
+    response.end(JSON.stringify(mcpContentProposal));
     return;
   }
   if (request.url !== "/rest/v1/rpc/get_published_cv") {
@@ -497,10 +583,13 @@ describe("Nuxt runtime", async () => {
       "get_publication_state",
       "get_supported_schemas",
       "export_cv_revision",
+      "propose_content_changes",
+      "apply_change_proposal",
+      "discard_change_proposal",
     ]));
     expect(toolNames).not.toEqual(expect.arrayContaining([
       "save_cv",
-      "apply_change_proposal",
+      "append_block_version",
       "delete_cv_block",
     ]));
 
@@ -585,6 +674,124 @@ describe("Nuxt runtime", async () => {
     const invalid = await call("get_cv", {});
     expect(invalid.result).toMatchObject({ isError: true });
     expect(invalid.result.content[0].text).toMatch(/validation|invalid/i);
+
+    const applyCountBefore = mcpContentApplyCount;
+    const proposed = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 2,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp",
+        schemaVersion: "1",
+        content: { text: "Launched the product to two million people." },
+        source: { type: "mcp", clientId: "chat-client-runtime" },
+      }],
+    });
+    expect(proposed.result.structuredContent.data).toMatchObject({
+      operationType: "edit_content",
+      status: "pending",
+      target: { type: "editing_session", id: "session-mcp", cvId: "cv-mcp" },
+      baseOptimisticVersion: 2,
+      diff: { blocks: [{ blockId: "block-mcp", beforeVersionId: "version-mcp" }] },
+      warnings: [],
+      expiresAt: expect.any(String),
+      nextActions: ["apply", "discard"],
+    });
+    expect(mcpCurrentBlockVersion.id).toBe("version-mcp");
+    expect(mcpEditingSessionRow.optimistic_version).toBe(2);
+
+    const proposalId = proposed.result.structuredContent.data.id;
+    const applied = await call("apply_change_proposal", { proposalId });
+    const retried = await call("apply_change_proposal", { proposalId });
+    expect(applied.result.structuredContent.data).toMatchObject({
+      status: "applied",
+      result: {
+        editingSessionId: "session-mcp",
+        optimisticVersion: 3,
+        affectedIdentities: {
+          cvId: "cv-mcp",
+          blockIds: ["block-mcp"],
+          versionIds: ["version-mcp-2"],
+        },
+      },
+    });
+    expect(retried.result.structuredContent).toEqual(applied.result.structuredContent);
+    expect(mcpContentApplyCount).toBe(applyCountBefore + 1);
+    const appended = await call("get_block_version", { versionId: "version-mcp-2" });
+    expect(appended.result.structuredContent.data).toMatchObject({
+      blockId: "block-mcp",
+      basedOnVersionId: "version-mcp",
+      content: { text: "Launched the product to two million people." },
+    });
+
+    const staleComposition = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 2,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp-2",
+        schemaVersion: "1",
+        content: { text: "This proposal started from a stale Working Composition." },
+      }],
+    });
+    expect(staleComposition.result).toMatchObject({ isError: true });
+    expect(staleComposition.result.content[0].text).toContain('"code": "stale-proposal"');
+
+    const staleBlockVersion = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 3,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp",
+        schemaVersion: "1",
+        content: { text: "This proposal uses a stale Block Version." },
+      }],
+    });
+    expect(staleBlockVersion.result).toMatchObject({ isError: true });
+    expect(staleBlockVersion.result.content[0].text).toContain('"code": "stale-block-version"');
+
+    const invalidContent = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 3,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp-2",
+        schemaVersion: "1",
+        content: {},
+      }],
+    });
+    expect(invalidContent.result).toMatchObject({ isError: true });
+    expect(invalidContent.result.content[0].text).toContain('"code": "validation-failed"');
+
+    const discardable = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 3,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp-2",
+        schemaVersion: "1",
+        content: { text: "A discarded idea." },
+      }],
+    });
+    const discarded = await call("discard_change_proposal", {
+      proposalId: discardable.result.structuredContent.data.id,
+    });
+    expect(discarded.result.structuredContent.data).toMatchObject({
+      status: "discarded",
+      nextActions: [],
+    });
+    expect(mcpCurrentBlockVersion.id).toBe("version-mcp-2");
+    expect(mcpEditingSessionRow.optimistic_version).toBe(3);
   });
 
   it("returns a signed-out user to the exact OAuth consent request", async () => {

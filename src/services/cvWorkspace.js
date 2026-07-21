@@ -1,6 +1,7 @@
 import { createCvWorkspace } from "../domain/cvs/createCvWorkspace";
 import { createSupabaseCvRepository } from "../infrastructure/cvs/createSupabaseCvRepository";
 import { openRouter } from "./openRouter";
+import { blockLibrary } from "./blockLibrary";
 import { supabase } from "../supabase";
 
 const openRouterSummaryAdapter = {
@@ -10,5 +11,6 @@ const openRouterSummaryAdapter = {
 
 export const cvWorkspace = createCvWorkspace({
   repository: createSupabaseCvRepository({ client: supabase }),
+  blockLibrary,
   summaryGenerator: openRouterSummaryAdapter,
 });

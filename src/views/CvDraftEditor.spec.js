@@ -308,6 +308,7 @@ describe("CV summary proposals", () => {
     cvWorkspace.proposeEditingSessionChange.mockResolvedValue({
       id: "proposal-1",
       schemaVersion: "1",
+      operationType: "edit_content",
       target: { type: "editing_session", id: "session-1", cvId: "cv-1" },
       baseOptimisticVersion: 3,
       status: "pending",

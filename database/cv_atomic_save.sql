@@ -36,6 +36,22 @@ begin
     raise exception 'CV selections must be an array.' using errcode = '23514';
   end if;
 
+  if exists (
+    select 1
+    from jsonb_to_recordset(coalesce(p_selections, '[]'::jsonb)) as selection(
+      block_id uuid,
+      version_id uuid,
+      section text,
+      position integer,
+      display jsonb
+    )
+    group by selection.block_id
+    having count(*) > 1
+  ) then
+    raise exception 'A CV can include at most one Block Version from each CV Block.'
+      using errcode = '23514';
+  end if;
+
   if p_cv_id is null then
     insert into public.cv_documents (
       owner_id,

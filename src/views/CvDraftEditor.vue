@@ -20,11 +20,28 @@ const themes = listThemes();
 
 function replaceDraft(next) { Object.assign(draft, normalizeDraft(next)); }
 function sectionFor(kind) { return { experience:"experience", skill:"skills", certification:"certifications", education:"education", interest:"interests" }[kind]; }
-function add(block) { const version=block.versions.find((item)=>item.id===(selectedVersions[block.id]||block.currentVersion.id))||block.currentVersion; replaceDraft(addSelection(draft, { blockId:block.id, versionId:version.id, section:sectionFor(block.kind), block:{ title:block.title, kind:block.kind, contexts:block.contexts, versionNumber:version.number }, content:version.content })); }
+function selectedVersion(block) { return block.versions.find((item)=>item.id===(selectedVersions[block.id]||block.currentVersion.id))||block.currentVersion; }
+function selectionFor(block, version, section = sectionFor(block.kind)) { return { blockId:block.id, versionId:version.id, section, block:{ title:block.title, kind:block.kind, contexts:block.contexts, versionNumber:version.number }, content:version.content }; }
+function selectedForBlock(blockId) { return draft.selections.find((item) => item.blockId === blockId); }
+function add(block) { replaceDraft(addSelection(draft, selectionFor(block, selectedVersion(block)))); }
+function replaceVersion(block) {
+  const selected = selectedForBlock(block.id);
+  if (!selected) return add(block);
+  const replacement = { ...selectionFor(block, selectedVersion(block), selected.section), order: selected.order };
+  replaceDraft({ ...draft, selections: draft.selections.map((item) => item.blockId === block.id ? replacement : item) });
+}
+function selectionVersionNumber(item) {
+  if (item.block?.versionNumber) return item.block.versionNumber;
+  return blocks.value.find((block) => block.id === item.blockId)?.versions.find((version) => version.id === item.versionId)?.number || "unknown";
+}
+function alignSelectedVersions() {
+  for (const block of blocks.value) selectedVersions[block.id] = block.currentVersion?.id;
+  for (const selection of draft.selections) selectedVersions[selection.blockId] = selection.versionId;
+}
 function remove(versionId) { replaceDraft(removeSelection(draft, versionId)); }
 function shift(item, delta) { replaceDraft(moveSelection(draft, item.versionId, item.section, item.order + delta)); }
 function changeSection(item, section) { replaceDraft(moveSelection(draft, item.versionId, section, draft.selections.filter((entry)=>entry.section===section).length)); }
-function clearDraft() { if (window.confirm("Clear every selected block from this draft?")) replaceDraft({ ...draft, selections: [] }); }
+function clearDraft() { if (window.confirm("Remove every selected Block Version from this CV?")) replaceDraft({ ...draft, selections: [] }); }
 const selectedBySection = computed(() => Object.groupBy(draft.selections, (item) => item.section));
 const selectedExperienceGroups = computed(() => groupExperienceSelections(selectedBySection.value.experience));
 
@@ -32,8 +49,11 @@ onMounted(async () => {
   try {
     const [catalog, existing] = await Promise.all([blockLibrary.browse(), route.params.cvId ? cvWorkspace.open(route.params.cvId) : Promise.resolve(null)]);
     blocks.value = catalog.blocks;
-    for (const block of blocks.value) selectedVersions[block.id] = block.currentVersion?.id;
-    if (existing) { replaceDraft(existing); publishSlug.value = existing.slug || ""; }
+    if (existing) {
+      replaceDraft(existing);
+      publishSlug.value = existing.slug || "";
+    }
+    alignSelectedVersions();
     status.value = "loaded";
   } catch (reason) { error.value = reason.message; status.value = reason.code === "not-found" ? "missing" : "failed"; }
 });
@@ -62,7 +82,7 @@ async function createReviewedTasks(tasks) {
     replaceDraft(nextDraft);
     const catalog = await blockLibrary.browse();
     blocks.value = catalog.blocks;
-    for (const block of blocks.value) selectedVersions[block.id] = block.currentVersion?.id;
+    alignSelectedVersions();
   } catch (reason) {
     error.value = reason.message;
     throw reason;
@@ -92,15 +112,15 @@ function generateTaskProposal(instruction) {
         :create-tasks-handler="createReviewedTasks"
       />
 
-      <h2>Reusable block library</h2>
-      <p v-if="!blocks.length">No blocks available. <RouterLink to="/app/blocks">Create blocks first.</RouterLink></p>
-      <article v-for="block in blocks" :key="block.id" class="library-row"><div><small>{{ block.kind }}</small><strong>{{ block.title }}</strong><select v-model="selectedVersions[block.id]" aria-label="Block version"><option v-for="version in [...block.versions].reverse()" :key="version.id" :value="version.id">Version {{ version.number }} · {{ version.source.type }}</option></select></div><button class="secondary control-compact" :disabled="draft.selections.some((item) => item.versionId === selectedVersions[block.id])" @click="add(block)">Add selected version</button></article>
+      <h2>CV Block Library</h2>
+      <p v-if="!blocks.length">No CV Blocks available. <RouterLink to="/app/blocks">Create CV Blocks first.</RouterLink></p>
+      <article v-for="block in blocks" :key="block.id" class="library-row"><div><small>{{ block.kind }}</small><strong>{{ block.title }}</strong><select v-model="selectedVersions[block.id]" aria-label="Block Version"><option v-for="version in [...block.versions].reverse()" :key="version.id" :value="version.id">Block Version {{ version.number }} · {{ version.source.type }}</option></select></div><button v-if="!selectedForBlock(block.id)" class="secondary control-compact" @click="add(block)">Add Block Version</button><button v-else class="secondary control-compact" :disabled="selectedForBlock(block.id).versionId === selectedVersions[block.id]" @click="replaceVersion(block)">Replace Block Version</button></article>
 
-      <h2>Draft composition</h2>
-      <section class="section-list experience-composition"><h3>experience</h3><p v-if="!selectedExperienceGroups.length"><small>No selected blocks.</small></p><section v-for="employer in selectedExperienceGroups" :key="employer.employerId" class="selection-employer"><h4>{{ employer.employer }}</h4><div v-for="occasion in employer.occasions" :key="occasion.occasionId"><h5>{{ occasion.role }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</h5><article v-for="item in occasion.items" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection.experience.length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></div></section></section>
-      <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected blocks.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
-      <button v-if="draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear draft…</button>
-      <button class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">Save draft</button>
+      <h2>Selected Block Versions</h2>
+      <section class="section-list experience-composition"><h3>experience</h3><p v-if="!selectedExperienceGroups.length"><small>No selected Block Versions.</small></p><section v-for="employer in selectedExperienceGroups" :key="employer.employerId" class="selection-employer"><h4>{{ employer.employer }}</h4><div v-for="occasion in employer.occasions" :key="occasion.occasionId"><h5>{{ occasion.role }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</h5><article v-for="item in occasion.items" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection.experience.length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></div></section></section>
+      <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
+      <button v-if="draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear selected Block Versions…</button>
+      <button class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">Save CV</button>
       <RouterLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</RouterLink>
       <details v-if="draft.id"><summary>Publishing</summary><label>Public slug<input v-model="publishSlug" placeholder="product-lead" /></label><button v-if="draft.status !== 'published'" @click="publish">Publish unlisted link</button><template v-else><p><RouterLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</RouterLink></p><button class="secondary" @click="unpublish">Unpublish</button></template></details>
     </section>

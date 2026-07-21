@@ -69,6 +69,67 @@ describe("Supabase CV repository public boundary", () => {
   });
 });
 
+describe("Supabase CV repository list boundary", () => {
+  it("returns nothing for a signed-out actor without querying CV documents", async () => {
+    const client = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: null },
+          error: null,
+        }),
+      },
+      from: vi.fn(),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.list()).resolves.toEqual([]);
+    expect(client.from).not.toHaveBeenCalled();
+  });
+
+  it("lists only CVs owned by the authenticated actor", async () => {
+    const rows = [{
+      id: "owned-cv",
+      owner_id: "user-1",
+      name: "Owned CV",
+      status: "draft",
+      profile: {},
+    }, {
+      id: "other-cv",
+      owner_id: "user-2",
+      name: "Another actor's CV",
+      status: "draft",
+      profile: {},
+    }];
+    const predicates = [];
+    const query = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn((column, value) => {
+        predicates.push([column, value]);
+        return query;
+      }),
+      order: vi.fn().mockImplementation(async () => ({
+        data: rows.filter((row) => predicates.every(([column, value]) => row[column] === value)),
+        error: null,
+      })),
+    };
+    const client = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { user: { id: "user-1" } } },
+          error: null,
+        }),
+      },
+      from: vi.fn().mockReturnValue(query),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.list()).resolves.toEqual([
+      expect.objectContaining({ id: "owned-cv", name: "Owned CV" }),
+    ]);
+    expect(query.eq).toHaveBeenCalledWith("owner_id", "user-1");
+  });
+});
+
 describe("Supabase CV repository authenticated save boundary", () => {
   it("saves the document and exact composition through one transactional RPC", async () => {
     const documentQuery = {

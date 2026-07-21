@@ -33,6 +33,67 @@ describe("CV workspace boundary", () => {
     });
   });
 
+  it("rejects multiple Block Versions from one CV Block at save and open boundaries", async () => {
+    const duplicateSelections = [{
+      blockId: "block-1",
+      versionId: "version-1",
+      section: "experience",
+    }, {
+      blockId: "block-1",
+      versionId: "version-2",
+      section: "experience",
+    }];
+    const workspace = createCvWorkspace({ repository: createMemoryCvRepository() });
+    const legacyWorkspace = createCvWorkspace({
+      repository: {
+        async get() {
+          return {
+            id: "cv-invalid",
+            name: "Invalid legacy CV",
+            selections: duplicateSelections,
+          };
+        },
+      },
+    });
+
+    await expect(workspace.save({
+      name: "Product CV",
+      selections: duplicateSelections,
+    })).rejects.toMatchObject({
+      code: "duplicate-block-selection",
+    });
+    await expect(legacyWorkspace.open("cv-invalid")).rejects.toMatchObject({
+      code: "duplicate-block-selection",
+    });
+  });
+
+  it("rejects malformed exact selections at save and open boundaries", async () => {
+    const workspace = createCvWorkspace({ repository: createMemoryCvRepository() });
+    const legacyWorkspace = createCvWorkspace({
+      repository: {
+        async get() {
+          return {
+            id: "cv-invalid",
+            name: "Invalid legacy CV",
+            selections: [{
+              blockId: "block-1",
+              versionId: "version-1",
+              section: "unsupported",
+            }],
+          };
+        },
+      },
+    });
+
+    await expect(workspace.save({
+      name: "Product CV",
+      selections: [{ versionId: "version-1", section: "experience" }],
+    })).rejects.toMatchObject({ code: "invalid-selection" });
+    await expect(legacyWorkspace.open("cv-invalid")).rejects.toMatchObject({
+      code: "invalid-section",
+    });
+  });
+
   it("preserves employer grouping when an experience version is saved and reloaded", async () => {
     const repository = createMemoryCvRepository();
     const workspace = createCvWorkspace({ repository });

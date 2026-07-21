@@ -42,8 +42,9 @@ export function normalizeDraft(input = {}) {
 }
 
 export function normalizeSelections(selections) {
-  return selections
+  const normalized = selections
     .map((selection) => {
+      assertExactSelection(selection);
       const group = experienceGroup(selection);
       return {
         blockId: selection.blockId,
@@ -54,7 +55,18 @@ export function normalizeSelections(selections) {
         ...(selection.block ? { block: selection.block } : {}),
         ...(group ? { group } : {}),
       };
-    })
+    });
+  const seenBlockIds = new Set();
+  for (const selection of normalized) {
+    if (seenBlockIds.has(selection.blockId)) {
+      throw new CvDraftError(
+        "duplicate-block-selection",
+        "A CV can include at most one Block Version from each CV Block.",
+      );
+    }
+    seenBlockIds.add(selection.blockId);
+  }
+  return normalized
     .sort((a, b) => a.section.localeCompare(b.section) || a.order - b.order)
     .map((selection, index, all) => ({
       ...selection,
@@ -102,15 +114,19 @@ function assertSection(section) {
   }
 }
 
-export function addSelection(draft, input) {
-  assertSection(input.section);
-  if (!input.blockId || !input.versionId) {
+function assertExactSelection(selection) {
+  if (!selection.blockId || !selection.versionId) {
     throw new CvDraftError(
       "invalid-selection",
-      "A selection requires a block and an exact version.",
+      "A selection requires a CV Block and an exact Block Version.",
     );
   }
-  if (draft.selections.some((item) => item.versionId === input.versionId)) {
+  assertSection(selection.section);
+}
+
+export function addSelection(draft, input) {
+  assertExactSelection(input);
+  if (draft.selections.some((item) => item.blockId === input.blockId)) {
     return normalizeDraft(draft);
   }
   return normalizeDraft({

@@ -28,7 +28,10 @@ publication writes with reviewed exact-Revision publish, rollback, and
 withdrawal proposals. Apply `database/cv_revision_export.sql` to expose the
 owner-scoped immutable Revision snapshot used by composition adapters. Apply
 `database/cv_mcp_release_hardening.sql` after the MCP proposal migrations to add
-the identity-only MCP audit recorder. Apply
+the identity-only MCP audit recorder, then apply
+`database/cv_mcp_advisor_hardening.sql` to keep the PostgREST request hook out
+of the exposed schema and add covering indexes for the new composite foreign
+keys. Apply
 `database/cv_legacy_contraction.sql` after migrated Revisions, Editing Sessions,
 and Change Proposals have been verified; it creates new CVs directly with an
 initial Editing Session and removes authenticated access to the legacy mutable

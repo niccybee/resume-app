@@ -37,6 +37,32 @@ create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(auth.jwt() ->> 'sub', '')::uuid
 $$;
 
+create table public.cv_documents(
+  id uuid primary key,
+  published_revision_id uuid
+);
+create table public.cv_revisions(
+  id uuid primary key,
+  cv_id uuid not null,
+  base_revision_id uuid
+);
+create table public.cv_revision_compositions(
+  id uuid primary key,
+  revision_id uuid not null,
+  cv_id uuid not null
+);
+create table public.cv_editing_sessions(
+  id uuid primary key,
+  cv_id uuid not null,
+  base_revision_id uuid,
+  finished_revision_id uuid
+);
+create table public.cv_editing_session_compositions(
+  id uuid primary key,
+  session_id uuid not null,
+  cv_id uuid not null
+);
+
 create table public.cv_blocks(
   id uuid primary key,
   owner_id uuid not null,
@@ -77,14 +103,14 @@ values (true, encode(extensions.digest('database-integration-gateway-key-123456'
 
 set request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated"}';
 set request.headers = '{}';
-select public.check_resume_studio_request();
+select private.check_resume_studio_request();
 
 set request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated","client_id":"00000000-0000-4000-8000-000000000010"}';
 set request.headers = '{}';
 do $$
 begin
   begin
-    perform public.check_resume_studio_request();
+    perform private.check_resume_studio_request();
     raise exception 'OAuth request unexpectedly bypassed the MCP gateway';
   exception when insufficient_privilege then
     null;
@@ -93,7 +119,7 @@ end
 $$;
 
 set request.headers = '{"x-resume-studio-mcp-gateway":"database-integration-gateway-key-123456"}';
-select public.check_resume_studio_request();
+select private.check_resume_studio_request();
 insert into public.cv_change_proposals(
   id, operation_type, target_type, target_id, target_cv_id, status
 ) values (
@@ -138,6 +164,7 @@ try {
   started = true;
   run("psql", [...connection, "-v", "ON_ERROR_STOP=1"], { input: fixture });
   run("psql", [...connection, "-v", "ON_ERROR_STOP=1", "-f", resolve(root, "database/cv_mcp_release_hardening.sql")]);
+  run("psql", [...connection, "-v", "ON_ERROR_STOP=1", "-f", resolve(root, "database/cv_mcp_advisor_hardening.sql")]);
   run("psql", [...connection, "-v", "ON_ERROR_STOP=1"], { input: assertions });
   console.log(JSON.stringify({ verified: true, cases: [
     "browser-jwt-pass", "oauth-direct-deny", "gateway-oauth-pass",

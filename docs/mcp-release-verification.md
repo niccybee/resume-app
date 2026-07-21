@@ -20,8 +20,11 @@ buckets and does not accept caller-selected limits or windows. Change those
 policies only through reviewed deployment code and a database migration.
 
 Apply `database/cv_mcp_release_hardening.sql` after the Change Proposal and MCP
-lifecycle migrations, then configure the gateway-key digest before enabling MCP
-traffic. The audit table is not readable by browser or MCP roles.
+lifecycle migrations, followed by `database/cv_mcp_advisor_hardening.sql`, then
+configure the gateway-key digest before enabling MCP traffic. The follow-up
+moves the PostgREST request hook to the unexposed `private` schema and adds
+covering indexes for the new composite foreign keys. The audit table is not
+readable by browser or MCP roles.
 Its authenticated recorder derives the actor from `auth.uid()` and accepts only
 bounded identity arrays, an OAuth client identifier, operation, result, optional
 error code, and server time.

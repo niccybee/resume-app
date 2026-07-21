@@ -1,20 +1,14 @@
 import { createCvWorkspace } from "../domain/cvs/createCvWorkspace";
 import { createSupabaseCvRepository } from "../infrastructure/cvs/createSupabaseCvRepository";
+import { openRouter } from "./openRouter";
 import { supabase } from "../supabase";
 
-const localSummaryAdapter = {
-  name: "reviewable-local-proposal",
-  async suggest({ draft, instruction }) {
-    const role = draft.profile?.basics?.label || draft.name;
-    return {
-      text: `${role}. ${instruction}`.trim(),
-      provider: this.name,
-    };
-  },
+const openRouterSummaryAdapter = {
+  name: "openrouter",
+  suggest: (input) => openRouter.suggestSummary(input),
 };
 
 export const cvWorkspace = createCvWorkspace({
   repository: createSupabaseCvRepository({ client: supabase }),
-  summaryGenerator: localSummaryAdapter,
+  summaryGenerator: openRouterSummaryAdapter,
 });
-

@@ -56,6 +56,26 @@ export function createOpenRouterClient({ client }) {
     async removeKey() {
       return safeStatus(await invoke({ action: "delete" }));
     },
+
+    async suggestSummary({ draft, instruction }) {
+      const proposal = await invoke({
+        action: "generate-summary",
+        draft,
+        instruction,
+      });
+      if (typeof proposal?.text !== "string" || !proposal.text.trim()) {
+        throw new OpenRouterClientError(
+          "malformed-response",
+          "OpenRouter returned an invalid summary proposal.",
+        );
+      }
+      return {
+        text: proposal.text.trim(),
+        provider: "openrouter",
+        model: proposal.model || null,
+        createdAt: proposal.createdAt || null,
+      };
+    },
   };
 }
 

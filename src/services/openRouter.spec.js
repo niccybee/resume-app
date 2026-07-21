@@ -108,4 +108,58 @@ describe("OpenRouter authenticated client boundary", () => {
         message: "OpenRouter rejected that API key.",
       });
   });
+
+  it("requests a reviewable summary proposal with the current draft context", async () => {
+    const client = {
+      functions: {
+        invoke: vi.fn().mockResolvedValue({
+          data: {
+            text: "A focused product leader.",
+            model: "openai/gpt-4.1-mini",
+            createdAt: "2026-07-21T01:00:00.000Z",
+          },
+          error: null,
+        }),
+      },
+    };
+    const openRouter = createOpenRouterClient({ client });
+    const draft = {
+      name: "Product CV",
+      summary: "Existing summary",
+      profile: { basics: { label: "Product Lead" } },
+      selections: [{ versionId: "version-1", content: { text: "Shipped a platform." } }],
+    };
+
+    await expect(openRouter.suggestSummary({
+      draft,
+      instruction: "Focus on cross-functional leadership",
+    })).resolves.toEqual({
+      text: "A focused product leader.",
+      provider: "openrouter",
+      model: "openai/gpt-4.1-mini",
+      createdAt: "2026-07-21T01:00:00.000Z",
+    });
+    expect(client.functions.invoke).toHaveBeenCalledWith("openrouter", {
+      body: {
+        action: "generate-summary",
+        draft,
+        instruction: "Focus on cross-functional leadership",
+      },
+    });
+  });
+
+  it("rejects a malformed summary response", async () => {
+    const client = {
+      functions: {
+        invoke: vi.fn().mockResolvedValue({ data: { text: "" }, error: null }),
+      },
+    };
+    const openRouter = createOpenRouterClient({ client });
+
+    await expect(openRouter.suggestSummary({ draft: {}, instruction: "Improve it" }))
+      .rejects.toMatchObject({
+        code: "malformed-response",
+        message: "OpenRouter returned an invalid summary proposal.",
+      });
+  });
 });

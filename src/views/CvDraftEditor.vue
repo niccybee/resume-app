@@ -11,7 +11,7 @@ import { blockLibrary } from "../services/blockLibrary";
 import { cvWorkspace } from "../services/cvWorkspace";
 
 const route = useRoute(); const router = useRouter();
-const status = ref("loading"); const error = ref(""); const saving = ref(false);
+const status = ref("loading"); const error = ref(""); const saving = ref(false); const generatingSummary = ref(false);
 const blocks = ref([]); const proposal = ref(null); const instruction = ref(""); const publishSlug = ref("");
 const selectedVersions = reactive({});
 const draft = reactive(normalizeDraft({ name: "", profile: { basics: {} }, selections: [] }));
@@ -40,7 +40,18 @@ onMounted(async () => {
 async function save() { saving.value=true; error.value=""; try { const saved=await cvWorkspace.save(draft); replaceDraft(saved); if (!route.params.cvId) await router.replace(`/app/cvs/${saved.id}`); } catch(reason){error.value=reason.message;} finally{saving.value=false;} }
 async function publish() { try { if (!draft.id) await save(); const saved=await cvWorkspace.publish(draft.id,publishSlug.value); replaceDraft(saved); publishSlug.value=saved.slug; } catch(reason){error.value=reason.message;} }
 async function unpublish() { try { replaceDraft(await cvWorkspace.unpublish(draft.id)); } catch(reason){error.value=reason.message;} }
-async function generateSummary() { try { proposal.value=await cvWorkspace.suggestSummary(draft,instruction.value); } catch(reason){error.value=reason.message;} }
+async function generateSummary() {
+  error.value = "";
+  proposal.value = null;
+  generatingSummary.value = true;
+  try {
+    proposal.value = await cvWorkspace.suggestSummary(draft, instruction.value);
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    generatingSummary.value = false;
+  }
+}
 async function createReviewedTasks(tasks) {
   error.value = "";
   try {
@@ -69,7 +80,7 @@ async function createReviewedTasks(tasks) {
       <div class="grid"><label>Name<input v-model="draft.profile.basics.name" /></label><label>Target role<input v-model="draft.profile.basics.label" /></label></div>
       <label>Email<input v-model="draft.profile.basics.email" type="email" /></label>
       <label>Theme<select v-model="draft.themeId"><option :value="null">Default — Editorial</option><option v-for="theme in themes" :key="theme.id" :value="theme.id">{{ theme.name }} — {{ theme.description }}</option></select></label>
-      <details><summary>Summary generator</summary><label>Direction<input v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary" @click="generateSummary">Generate proposal</button><article v-if="proposal"><p>{{ proposal.text }}</p><div class="grid"><button @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Accept</button><button class="secondary" @click="proposal=null">Reject</button></div></article></details>
+      <details><summary>Summary generator</summary><label>Direction<input v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary control-standard" :aria-busy="generatingSummary" :disabled="generatingSummary" @click="generateSummary">Generate proposal</button><article v-if="proposal"><p>{{ proposal.text }}</p><div class="grid"><button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Accept</button><button class="secondary control-standard" @click="proposal=null">Discard</button></div></article></details>
 
       <TaskChat :create-tasks-handler="createReviewedTasks" />
 

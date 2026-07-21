@@ -151,7 +151,13 @@ describe("CV workspace boundary", () => {
       repository,
       summaryGenerator: {
         name: "fake-ai",
-        async suggest() { return { text: "A focused product leader." }; },
+        async suggest() {
+          return {
+            text: "A focused product leader.",
+            model: "test-model-v1",
+            createdAt: "2026-07-21T01:00:00.000Z",
+          };
+        },
       },
     });
     const draft = { name: "Product CV", summary: "Existing", selections: [] };
@@ -159,7 +165,12 @@ describe("CV workspace boundary", () => {
     expect(draft.summary).toBe("Existing");
     expect(workspace.acceptSummary(draft, proposal)).toMatchObject({
       summary: "A focused product leader.",
-      summaryProvenance: { type: "ai", provider: "fake-ai" },
+      summaryProvenance: {
+        type: "ai",
+        provider: "fake-ai",
+        model: "test-model-v1",
+        createdAt: "2026-07-21T01:00:00.000Z",
+      },
     });
   });
 });

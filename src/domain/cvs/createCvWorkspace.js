@@ -60,6 +60,7 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
         provenance: {
           type: "ai",
           provider: proposal.provider || summaryGenerator.name || "unknown",
+          ...(proposal.model ? { model: proposal.model } : {}),
           instruction: text,
           createdAt: proposal.createdAt || new Date().toISOString(),
         },
@@ -75,4 +76,3 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
     },
   };
 }
-

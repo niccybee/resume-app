@@ -683,11 +683,23 @@ describe("Nuxt runtime", async () => {
 
     const resources = await mcp("resources/list");
     expect(resources.result.resources.map((resource) => resource.uri)).toEqual(expect.arrayContaining([
+      "resume-studio://glossary/v1",
+      "resume-studio://schemas/v1",
       "resume-studio://schemas/block-content/v1",
       "resume-studio://schemas/composition/v1",
       "resume-studio://schemas/change-proposal/v1",
+      "resume-studio://schemas/change-proposal-result/v1",
       "resume-studio://adapters",
     ]));
+    const glossary = await mcp("resources/read", { uri: "resume-studio://glossary/v1" });
+    expect(JSON.parse(glossary.result.contents[0].text)).toMatchObject({
+      schemaVersion: "1",
+      data: {
+        CV: { preferred: "CV" },
+        CVBlock: { preferred: "CV Block" },
+        BlockVersion: { immutable: true },
+      },
+    });
     const composition = await mcp("resources/read", {
       uri: "resume-studio://schemas/composition/v1",
     });
@@ -695,6 +707,42 @@ describe("Nuxt runtime", async () => {
       schemaVersion: "1",
       data: { exactBlockVersions: true, maxVersionsPerBlockIdentity: 1 },
     });
+    const proposalResult = await mcp("resources/read", {
+      uri: "resume-studio://schemas/change-proposal-result/v1",
+    });
+    expect(JSON.parse(proposalResult.result.contents[0].text)).toMatchObject({
+      schemaVersion: "1",
+      data: {
+        statuses: { pending: { nextActions: ["apply", "discard"] } },
+        operationResults: {
+          finish_editing_session: {
+            required: expect.arrayContaining(["optimisticVersion", "revisionId", "revisionNumber", "publishedRevisionId"]),
+          },
+        },
+      },
+    });
+
+    const prompts = await mcp("prompts/list");
+    expect(prompts.result.prompts.map((prompt) => prompt.name)).toEqual(expect.arrayContaining([
+      "workshop_role_focused_cv", "revise_cv_block", "copy_for_new_role",
+      "copy_to_new_version", "review_change_proposal", "complete_editing_session",
+    ]));
+    const promptArguments = {
+      workshop_role_focused_cv: { targetRole: "Product Lead" },
+      revise_cv_block: { instruction: "Emphasise stakeholder leadership" },
+      copy_for_new_role: { newRoleName: "Head of Marketing" },
+      copy_to_new_version: {},
+      review_change_proposal: {},
+      complete_editing_session: {},
+    };
+    for (const [name, arguments_] of Object.entries(promptArguments)) {
+      const output = await mcp("prompts/get", { name, arguments: arguments_ });
+      const text = output.result.messages[0].content.text;
+      expect(text).toMatch(/propose_(content_changes|lifecycle_change)/);
+      expect(text).toContain("apply_change_proposal");
+      expect(text).toMatch(/explicit confirmation|explicitly confirms/i);
+      expect(text).not.toMatch(/service.?role|bearer|jwt|api[_ -]?key|secret/i);
+    }
 
     const cvs = await call("list_cvs");
     expect(cvs.result.structuredContent).toMatchObject({

@@ -677,6 +677,7 @@ export function createMemoryCvRepository(initial = [], {
             cvId: finished.cvId, editingSessionId: finished.id,
             optimisticVersion: finished.optimisticVersion,
             revisionId: finished.finishedRevisionId, revisionNumber: revision.number,
+            publishedRevisionId: records.get(finished.cvId)?.publishedRevisionId || null,
           };
         } else if (operation.target.type === "editing_session") {
           const target = session(operation.target.id);

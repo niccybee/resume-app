@@ -154,14 +154,19 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
     });
   }
 
-  async function revisionNumbers(cvId) {
-    const revisions = await repository.listRevisions(cvId);
+  async function revisionNumbers(cvId, revisionIds) {
+    const ids = [...new Set((revisionIds || []).filter(Boolean))];
+    if (ids.length === 0) return new Map();
+    const revisions = await repository.listRevisions(cvId, { ids, limit: ids.length });
     return new Map(revisions.map((revision) => [revision.id, revision.number]));
   }
 
   async function decorateEditingSession(input) {
     const session = normalizeEditingSession(input);
-    const numberById = await revisionNumbers(session.cvId);
+    const numberById = await revisionNumbers(session.cvId, [
+      session.baseRevisionId,
+      session.finishedRevisionId,
+    ]);
     return {
       ...session,
       baseRevisionNumber: numberById.get(session.baseRevisionId) || null,
@@ -172,11 +177,22 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
   }
 
   return {
-    list: () => repository.list(),
+    list: (options) => repository.list(options),
+    get: (id) => repository.get(id),
 
-    async history(id) {
-      const revisions = await repository.listRevisions(id);
+    async history(id, options) {
+      const revisions = await repository.listRevisions(id, options);
       const numberById = new Map(revisions.map((revision) => [revision.id, revision.number]));
+      const missingBaseIds = [...new Set(revisions
+        .map((revision) => revision.baseRevisionId)
+        .filter((baseRevisionId) => baseRevisionId && !numberById.has(baseRevisionId)))];
+      if (missingBaseIds.length) {
+        const bases = await repository.listRevisions(id, {
+          ids: missingBaseIds,
+          limit: missingBaseIds.length,
+        });
+        bases.forEach((revision) => numberById.set(revision.id, revision.number));
+      }
       return revisions.map((revision) => ({
         ...revision,
         baseRevisionNumber: revision.baseRevisionId
@@ -196,11 +212,14 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
       });
     },
 
-    async editingSessions(cvId) {
-      const sessions = await repository.listEditingSessions(cvId);
-      const numberById = await revisionNumbers(cvId);
-      return sessions.map((input) => {
-        const session = normalizeEditingSession(input);
+    async editingSessions(cvId, options) {
+      const sessions = await repository.listEditingSessions(cvId, options);
+      const normalizedSessions = sessions.map(normalizeEditingSession);
+      const numberById = await revisionNumbers(cvId, normalizedSessions.flatMap((session) => [
+        session.baseRevisionId,
+        session.finishedRevisionId,
+      ]));
+      return normalizedSessions.map((session) => {
         return {
           ...session,
           baseRevisionNumber: numberById.get(session.baseRevisionId) || null,

@@ -1,6 +1,7 @@
 import { defineMcpTool } from "@nuxtjs/mcp-toolkit/server";
 import { useEvent } from "nitropack/runtime";
 import { z } from "zod";
+import { runHardenedMcpTool } from "../../utils/mcpToolHardening";
 
 export default defineMcpTool({
   name: "get_connection_identity",
@@ -12,16 +13,21 @@ export default defineMcpTool({
     oauthClientId: z.string(),
   },
   annotations: { readOnlyHint: true },
-  handler: async () => {
-    const event = useEvent();
-    const identity = {
-      userId: event.context.user.id,
-      email: event.context.user.email || null,
-      oauthClientId: event.context.oauthClient.id,
-    };
-    return {
-      structuredContent: identity,
-      content: [{ type: "text", text: JSON.stringify(identity) }],
-    };
-  },
+  handler: async () => runHardenedMcpTool({
+    kind: "read",
+    operation: "get_connection_identity",
+    input: {},
+    run: async () => {
+      const event = useEvent();
+      const identity = {
+        userId: event.context.user.id,
+        email: event.context.user.email || null,
+        oauthClientId: event.context.oauthClient.id,
+      };
+      return {
+        structuredContent: identity,
+        content: [{ type: "text", text: JSON.stringify(identity) }],
+      };
+    },
+  }),
 });

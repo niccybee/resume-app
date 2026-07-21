@@ -2,17 +2,12 @@ import { createError } from "h3";
 import { useEvent } from "nitropack/runtime";
 import { createBlockLibrary } from "../../src/domain/blocks/blockLibrary";
 import { createCvWorkspace } from "../../src/domain/cvs/createCvWorkspace";
-import { readEnvelope } from "../../src/domain/mcp/readContracts";
 import { createSupabaseBlockRepository } from "../../src/infrastructure/blocks/createSupabaseBlockRepository";
 import { createSupabaseCvRepository } from "../../src/infrastructure/cvs/createSupabaseCvRepository";
-
-export function mcpChangeResult(data) {
-  const structuredContent = readEnvelope(data);
-  return {
-    structuredContent,
-    content: [{ type: "text", text: JSON.stringify(structuredContent) }],
-  };
-}
+import {
+  sanitizeMcpErrorContext,
+} from "./mcpResponseSafety";
+import { mcpChangeResult } from "./mcpPayloadSafety";
 
 function statusForCode(code) {
   if (code === "authentication-required") return 401;
@@ -70,8 +65,10 @@ export async function runMcpChange(change) {
     throw createError({
       statusCode: statusForCode(code),
       statusMessage: cause?.message || "The Resume Studio change failed.",
-      data: { code, ...(cause?.context ? { context: cause.context } : {}) },
-      cause,
+      data: {
+        code,
+        ...(cause?.context ? { context: sanitizeMcpErrorContext(cause.context) } : {}),
+      },
     });
   }
 }

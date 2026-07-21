@@ -205,14 +205,16 @@ export function createSupabaseCvRepository({ client, getActor } = {}) {
   }
 
   return {
-    async list() {
+    async list({ limit } = {}) {
       const user = await actor({ optional: true });
       if (!user) return [];
-      const { data, error } = await client
+      let request = client
         .from("cv_documents")
         .select(CV_LINEAGE_COLUMNS)
         .eq("owner_id", user.id)
         .order("updated_at", { ascending: false });
+      if (limit) request = request.limit(limit);
+      const { data, error } = await request;
       mapError(error);
       return (data || []).map((row) => mapDocument(row));
     },
@@ -222,14 +224,17 @@ export function createSupabaseCvRepository({ client, getActor } = {}) {
       return fetchOne("id", id);
     },
 
-    async listRevisions(cvId) {
+    async listRevisions(cvId, { ids, limit } = {}) {
       const user = await actor();
-      const { data, error } = await client
+      let request = client
         .from("cv_revisions")
         .select("id, cv_id, revision_number, base_revision_id, theme_id, profile, summary, summary_provenance, created_at")
         .eq("cv_id", cvId)
         .eq("owner_id", user.id)
         .order("revision_number", { ascending: false });
+      if (ids?.length) request = request.in("id", ids).limit(ids.length);
+      if (limit) request = request.limit(limit);
+      const { data, error } = await request;
       mapError(error);
       return (data || []).map(mapRevision);
     },
@@ -245,14 +250,16 @@ export function createSupabaseCvRepository({ client, getActor } = {}) {
       return data;
     },
 
-    async listEditingSessions(cvId) {
+    async listEditingSessions(cvId, { limit } = {}) {
       const user = await actor();
-      const { data, error } = await client
+      let request = client
         .from("cv_editing_sessions")
         .select("id, cv_id, owner_id, base_revision_id, status, optimistic_version, working_name, working_theme_id, working_profile, working_summary, working_summary_provenance, finished_revision_id, created_at, updated_at, finished_at")
         .eq("cv_id", cvId)
         .eq("owner_id", user.id)
         .order("updated_at", { ascending: false });
+      if (limit) request = request.limit(limit);
+      const { data, error } = await request;
       mapError(error);
       return (data || []).map((row) => mapEditingSession(row));
     },

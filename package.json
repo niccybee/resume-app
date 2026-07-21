@@ -5,11 +5,13 @@
   "packageManager": "bun@1.2.15",
   "scripts": {
     "dev": "nuxt dev --dotenv .env.local",
-    "build": "node scripts/static-cvs.mjs && nuxt build",
+    "build": "bun scripts/static-cvs.mjs && nuxt build",
     "preview": "nuxt preview --dotenv .env.local",
     "pretest": "playwright-core install chromium",
     "test": "vitest run",
     "typecheck": "nuxt typecheck",
+    "verify:database": "bun scripts/verify-mcp-database.mjs",
+    "verify:mcp": "bun scripts/verify-mcp-release.mjs",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {

@@ -618,6 +618,23 @@ describe("CV workspace boundary", () => {
     ]);
   });
 
+  it("resolves ancestry just outside a bounded Revision history page", async () => {
+    const workspace = createCvWorkspace({
+      repository: {
+        async listRevisions(_cvId, options = {}) {
+          if (options.ids?.includes("revision-1")) {
+            return [{ id: "revision-1", cvId: "cv-1", number: 1, baseRevisionId: null }];
+          }
+          return [{ id: "revision-2", cvId: "cv-1", number: 2, baseRevisionId: "revision-1" }];
+        },
+      },
+    });
+
+    await expect(workspace.history("cv-1", { limit: 1 })).resolves.toEqual([
+      expect.objectContaining({ number: 2, baseRevisionNumber: 1 }),
+    ]);
+  });
+
   it("starts multiple durable Editing Sessions from any CV Revision", async () => {
     const repository = createMemoryCvRepository([{
       id: "cv-1",

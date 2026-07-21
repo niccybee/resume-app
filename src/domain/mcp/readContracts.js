@@ -174,7 +174,6 @@ export function changeProposalSchema() {
       "operationType",
       "target",
       "baseOptimisticVersion",
-      "operations",
       "diff",
       "warnings",
       "status",
@@ -182,12 +181,14 @@ export function changeProposalSchema() {
       "expiresAt",
       "nextActions",
     ],
+    serverInternalFields: ["operations"],
     pendingNextActions: nextChangeProposalActions("pending"),
     resultContract: proposalResultContract(),
     rules: [
       "Creating a Change Proposal does not mutate its target.",
       "Apply is a separate explicit operation and revalidates ownership and stale state.",
       "Discard and expiry do not mutate the target.",
+      "Stored normalized operations are server-internal; MCP responses expose structured diff, warnings, and result without raw operations.",
     ],
   };
 }

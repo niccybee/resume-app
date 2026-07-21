@@ -78,6 +78,10 @@ export async function authenticateMcpRequest({
   publishableKey,
   createClient,
   now = () => Math.floor(Date.now() / 1000),
+  allowedUserIds = [],
+  requireAllowList = false,
+  gatewayKey = "",
+  requireGateway = false,
 }) {
   const accessToken = extractBearerToken(authorization);
   if (!accessToken) {
@@ -91,6 +95,13 @@ export async function authenticateMcpRequest({
       { statusCode: 503 },
     );
   }
+  if (requireGateway && (typeof gatewayKey !== "string" || gatewayKey.length < 32)) {
+    throw new McpOAuthError(
+      "mcp-gateway-configuration-missing",
+      "The MCP database gateway is not configured.",
+      { statusCode: 503 },
+    );
+  }
 
   const parsed = claimsSchema.safeParse(decodePayload(accessToken));
   if (!parsed.success || parsed.data.iss !== `${url}/auth/v1` || parsed.data.exp <= now()) {
@@ -100,15 +111,19 @@ export async function authenticateMcpRequest({
     throw new McpOAuthError("oauth-client-required", "The bearer token was not issued to an OAuth client.");
   }
 
-  const supabase = createClient(url, publishableKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  const authClient = createClient(url, publishableKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
     auth: {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,
     },
   });
-  const { data, error } = await supabase.auth.getUser(accessToken);
+  const { data, error } = await authClient.auth.getUser(accessToken);
   if (error || !data?.user || data.user.id !== parsed.data.sub) {
     throw new McpOAuthError(
       "invalid-token",
@@ -116,6 +131,41 @@ export async function authenticateMcpRequest({
       { cause: error || undefined },
     );
   }
+  const allowList = new Set((Array.isArray(allowedUserIds)
+    ? allowedUserIds
+    : String(allowedUserIds).split(","))
+    .map((id) => id.trim())
+    .filter(Boolean));
+  if (requireAllowList && allowList.size === 0) {
+    throw new McpOAuthError(
+      "mcp-allow-list-missing",
+      "MCP access is unavailable until an allow-list is configured.",
+      { statusCode: 503 },
+    );
+  }
+  if (allowList.size > 0 && !allowList.has(data.user.id)) {
+    throw new McpOAuthError(
+      "account-not-allow-listed",
+      "This account is not allowed to use Resume Studio MCP.",
+      { statusCode: 403 },
+    );
+  }
+
+  const supabase = gatewayKey
+    ? createClient(url, publishableKey, {
+        global: {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-Resume-Studio-MCP-Gateway": gatewayKey,
+          },
+        },
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      })
+    : authClient;
 
   return {
     user: data.user,

@@ -140,9 +140,9 @@ export function createBlockLibrary({ repository, generator } = {}) {
       return buildCatalog(blocks);
     },
 
-    async getBlock(blockId) {
+    async getBlock(blockId, options = {}) {
       if (!blockId) throw new BlockLibraryError("block-not-found", "CV Block not found.");
-      const blocks = await repository.browse({ blockId, includeArchived: true });
+      const blocks = await repository.browse({ blockId, includeArchived: true, ...options });
       const block = blocks.find((candidate) => candidate.id === blockId);
       if (!block) throw new BlockLibraryError("block-not-found", "CV Block not found.");
       knownKindsByBlockId.set(block.id, block.kind);

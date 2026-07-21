@@ -101,6 +101,20 @@ export function createSupabaseBlockRepository({
       const actor = await requireActor({ optional: true });
       if (!actor) return [];
 
+      let searchBlockIds;
+      const search = query.search?.trim().toLowerCase();
+      if (search) {
+        const { data, error } = await client.rpc("search_mcp_cv_block_ids", {
+          p_search: search,
+          p_kind: query.kind || null,
+          p_include_archived: Boolean(query.includeArchived),
+          p_limit: query.limit || 50,
+        });
+        throwRepositoryError(error);
+        searchBlockIds = (data || []).map((row) => row.block_id);
+        if (searchBlockIds.length === 0) return [];
+      }
+
       let request = client
         .from("cv_blocks")
         .select(
@@ -137,13 +151,20 @@ export function createSupabaseBlockRepository({
       if (!query.includeArchived) request = request.eq("status", "active");
 
       if (query.blockId) request = request.eq("id", query.blockId);
+      if (searchBlockIds) request = request.in("id", searchBlockIds);
       if (query.kind) request = request.eq("kind", query.kind);
-      const { data, error } = await request.order("updated_at", {
+      request = request.order("updated_at", {
         ascending: false,
       });
+      if (query.limit) request = request.limit(query.limit);
+      if (query.versionHistoryLimit) {
+        request = request
+          .order("version_number", { ascending: false, foreignTable: "versions" })
+          .limit(query.versionHistoryLimit, { foreignTable: "versions" });
+      }
+      const { data, error } = await request;
       throwRepositoryError(error);
 
-      const search = query.search?.trim().toLowerCase();
       return (data || [])
         .map(mapBlock)
         .filter((block) => {

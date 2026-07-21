@@ -9,6 +9,7 @@ export default defineMcpReadTool({
     kind: z.enum(["experience", "skill", "certification", "education", "interest"]).optional(),
     search: z.string().max(200).optional(),
     includeArchived: z.boolean().optional().default(false),
+    limit: z.number().int().min(1).max(100).optional().default(50),
   },
   read: (service, query) => service.listCvBlocks(query),
 });

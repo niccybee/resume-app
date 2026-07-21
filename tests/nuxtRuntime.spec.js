@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -15,6 +15,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const serverOnlySecret = "server-only-t01-test-secret";
+const mcpGatewayKey = "server-only-mcp-gateway-key-for-runtime-tests";
 const browserAuthStorageKey = "sb-t02-test-auth-token";
 const browserSession = JSON.stringify({
   access_token: "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ0MDItYnJvd3Nlci1vd25lciIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImV4cCI6MTk5OTk5OTk5OX0.",
@@ -76,10 +77,16 @@ let mcpActiveProposal = null;
 let mcpLifecycleProposalSequence = 0;
 let mcpContentProposalSequence = 0;
 let mcpContentApplyCount = 0;
+let mcpGrantRevoked = false;
+const mcpAuditEvents = [];
 
 const publicationServer = createServer(async (request, response) => {
   if (request.url === "/auth/v1/user") {
     response.setHeader("Content-Type", "application/json");
+    if (mcpGrantRevoked) {
+      response.writeHead(401).end(JSON.stringify({ message: "OAuth grant revoked" }));
+      return;
+    }
     response.end(JSON.stringify({
       id: "mcp-owner",
       email: "mcp-owner@example.test",
@@ -111,9 +118,15 @@ const publicationServer = createServer(async (request, response) => {
     return;
   }
   const requestUrl = new URL(request.url, "http://resume-studio.test");
+  if (requestUrl.pathname.startsWith("/rest/v1/")
+    && request.headers.authorization === `Bearer ${mcpAccessToken}`
+    && request.headers["x-resume-studio-mcp-gateway"] !== mcpGatewayKey) {
+    response.writeHead(403).end(JSON.stringify({ message: "MCP gateway required" }));
+    return;
+  }
   if (requestUrl.pathname === "/rest/v1/cv_documents") {
     response.setHeader("Content-Type", "application/json");
-    response.end(JSON.stringify([{
+    const rows = requestUrl.searchParams.get("id") === "eq.cv-another-user" ? [] : [{
       id: "cv-mcp",
       owner_id: "mcp-owner",
       name: "Product Manager at Google",
@@ -121,7 +134,8 @@ const publicationServer = createServer(async (request, response) => {
       status: mcpCvStatus,
       published_at: "2026-07-21T00:00:00.000Z",
       published_revision_id: mcpPublishedRevisionId,
-    }]));
+    }];
+    response.end(JSON.stringify(rows));
     return;
   }
   if (requestUrl.pathname === "/rest/v1/cv_revisions") {
@@ -277,7 +291,9 @@ const publicationServer = createServer(async (request, response) => {
       operation_type: operation.type,
       target_type: target.type,
       target_id: target.id,
-      target_cv_id: target.cvId || (target.type === "cv" ? target.id : "cv-mcp"),
+      target_cv_id: target.type === "cv_block"
+        ? null
+        : target.cvId || (target.type === "cv" ? target.id : "cv-mcp"),
       base_optimistic_version: operation.baseOptimisticVersion || null,
       normalized_operations: [operation],
       structured_diff: { lifecycle: { operation: operation.type, target } },
@@ -292,6 +308,23 @@ const publicationServer = createServer(async (request, response) => {
   if (requestUrl.pathname === "/rest/v1/rpc/get_cv_change_proposal") {
     response.setHeader("Content-Type", "application/json");
     response.end(JSON.stringify(mcpActiveProposal));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/enforce_mcp_rate_limit") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ allowed: true, remaining: 999, retryAfterSeconds: 60 }));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/record_mcp_audit_event") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    mcpAuditEvents.push({
+      actorId: "mcp-owner",
+      ...JSON.parse(body),
+      occurredAt: new Date().toISOString(),
+    });
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(`audit-${mcpAuditEvents.length}`));
     return;
   }
   if (requestUrl.pathname === "/rest/v1/rpc/apply_cv_content_change_proposal") {
@@ -312,6 +345,14 @@ const publicationServer = createServer(async (request, response) => {
       };
       mcpEditingSessionRow.optimistic_version += 1;
       mcpContentApplyCount += 1;
+      mcpAuditEvents.push({
+        actorId: "mcp-owner",
+        p_client_id: "chat-client-runtime",
+        p_operation: "apply_change_proposal",
+        p_target_identities: { proposalIds: [mcpContentProposal.id], editingSessionIds: ["session-mcp"] },
+        p_result: "succeeded",
+        occurredAt: new Date().toISOString(),
+      });
       mcpContentProposal = {
         ...mcpContentProposal,
         status: "applied",
@@ -381,6 +422,23 @@ const publicationServer = createServer(async (request, response) => {
       result = { cvId: "cv-mcp", revisionId: mcpPublishedRevisionId, status: mcpCvStatus };
     }
     mcpActiveProposal = { ...mcpActiveProposal, status: "applied", result };
+    const targetIdentities = { proposalIds: [mcpActiveProposal.id] };
+    if (mcpActiveProposal.target_cv_id) targetIdentities.cvIds = [mcpActiveProposal.target_cv_id];
+    const targetIdentityKey = {
+      cv: "cvIds",
+      cv_block: "blockIds",
+      cv_revision: "revisionIds",
+      editing_session: "editingSessionIds",
+    }[mcpActiveProposal.target_type];
+    if (targetIdentityKey) targetIdentities[targetIdentityKey] = [mcpActiveProposal.target_id];
+    mcpAuditEvents.push({
+      actorId: "mcp-owner",
+      p_client_id: "chat-client-runtime",
+      p_operation: "apply_change_proposal",
+      p_target_identities: targetIdentities,
+      p_result: "succeeded",
+      occurredAt: new Date().toISOString(),
+    });
     response.setHeader("Content-Type", "application/json");
     response.end(JSON.stringify(mcpActiveProposal));
     return;
@@ -473,6 +531,9 @@ describe("Nuxt runtime", async () => {
         publicationSupabasePublishableKey: "t06-publication-key",
         mcpSupabaseUrl: publicationServerUrl,
         mcpSupabasePublishableKey: "t16-mcp-publishable-key",
+        mcpAllowedUserIds: "mcp-owner",
+        mcpGatewayKey,
+        mcpAuthenticationRateLimit: 1_000,
         public: {
           supabaseUrl: "https://t02-test.supabase.co",
           supabasePublishableKey: "t02-test-publishable-key",
@@ -535,7 +596,10 @@ describe("Nuxt runtime", async () => {
       files.map((file) => readFile(resolve(publicDir, file)).catch(() => Buffer.from(""))),
     );
 
-    expect(Buffer.concat(publicOutput).includes(serverOnlySecret)).toBe(false);
+    const output = Buffer.concat(publicOutput);
+    for (const sensitive of [serverOnlySecret, mcpGatewayKey, mcpAccessToken, "t02-browser-refresh"]) {
+      expect(output.includes(sensitive)).toBe(false);
+    }
   });
 
   it("serves the authenticated OpenRouter boundary from Nuxt", async () => {
@@ -622,6 +686,81 @@ describe("Nuxt runtime", async () => {
     expect(identity.status, identityBody).toBe(200);
     expect(identityBody).toContain("mcp-owner");
     expect(identityBody).toContain("chat-client-runtime");
+  });
+
+  it("rejects direct OAuth bearer access to the Supabase Data API", async () => {
+    const response = await fetch(`${publicationServerUrl}/rest/v1/cv_documents`, {
+      headers: {
+        authorization: `Bearer ${mcpAccessToken}`,
+        apikey: "t16-mcp-publishable-key",
+      },
+    });
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ message: "MCP gateway required" });
+  });
+
+  it("rejects an oversized MCP envelope before protocol dispatch", async () => {
+    const response = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: "x".repeat(300_001),
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it("stops buffering a chunked MCP envelope at the raw-body ceiling", async () => {
+    const status = await new Promise((resolveStatus, rejectStatus) => {
+      const endpoint = new URL(url("/mcp"));
+      const request = httpRequest(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${mcpAccessToken}`,
+          "content-type": "application/json",
+          "transfer-encoding": "chunked",
+        },
+      }, (response) => {
+        response.resume();
+        response.on("end", () => resolveStatus(response.statusCode));
+      });
+      request.on("error", rejectStatus);
+      request.write(Buffer.alloc(200_000, "x"));
+      request.end(Buffer.alloc(100_001, "x"));
+    });
+    expect(status).toBe(413);
+  });
+
+  it("prevents subsequent MCP access after OAuth grant revocation", async () => {
+    const initialize = () => fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 10,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "Revocation Test Chat", version: "1.0.0" },
+        },
+      }),
+    });
+
+    expect((await initialize()).status).toBe(200);
+    mcpGrantRevoked = true;
+    try {
+      const rejected = await initialize();
+      expect(rejected.status).toBe(401);
+      expect(await rejected.text()).not.toContain(mcpAccessToken);
+    } finally {
+      mcpGrantRevoked = false;
+    }
   });
 
   it("serves read-only CV tools and schema resources through a real MCP client contract", async () => {
@@ -835,6 +974,7 @@ describe("Nuxt runtime", async () => {
       expiresAt: expect.any(String),
       nextActions: ["apply", "discard"],
     });
+    expect(proposed.result.structuredContent.data).not.toHaveProperty("operations");
     expect(mcpCurrentBlockVersion.id).toBe("version-mcp");
     expect(mcpEditingSessionRow.optimistic_version).toBe(2);
 
@@ -998,6 +1138,10 @@ describe("Nuxt runtime", async () => {
       baseVersionId: "version-mcp-2",
     });
     expect(mcpBlockStatus).toBe("archived");
+    expect(mcpAuditEvents.at(-1)?.p_target_identities).toEqual({
+      proposalIds: [expect.any(String)],
+      blockIds: ["block-mcp"],
+    });
     await proposeAndApplyLifecycle({
       type: "restore_cv_block", target: { type: "cv_block", id: "block-mcp" },
       baseVersionId: "version-mcp-2",
@@ -1031,6 +1175,49 @@ describe("Nuxt runtime", async () => {
       type: "withdraw_publication", target: { type: "cv", id: "cv-mcp" },
     });
     expect(mcpCvStatus).toBe("draft");
+
+    const connectExternalChatClient = async (name) => {
+      const transport = new StreamableHTTPClientTransport(new URL(url("/mcp")), {
+        requestInit: { headers: { authorization: `Bearer ${mcpAccessToken}` } },
+      });
+      const externalClient = new Client({ name, version: "1.0.0" });
+      await externalClient.connect(transport);
+      return externalClient;
+    };
+    const externalClient = await connectExternalChatClient("External Chat Release Verification");
+    const externalRead = await externalClient.callTool({ name: "list_cvs", arguments: { limit: 10 } });
+    expect(externalRead.structuredContent.data[0]).toMatchObject({ id: "cv-mcp", status: "draft" });
+    const externalProposal = await externalClient.callTool({
+      name: "propose_lifecycle_change",
+      arguments: { operation: { type: "archive_cv", target: { type: "cv", id: "cv-mcp" } } },
+    });
+    expect(externalProposal.structuredContent.data).toMatchObject({ status: "pending" });
+    await externalClient.callTool({
+      name: "apply_change_proposal",
+      arguments: { proposalId: externalProposal.structuredContent.data.id },
+    });
+    await externalClient.close();
+
+    const reconnectedClient = await connectExternalChatClient("External Chat Release Verification Reconnect");
+    try {
+      const persisted = await reconnectedClient.callTool({ name: "list_cvs", arguments: { limit: 10 } });
+      expect(persisted.structuredContent.data[0]).toMatchObject({ id: "cv-mcp", status: "archived" });
+    } finally {
+      await reconnectedClient.close();
+    }
+
+    expect(mcpAuditEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actorId: "mcp-owner",
+        p_client_id: "chat-client-runtime",
+        p_operation: "apply_change_proposal",
+        p_result: "succeeded",
+        occurredAt: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(mcpAuditEvents)).not.toMatch(
+      /Launched the product|A discarded idea|runtime-signature|normalized_operations|working_summary/i,
+    );
   });
 
   it("returns a signed-out user to the exact OAuth consent request", async () => {

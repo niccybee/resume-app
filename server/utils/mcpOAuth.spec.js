@@ -52,6 +52,7 @@ describe("MCP Supabase OAuth boundary", () => {
       publishableKey: "publishable-key",
       createClient,
       now: () => 1_800_000_000,
+      gatewayKey: "gateway-key-with-at-least-32-characters",
     });
 
     expect(context).toEqual({
@@ -61,7 +62,8 @@ describe("MCP Supabase OAuth boundary", () => {
       supabase,
     });
     expect(supabase.auth.getUser).toHaveBeenCalledWith(accessToken);
-    expect(createClient).toHaveBeenCalledWith(
+    expect(createClient).toHaveBeenNthCalledWith(
+      1,
       "https://project.supabase.co",
       "publishable-key",
       expect.objectContaining({
@@ -69,6 +71,34 @@ describe("MCP Supabase OAuth boundary", () => {
         auth: expect.objectContaining({ persistSession: false, autoRefreshToken: false }),
       }),
     );
+    expect(createClient).toHaveBeenNthCalledWith(
+      2,
+      "https://project.supabase.co",
+      "publishable-key",
+      expect.objectContaining({
+        global: { headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "X-Resume-Studio-MCP-Gateway": "gateway-key-with-at-least-32-characters",
+        } },
+      }),
+    );
+  });
+
+  it("fails closed when the production database gateway key is missing", async () => {
+    const accessToken = token({
+      sub: "owner-1", role: "authenticated", aud: "authenticated",
+      iss: "https://project.supabase.co/auth/v1", client_id: "client-1", exp: 1999999999,
+    });
+    await expect(authenticateMcpRequest({
+      authorization: `Bearer ${accessToken}`,
+      supabaseUrl: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+      createClient: vi.fn(),
+      requireGateway: true,
+    })).rejects.toMatchObject({
+      code: "mcp-gateway-configuration-missing",
+      statusCode: 503,
+    });
   });
 
   it.each([
@@ -104,5 +134,62 @@ describe("MCP Supabase OAuth boundary", () => {
       publishableKey: "publishable-key",
       createClient,
     })).rejects.toEqual(expect.any(McpOAuthError));
+  });
+
+  it.each([
+    ["malformed", "malformed-token"],
+    [token({ sub: "owner-1", role: "authenticated", aud: "another-service", iss: "https://project.supabase.co/auth/v1", client_id: "client-1", exp: 1999999999 }), "wrong-audience"],
+    [token({ sub: "owner-1", role: "authenticated", aud: "authenticated", iss: "https://project.supabase.co/auth/v1", client_id: "client-1", exp: 1700000000 }), "expired-token"],
+  ])("fails safely for %s", async (accessToken) => {
+    const createClient = vi.fn().mockReturnValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-1" } }, error: null }) },
+    });
+    await expect(authenticateMcpRequest({
+      authorization: `Bearer ${accessToken}`,
+      supabaseUrl: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+      createClient,
+      now: () => 1_800_000_000,
+      allowedUserIds: ["owner-1"],
+    })).rejects.toMatchObject({ code: "invalid-token", statusCode: 401 });
+  });
+
+  it("fails closed for users outside the configured MCP allow-list", async () => {
+    const accessToken = token({
+      sub: "owner-2", role: "authenticated", aud: "authenticated",
+      iss: "https://project.supabase.co/auth/v1", client_id: "client-1", exp: 1999999999,
+    });
+    const createClient = vi.fn().mockReturnValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-2" } }, error: null }) },
+    });
+
+    await expect(authenticateMcpRequest({
+      authorization: `Bearer ${accessToken}`,
+      supabaseUrl: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+      createClient,
+      allowedUserIds: ["owner-1"],
+    })).rejects.toMatchObject({ code: "account-not-allow-listed", statusCode: 403 });
+  });
+
+  it("rejects the same OAuth token after grant revocation", async () => {
+    const accessToken = token({
+      sub: "owner-1", role: "authenticated", aud: "authenticated",
+      iss: "https://project.supabase.co/auth/v1", client_id: "client-1", exp: 1999999999,
+    });
+    const getUser = vi.fn()
+      .mockResolvedValueOnce({ data: { user: { id: "owner-1" } }, error: null })
+      .mockResolvedValueOnce({ data: { user: null }, error: new Error("grant revoked") });
+    const createClient = vi.fn().mockReturnValue({ auth: { getUser } });
+    const input = {
+      authorization: `Bearer ${accessToken}`,
+      supabaseUrl: "https://project.supabase.co",
+      publishableKey: "publishable-key",
+      createClient,
+      allowedUserIds: ["owner-1"],
+    };
+
+    await expect(authenticateMcpRequest(input)).resolves.toMatchObject({ user: { id: "owner-1" } });
+    await expect(authenticateMcpRequest(input)).rejects.toMatchObject({ code: "invalid-token" });
   });
 });

@@ -27,6 +27,8 @@ boundaries. Apply `database/cv_revision_publication.sql` to replace legacy
 publication writes with reviewed exact-Revision publish, rollback, and
 withdrawal proposals. Apply `database/cv_revision_export.sql` to expose the
 owner-scoped immutable Revision snapshot used by composition adapters. Apply
+`database/cv_mcp_release_hardening.sql` after the MCP proposal migrations to add
+the identity-only MCP audit recorder. Apply
 `database/cv_legacy_contraction.sql` after migrated Revisions, Editing Sessions,
 and Change Proposals have been verified; it creates new CVs directly with an
 initial Editing Session and removes authenticated access to the legacy mutable
@@ -113,6 +115,19 @@ client. The server validates it with Supabase Auth, requires its OAuth `client_i
 then builds the database client with that same bearer token. MCP tools therefore
 run as the user under existing RLS policies; no privileged database credential is
 used for MCP access. OAuth scopes describe the connection but do not replace RLS.
+`NUXT_MCP_ALLOWED_USER_IDS` is a required server-only comma-separated allow-list;
+an empty list fails closed. `NUXT_MCP_GATEWAY_KEY` is a separate random
+server-only value of at least 32 characters. Store only its SHA-256 digest in
+`cv_mcp_gateway_config`; the database pre-request guard rejects OAuth JWTs that
+try to call the Supabase Data API without the gateway header, while ordinary
+browser sessions remain governed by their existing RLS policies. Authentication,
+read, and mutation requests have
+separate fixed-window limits. Netlify applies a shared pre-authentication limit
+of 120 requests per minute per IP and domain, while Supabase atomically enforces
+120 reads and 60 mutations per authenticated actor and OAuth client per minute.
+Enumerable reads accept at most 100 results per call. Change these conservative
+production policies in the reviewed Edge Function and database migration, not
+through caller-controlled request parameters.
 
 Authenticated MCP clients can discover read-only tools for CV lineages, CV
 Revisions, Editing Sessions and Working Compositions, CV Blocks and Block
@@ -138,6 +153,19 @@ The MCP resource catalog publishes versioned product contracts at
 `resume-studio://schemas/change-proposal/v1`, and
 `resume-studio://adapters`. These resources describe validation and workflow
 rules only; they never contain account or CV data.
+
+MCP tool calls write identity-only audit events containing the server-derived
+actor, OAuth client, operation, bounded target identities, result, optional error
+code, and time. The MCP role cannot read the audit table. Change responses omit
+stored normalized operations while retaining the structured diff required for
+review. See `docs/mcp-release-verification.md` for the automated and live
+external-client release gate.
+
+The Data API guard uses Supabase's documented
+[PostgREST pre-request function](https://supabase.com/docs/guides/api/securing-your-api?pre-request=use-additional-api-key&queryGroups=pre-request).
+Successful proposal mutations write their audit row from a database trigger in
+the same transaction; failed attempts and read outcomes are recorded by the MCP
+transport.
 
 Published CV snapshots are generated before the Nuxt build and packaged as
 server assets. Nuxt verifies the slug through the curated public Supabase contract

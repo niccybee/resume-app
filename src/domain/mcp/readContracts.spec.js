@@ -34,7 +34,9 @@ describe("MCP read contracts", () => {
       contentOperations: ["append_block_version", "replace_working_state"],
       statuses: ["pending", "applied", "discarded", "expired", "invalidated"],
       resultContract: { schemaVersion: "1" },
+      serverInternalFields: ["operations"],
     });
+    expect(changeProposalSchema().required).not.toContain("operations");
     expect(domainGlossary()).toMatchObject({
       CV: expect.objectContaining({ preferred: "CV", definition: expect.stringContaining("lineage") }),
       CVRevision: expect.objectContaining({ preferred: "CV Revision", immutable: true }),

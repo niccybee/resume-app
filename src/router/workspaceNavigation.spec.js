@@ -16,6 +16,13 @@ vi.mock("../services/cvWorkspace", () => ({
 vi.mock("../services/blockLibrary", () => ({
   blockLibrary: { browse: vi.fn().mockResolvedValue({ blocks: [], experience: [], sidebar: {} }) },
 }));
+vi.mock("../services/openRouter", () => ({
+  openRouter: {
+    getStatus: vi.fn().mockResolvedValue({ configured: false, model: "openrouter/auto", updatedAt: null }),
+    saveKey: vi.fn(),
+    removeKey: vi.fn(),
+  },
+}));
 vi.mock("../supabase", () => ({
   isSupabaseConfigured: true,
   supabase: {
@@ -67,6 +74,17 @@ it("navigates between saved CVs, blocks, and the builder", async () => {
   await flushPromises();
   expect(router.currentRoute.value.path).toBe("/app/cvs/new");
   expect(wrapper.get("h1").text()).toBe("New CV");
+});
+
+it("opens authenticated AI settings from the workspace navigation", async () => {
+  const { router, wrapper } = await mountWorkspace("/app/cvs");
+
+  await wrapper.get('[data-nav="settings"]').trigger("click");
+  await flushPromises();
+
+  expect(router.currentRoute.value.path).toBe("/app/settings/ai");
+  expect(wrapper.get("h1").text()).toBe("AI settings");
+  expect(wrapper.text()).toContain("OpenRouter is not connected");
 });
 
 it.each([

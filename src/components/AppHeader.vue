@@ -20,6 +20,7 @@ async function signOut() { await auth.signOut(); router.push("/login"); }
         <li><RouterLink data-nav="cvs" to="/app/cvs">Saved CVs</RouterLink></li>
         <li><RouterLink data-nav="blocks" to="/app/blocks">Blocks</RouterLink></li>
         <li><RouterLink data-nav="builder" to="/app/builder">Builder</RouterLink></li>
+        <li><RouterLink data-nav="settings" to="/app/settings/ai">AI settings</RouterLink></li>
         <li><button class="outline sign-out control-compact" @click="signOut">Sign out</button></li>
       </ul>
     </nav>

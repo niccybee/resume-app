@@ -10,6 +10,7 @@ import Login from "../views/Login.vue";
 import BlockLibraryView from "../views/BlockLibraryView.vue";
 import CvDraftEditor from "../views/CvDraftEditor.vue";
 import CvPreview from "../views/CvPreview.vue";
+import OpenRouterSettings from "../views/OpenRouterSettings.vue";
 import { supabase } from "../supabase";
 
 export const routes = [
@@ -79,6 +80,15 @@ export const routes = [
         name: "Workspace CV Editor",
         component: CvDraftEditor,
         meta: { title: "CV editor", description: "Edit content, theme, preview, and publication" },
+      },
+      {
+        path: "settings/ai",
+        name: "Workspace AI Settings",
+        component: OpenRouterSettings,
+        meta: {
+          title: "AI settings",
+          description: "Connect OpenRouter without exposing provider secrets to the browser",
+        },
       },
       {
         path: ":pathMatch(.*)*",

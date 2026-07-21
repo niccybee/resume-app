@@ -37,6 +37,38 @@ const withdrawnCvFixture = resolve(staticCvStage, "cv/t06-withdrawn");
 const failedCvFixture = resolve(staticCvStage, "cv/t06-verification-fails");
 
 const publicationServer = createServer(async (request, response) => {
+  if (request.url === "/auth/v1/user") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      id: "mcp-owner",
+      email: "mcp-owner@example.test",
+      aud: "authenticated",
+      role: "authenticated",
+    }));
+    return;
+  }
+  if (request.url === "/.well-known/oauth-authorization-server/auth/v1") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      issuer: `${publicationServerUrl}/auth/v1`,
+      authorization_endpoint: `${publicationServerUrl}/auth/v1/oauth/authorize`,
+      token_endpoint: `${publicationServerUrl}/auth/v1/oauth/token`,
+      registration_endpoint: `${publicationServerUrl}/auth/v1/oauth/clients/register`,
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      code_challenge_methods_supported: ["S256"],
+    }));
+    return;
+  }
+  if (request.url === "/auth/v1/.well-known/openid-configuration") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      issuer: `${publicationServerUrl}/auth/v1`,
+      authorization_endpoint: `${publicationServerUrl}/auth/v1/oauth/authorize`,
+      token_endpoint: `${publicationServerUrl}/auth/v1/oauth/token`,
+      jwks_uri: `${publicationServerUrl}/auth/v1/.well-known/jwks.json`,
+    }));
+    return;
+  }
   if (request.url !== "/rest/v1/rpc/get_published_cv") {
     response.writeHead(404).end();
     return;
@@ -68,6 +100,15 @@ const stopPublicationCheckServer = () => new Promise((resolveClose, rejectClose)
 await startPublicationCheckServer();
 const publicationAddress = publicationServer.address();
 const publicationServerUrl = `http://127.0.0.1:${publicationAddress.port}`;
+const encodeJwtPart = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+const mcpAccessToken = `${encodeJwtPart({ alg: "RS256", typ: "JWT" })}.${encodeJwtPart({
+  sub: "mcp-owner",
+  role: "authenticated",
+  aud: "authenticated",
+  iss: `${publicationServerUrl}/auth/v1`,
+  client_id: "chat-client-runtime",
+  exp: 1999999999,
+})}.runtime-signature`;
 await stopPublicationCheckServer();
 
 await Promise.all([
@@ -107,6 +148,8 @@ describe("Nuxt runtime", async () => {
         supabaseServiceRoleKey: serverOnlySecret,
         publicationSupabaseUrl: publicationServerUrl,
         publicationSupabasePublishableKey: "t06-publication-key",
+        mcpSupabaseUrl: publicationServerUrl,
+        mcpSupabasePublishableKey: "t16-mcp-publishable-key",
         public: {
           supabaseUrl: "https://t02-test.supabase.co",
           supabasePublishableKey: "t02-test-publishable-key",
@@ -184,6 +227,137 @@ describe("Nuxt runtime", async () => {
       },
     });
   });
+
+  it("publishes OAuth discovery and protects the MCP transport", async () => {
+    const [protectedResource, authorizationServer, openId] = await Promise.all([
+      $fetch("/.well-known/oauth-protected-resource/mcp"),
+      $fetch("/.well-known/oauth-authorization-server"),
+      $fetch("/.well-known/openid-configuration"),
+    ]);
+
+    expect(protectedResource).toMatchObject({
+      resource: `${url("/").replace(/\/$/, "")}/mcp`,
+      authorization_servers: [`${publicationServerUrl}/auth/v1`],
+    });
+    expect(authorizationServer).toMatchObject({
+      registration_endpoint: `${publicationServerUrl}/auth/v1/oauth/clients/register`,
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      code_challenge_methods_supported: ["S256"],
+    });
+    expect(openId.issuer).toBe(`${publicationServerUrl}/auth/v1`);
+
+    const rejected = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    expect(rejected.status).toBe(401);
+    expect(rejected.headers.get("www-authenticate")).toContain(
+      '/.well-known/oauth-protected-resource/mcp',
+    );
+
+    const accepted = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "Runtime Chat", version: "1.0.0" },
+        },
+      }),
+    });
+    const acceptedBody = await accepted.text();
+    expect(accepted.status, acceptedBody).toBe(200);
+    expect(acceptedBody).toContain("Resume Studio");
+
+    const identity = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "get_connection_identity", arguments: {} },
+      }),
+    });
+    const identityBody = await identity.text();
+    expect(identity.status, identityBody).toBe(200);
+    expect(identityBody).toContain("mcp-owner");
+    expect(identityBody).toContain("chat-client-runtime");
+  });
+
+  it("returns a signed-out user to the exact OAuth consent request", async () => {
+    const context = await (await getBrowser()).newContext();
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/oauth/consent?authorization_id=authorization-1"));
+      await page.waitForURL("**/login?redirect=**");
+      expect(new URL(page.url()).searchParams.get("redirect")).toBe(
+        "/oauth/consent?authorization_id=authorization-1",
+      );
+    } finally {
+      await context.close();
+    }
+  }, 20_000);
+
+  it("shows client details and submits explicit OAuth consent", async () => {
+    const context = await (await getBrowser()).newContext();
+    await context.addInitScript(
+      ({ key, session }) => localStorage.setItem(key, session),
+      { key: browserAuthStorageKey, session: browserSession },
+    );
+    await context.route("**/auth/v1/oauth/authorizations/authorization-1", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        authorization_id: "authorization-1",
+        redirect_uri: "https://chat.example/callback",
+        client: {
+          id: "chat-client-runtime",
+          name: "Runtime Chat Client",
+          uri: "https://chat.example",
+          logo_uri: "",
+        },
+        user: { id: "t02-browser-owner", email: "owner@example.test" },
+        scope: "openid email profile",
+      }),
+    }));
+    await context.route("**/auth/v1/oauth/authorizations/authorization-1/consent", async (route) => {
+      expect(route.request().postDataJSON()).toEqual({ action: "approve" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ redirect_url: url("/runtime?approved=1") }),
+      });
+    });
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/oauth/consent?authorization_id=authorization-1"));
+      await page.getByRole("heading", { name: "Runtime Chat Client" }).waitFor();
+      expect(await page.getByText("openid, email, profile").isVisible()).toBe(true);
+      await page.getByRole("button", { name: "Approve" }).click();
+      await page.waitForURL("**/runtime?approved=1");
+    } finally {
+      await context.close();
+    }
+  }, 20_000);
 
   it("redirects a signed-out browser without rendering the protected shell", async () => {
     const context = await (await getBrowser()).newContext();

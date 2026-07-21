@@ -1,3 +1,5 @@
+import { isOAuthAuthorizationId } from "./oauthAuthorizationId";
+
 const defaultWorkspaceDestination = "/app/cvs";
 
 export function loginDestination(value) {
@@ -11,7 +13,15 @@ export function loginDestination(value) {
   const isWorkspacePath =
     destination.origin === "https://resume.studio" &&
     (destination.pathname === "/app" || destination.pathname.startsWith("/app/"));
-  if (!isWorkspacePath) {
+  const oauthParameters = [...destination.searchParams.keys()];
+  const isOAuthConsentRequest =
+    destination.origin === "https://resume.studio" &&
+    destination.pathname === "/oauth/consent" &&
+    destination.hash === "" &&
+    oauthParameters.length === 1 &&
+    oauthParameters[0] === "authorization_id" &&
+    isOAuthAuthorizationId(destination.searchParams.get("authorization_id"));
+  if (!isWorkspacePath && !isOAuthConsentRequest) {
     return defaultWorkspaceDestination;
   }
   return `${destination.pathname}${destination.search}${destination.hash}`;

@@ -11,7 +11,10 @@ const publicSupabasePublishableKey =
 
 export default defineNuxtConfig({
   compatibilityDate: "2026-07-21",
-  modules: ["@pinia/nuxt"],
+  experimental: {
+    asyncContext: true,
+  },
+  modules: ["@pinia/nuxt", "@nuxtjs/mcp-toolkit"],
   css: [
     fileURLToPath(
       new URL("./src/styles/design-system.css", import.meta.url),
@@ -25,6 +28,12 @@ export default defineNuxtConfig({
     publicationSupabasePublishableKey:
       process.env.SUPABASE_PUBLISHABLE_KEY ||
       publicSupabasePublishableKey,
+    mcpSupabaseUrl:
+      process.env.SUPABASE_URL ||
+      publicSupabaseUrl,
+    mcpSupabasePublishableKey:
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      publicSupabasePublishableKey,
     public: {
       supabaseUrl: publicSupabaseUrl,
       supabasePublishableKey: publicSupabasePublishableKey,
@@ -33,6 +42,15 @@ export default defineNuxtConfig({
   routeRules: {
     "/app/**": { ssr: false },
     "/login": { ssr: false },
+    "/oauth/**": { ssr: false },
+  },
+  mcp: {
+    name: "Resume Studio",
+    version: "1.0.0",
+    route: "/mcp",
+    browserRedirect: "/",
+    description: "Manage the signed-in user's Resume Studio CVs through MCP.",
+    instructions: "Read current CV state before proposing changes. Mutating tools require explicit apply confirmation.",
   },
   nitro: {
     // Keep the server dependency graph in one module format. Externalizing it

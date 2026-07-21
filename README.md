@@ -90,6 +90,29 @@ The owner workspace uses Supabase passwordless email magic links with account cr
 
 Shared CVs use an **unlisted public** model: a visitor who knows `/cv/:slug` can read a CV only while its lineage is marked `published`. Unpublishing immediately withdraws anonymous access without deleting the draft. Existing public slugs are pinned to an explicit immutable CV Revision; public queries expose only that Revision's exact CV Composition and Block Versions.
 
+### MCP OAuth
+
+The Nuxt 4 server exposes Resume Studio's MCP transport at `/mcp`. Supabase Auth
+is the OAuth 2.1 authorization server: it owns authorization-code + PKCE, refresh
+tokens, and dynamic client registration. Resume Studio supplies the consent UI at
+`/oauth/consent` and proxies Supabase's authorization-server and OpenID discovery
+metadata from its own well-known routes. The protected-resource document is
+available at `/.well-known/oauth-protected-resource` and the `/mcp`-specific form.
+
+Before deploying, enable the OAuth server and dynamic client registration in the
+Supabase dashboard, set the authorization path to `/oauth/consent`, and configure
+the production Site URL and allowed redirect URLs. Disable new-user signups so
+the project's account list remains the authorization allow-list. Use asymmetric JWT signing so
+clients can consume OpenID discovery. Account creation remains disabled in the
+application's magic-link flow, so consent is available only to existing
+allow-listed accounts.
+
+Every MCP request must carry the Supabase user access token issued to the OAuth
+client. The server validates it with Supabase Auth, requires its OAuth `client_id`,
+then builds the database client with that same bearer token. MCP tools therefore
+run as the user under existing RLS policies; no privileged database credential is
+used for MCP access. OAuth scopes describe the connection but do not replace RLS.
+
 Published CV snapshots are generated before the Nuxt build and packaged as
 server assets. Nuxt verifies the slug through the curated public Supabase contract
 on every request before returning the snapshot, so withdrawal and verification

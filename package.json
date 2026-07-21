@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@nuxt/test-utils": "^4.0.3",
+    "@nuxtjs/mcp-toolkit": "^0.18.0",
     "@types/node": "^26.1.1",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.4.6",
@@ -29,6 +30,7 @@
     "playwright-core": "^1.61.1",
     "typescript": "^5.9.0",
     "vitest": "^4.0.2",
-    "vue-tsc": "^3.3.7"
+    "vue-tsc": "^3.3.7",
+    "zod": "^4.4.3"
   }
 }

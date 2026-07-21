@@ -122,7 +122,7 @@ export function createSupabaseCvRepository({ client }) {
         })),
       });
       mapError(error);
-      return fetchOne("id", id);
+      return normalizeDraft({ ...draft, id });
     },
 
     async publish(id, slug) {

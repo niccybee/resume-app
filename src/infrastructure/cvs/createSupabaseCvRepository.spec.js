@@ -196,6 +196,7 @@ describe("Supabase CV repository authenticated save boundary", () => {
     });
     expect(documentQuery.update).toBeUndefined();
     expect(compositionQuery.delete).toBeUndefined();
+    expect(from).not.toHaveBeenCalled();
     expect(saved.selections[0]).toMatchObject({
       versionId: "version-1",
       group: { occasionId: "e2-product-2024" },

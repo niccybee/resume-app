@@ -20,6 +20,15 @@ function itemValue(item) {
   return item.content?.text || item.content?.name || item.content?.institution || "";
 }
 
+function safeWebUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function groupExperience(selections) {
   const employers = new Map();
   for (const item of selections.filter((selection) => selection.section === "experience")) {
@@ -48,10 +57,11 @@ export function renderStaticCv(document) {
   const sections = Object.groupBy(selections, (item) => item.section);
   const experience = groupExperience(selections);
   const title = `${basics.name || document.name} — CV`;
+  const safeUrl = safeWebUrl(basics.url);
   const contacts = [
     basics.email ? `<a href="mailto:${escapeHtml(basics.email)}">${escapeHtml(basics.email)}</a>` : "",
     basics.phone ? `<a href="tel:${escapeHtml(basics.phone)}">${escapeHtml(basics.phone)}</a>` : "",
-    basics.url ? `<a href="${escapeHtml(basics.url)}">${escapeHtml(basics.url)}</a>` : "",
+    safeUrl ? `<a href="${escapeHtml(safeUrl)}">${escapeHtml(basics.url)}</a>` : "",
   ].filter(Boolean).join("");
   const experienceHtml = experience.length ? `
     <section><h2>Experience</h2>${experience.map((employer) => `

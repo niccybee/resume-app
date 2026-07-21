@@ -25,6 +25,7 @@ describe("published CV static generation", () => {
           name: "Nic & Co",
           label: "Product Lead",
           email: "nic@example.com",
+          url: "javascript:alert('static-xss')",
         },
       },
       summary: "Builds <trusted> products.",
@@ -64,6 +65,7 @@ describe("published CV static generation", () => {
     expect(html).toContain("Nic &amp; Co");
     expect(html).toContain("Builds &lt;trusted&gt; products.");
     expect(html).toContain("Shipped &amp; scaled the platform.");
+    expect(html).not.toContain("javascript:");
     expect(html).not.toContain("server-only-key");
   });
 

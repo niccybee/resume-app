@@ -1,4 +1,4 @@
-import { createPublicationGate } from "../../utils/cvPublicationGate";
+import { createPublicationGate, staticArtifactMatchesRevision } from "../../utils/cvPublicationGate";
 
 function protectResponse(event) {
   setHeader(event, "Cache-Control", "no-store");
@@ -29,6 +29,9 @@ export default defineEventHandler(async (event) => {
   const html = await useStorage("assets:static-cvs").getItem(`${slug}/index.html`);
   if (typeof html !== "string") {
     return respondWithText(event, "CV is not published.", 404);
+  }
+  if (!staticArtifactMatchesRevision(html, publication.revisionId)) {
+    return respondWithText(event, "CV publication is being refreshed.", 503);
   }
 
   setHeader(event, "Content-Type", "text/html; charset=utf-8");

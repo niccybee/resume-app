@@ -22,7 +22,9 @@ then `database/cv_lifecycle.sql` to add copy and archive/restore proposal
 operations. Apply `database/cv_block_identity_lifecycle.sql` after those
 composition tables exist to add versioned CV Block content validation,
 owner/identity triggers, independent duplication, and archive/restore/delete
-boundaries. Apply
+boundaries. Apply `database/cv_revision_publication.sql` to replace legacy
+publication writes with reviewed exact-Revision publish, rollback, and
+withdrawal proposals. Apply
 `database/cv_public_read.sql`. The Revision migration is transactional and
 idempotent: it rejects duplicate CV Block identities before backfilling immutable
 v1 snapshots and pinning existing public slugs to those snapshots. Finishing an
@@ -42,6 +44,12 @@ first finished Revision is v1. Both copy from an exact CV Revision or current
 Editing Session snapshot without changing the source. CVs and Editing Sessions
 are archived and restored through the same reviewed Change Proposal boundary;
 their compositions remain retained, and CV archival never cascades to CV Blocks.
+
+Publication always targets an exact immutable CV Revision through a reviewed
+Change Proposal. Applying another Revision repoints the existing stable slug;
+selecting an older Revision is an explicit rollback. Withdrawal immediately
+deactivates access while retaining the CV, slug, pin, and Revision history.
+Finishing an Editing Session never changes the published Revision.
 
 CV Block content is stored with schema version `1` and validated by the same
 kind registry in the application and database for experience, skill,

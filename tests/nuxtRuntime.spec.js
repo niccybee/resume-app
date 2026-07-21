@@ -52,7 +52,7 @@ const publicationServer = createServer(async (request, response) => {
 
   response.setHeader("Content-Type", "application/json");
   response.end(JSON.stringify(slug === "t01-static-smoke"
-    ? { slug, status: "published" }
+    ? { slug, status: "published", revisionId: "revision-runtime" }
     : null));
 });
 const startPublicationCheckServer = (port = 0) => new Promise((resolveListen) => {
@@ -78,7 +78,7 @@ await Promise.all([
 await Promise.all([
   writeFile(
     resolve(staticCvFixture, "index.html"),
-    '<meta name="robots" content="noindex, nofollow, noarchive"><p data-static-cv-runtime="true">Static CV from Nuxt output</p>',
+    '<meta name="robots" content="noindex, nofollow, noarchive"><meta name="cv-revision" content="revision-runtime"><p data-static-cv-runtime="true">Static CV from Nuxt output</p>',
   ),
   writeFile(resolve(withdrawnCvFixture, "index.html"), "stale withdrawn CV"),
   writeFile(resolve(failedCvFixture, "index.html"), "unverified CV"),

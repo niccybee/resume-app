@@ -77,7 +77,7 @@ export function renderStaticCv(document) {
 
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex, nofollow, noarchive"><meta name="description" content="${escapeHtml(document.summary || basics.summary || title)}">
+<meta name="robots" content="noindex, nofollow, noarchive"><meta name="cv-revision" content="${escapeHtml(document.revisionId)}"><meta name="description" content="${escapeHtml(document.summary || basics.summary || title)}">
 <title>${escapeHtml(title)}</title><link rel="icon" href="/favicon.ico"><style>
 :root{color-scheme:light;font-family:Arial,sans-serif;color:#19221f;background:#f3ecdf}*{box-sizing:border-box}body{margin:0;padding:2rem}a{color:inherit}.actions{max-width:210mm;margin:0 auto 1rem;text-align:right}.cv{max-width:210mm;min-height:280mm;margin:auto;padding:18mm;background:#fff;border:1px solid #d9dedb;box-shadow:0 18px 50px #16201c1a}.hero{display:flex;justify-content:space-between;gap:2rem;padding-bottom:1.5rem;border-bottom:3px solid #345c4b}.hero h1{margin:0;font-size:clamp(2.4rem,7vw,4.8rem);line-height:.9}.eyebrow,h2{color:#345c4b;text-transform:uppercase;letter-spacing:.1em;font-size:.75rem}.role-label{font-size:1.15rem}.contacts{display:grid;align-content:end;text-align:right;font-size:.8rem}.grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(12rem,.8fr);gap:2.4rem;margin-top:2rem}.employer{padding-bottom:1rem;border-bottom:1px solid #dde2df}.role>div{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}.role h4,.role p{margin:.4rem 0;font-size:.85rem}.cv li,.cv main>section>p{font-size:.86rem;line-height:1.6}@media(max-width:700px){body{padding:0}.cv{min-height:0;padding:1.5rem}.hero,.grid{display:grid;grid-template-columns:1fr}.contacts{text-align:left}}@media print{body{padding:0;background:#fff}.actions{display:none}.cv{min-height:0;max-width:none;margin:0;padding:10mm;border:0;box-shadow:none}.employer,.role,li{break-inside:avoid}}
 </style></head><body><nav class="actions"><button onclick="window.print()">Print / save PDF</button></nav><article class="cv">
@@ -126,7 +126,7 @@ export async function generateStaticCvs({
       name: "get_published_cv",
       body: { p_slug: slug },
     });
-    if (!document || document.status !== "published") continue;
+    if (!document || document.status !== "published" || !document.revisionId) continue;
     const page = join(cvRoot, slug, "index.html");
     await mkdir(dirname(page), { recursive: true });
     await writeFile(page, renderStaticCv(document), "utf8");

@@ -470,6 +470,50 @@ describe("CV summary proposals", () => {
     expect(button(wrapper, "Restore CV")).toBeDefined();
   });
 
+  it("reviews an exact Revision publication and explicit rollback before apply", async () => {
+    cvWorkspace.open.mockResolvedValue({
+      id: "cv-1", name: "Product CV", status: "published", slug: "product-cv",
+      publishedRevisionId: "revision-2", profile: { basics: {} }, selections: [],
+    });
+    cvWorkspace.history.mockResolvedValue([
+      { id: "revision-2", cvId: "cv-1", number: 2 },
+      { id: "revision-1", cvId: "cv-1", number: 1 },
+    ]);
+    cvWorkspace.proposeLifecycleChange.mockResolvedValue({
+      id: "proposal-publish", operationType: "publish_revision", status: "pending",
+      target: { type: "cv_revision", id: "revision-1", cvId: "cv-1" },
+      diff: { publication: { beforeRevisionId: "revision-2", afterRevisionId: "revision-1" } },
+      warnings: ["This rolls back the public CV to Revision 1."], expiresAt: "later",
+    });
+    const wrapper = await mountEditor();
+
+    await button(wrapper, "Roll back to Revision 1").trigger("click");
+    await flushPromises();
+
+    expect(cvWorkspace.proposeLifecycleChange).toHaveBeenCalledWith({ operation: {
+      type: "publish_revision",
+      target: { type: "cv_revision", id: "revision-1", cvId: "cv-1" },
+      slug: "product-cv",
+    } });
+    expect(cvWorkspace.applyChangeProposal).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("rolls back the public CV");
+  });
+
+  it("allows the retained Revision pin to be republished after withdrawal", async () => {
+    cvWorkspace.open.mockResolvedValue({
+      id: "cv-1", name: "Product CV", status: "draft", slug: "product-cv",
+      publishedRevisionId: "revision-2", profile: { basics: {} }, selections: [],
+    });
+    cvWorkspace.history.mockResolvedValue([
+      { id: "revision-2", cvId: "cv-1", number: 2 },
+    ]);
+    const wrapper = await mountEditor();
+
+    const publish = button(wrapper, "Publish Revision 2");
+    expect(publish).toBeDefined();
+    expect(publish.attributes("disabled")).toBeUndefined();
+  });
+
   it("resolves a finish retry after the server already committed the Revision", async () => {
     const openSession = {
       id: "session-1",

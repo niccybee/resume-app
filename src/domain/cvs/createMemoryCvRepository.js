@@ -234,7 +234,40 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       if (input.operationType !== "replace_working_state") {
         const operation = input.operations[0];
         let source;
-        if (operation.type.startsWith("copy_")) {
+        let warnings = [];
+        let diff = { lifecycle: { operation: operation.type, source: copy(input.target) } };
+        if (operation.type === "publish_revision") {
+          source = [...revisions.values()].flat().find((item) => item.id === operation.target.id && item.cvId === operation.target.cvId);
+          if (!source) throw new CvWorkspaceError("not-found", "CV Revision not found.");
+          const document = records.get(source.cvId);
+          if (!document) throw new CvWorkspaceError("not-found", "CV not found.");
+          if (document.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before publishing it.");
+          if (document.slug && document.slug !== operation.slug) {
+            throw new CvWorkspaceError("invalid-slug", "A published CV keeps its stable public slug.");
+          }
+          if ([...records.values()].some((cv) => cv.id !== document.id && cv.slug === operation.slug)) {
+            throw new CvWorkspaceError("slug-conflict", "That public slug is already in use.");
+          }
+          const currentRevision = (revisions.get(document.id) || []).find((item) => item.id === document.publishedRevisionId);
+          if (currentRevision && source.number < currentRevision.number) warnings = [`This rolls back the public CV to Revision ${source.number}.`];
+          diff = { publication: {
+            slug: document.slug || operation.slug,
+            beforeStatus: document.status,
+            beforeRevisionId: document.publishedRevisionId,
+            afterRevisionId: source.id,
+          } };
+        } else if (operation.type === "withdraw_publication") {
+          source = records.get(operation.target.id);
+          if (!source) throw new CvWorkspaceError("not-found", "CV not found.");
+          if (source.status !== "published") throw new CvWorkspaceError("invalid-lifecycle-transition", "CV is not currently published.");
+          diff = { publication: {
+            slug: source.slug,
+            beforeStatus: source.status,
+            beforeRevisionId: source.publishedRevisionId,
+            afterRevisionId: null,
+          } };
+          warnings = ["Withdrawing publication immediately deactivates the public link without deleting its CV Revision."];
+        } else if (operation.type.startsWith("copy_")) {
           if (operation.source.type === "editing_session") {
             source = session(operation.source.id);
             if (source.status !== "open" || source.optimisticVersion !== operation.baseOptimisticVersion) {
@@ -268,10 +301,10 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
           id: `proposal-${++proposalSequence}`,
           ...copy(input),
           target: copy(input.target),
-          diff: { lifecycle: { operation: operation.type, source: copy(input.target) } },
+          diff,
           warnings: operation.type === "archive_cv" && source.status === "published"
             ? ["Archiving this CV withdraws its active publication without changing shared CV Blocks."]
-            : [],
+            : warnings,
           createdAt,
           expiresAt: new Date(clock().getTime() + 24 * 60 * 60 * 1000).toISOString(),
           status: "pending",
@@ -350,7 +383,42 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       if (current.operationType !== "replace_working_state") {
         const operation = current.operations[0];
         let result;
-        if (operation.type.startsWith("copy_")) {
+        if (operation.type === "publish_revision") {
+          const revision = [...revisions.values()].flat().find((item) => item.id === operation.target.id && item.cvId === operation.target.cvId);
+          if (!revision) throw new CvWorkspaceError("not-found", "CV Revision not found.");
+          const document = records.get(revision.cvId);
+          if (!document) throw new CvWorkspaceError("not-found", "CV not found.");
+          if (
+            document.status !== current.diff.publication.beforeStatus
+            || document.publishedRevisionId !== current.diff.publication.beforeRevisionId
+          ) {
+            const context = { target: copy(document) };
+            changeProposals.set(id, { ...current, status: "invalidated", result: context, nextActions: [] });
+            throw new CvWorkspaceError("stale-proposal", "Publication changed after proposal review.", context);
+          }
+          if (document.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before publishing it.");
+          const stableSlug = document.slug || operation.slug;
+          if (document.slug && document.slug !== operation.slug) throw new CvWorkspaceError("invalid-slug", "A published CV keeps its stable public slug.");
+          if ([...records.values()].some((cv) => cv.id !== document.id && cv.slug === stableSlug)) {
+            throw new CvWorkspaceError("slug-conflict", "That public slug is already in use.");
+          }
+          const saved = {
+            ...document, slug: stableSlug, status: "published", publishedRevisionId: revision.id, publishedAt: nowIso(),
+          };
+          records.set(saved.id, saved);
+          result = { cvId: saved.id, revisionId: revision.id, slug: stableSlug, status: "published" };
+        } else if (operation.type === "withdraw_publication") {
+          const document = records.get(operation.target.id);
+          if (!document) throw new CvWorkspaceError("not-found", "CV not found.");
+          if (document.status !== "published" || document.publishedRevisionId !== current.diff.publication.beforeRevisionId) {
+            const context = { target: copy(document) };
+            changeProposals.set(id, { ...current, status: "invalidated", result: context, nextActions: [] });
+            throw new CvWorkspaceError("stale-proposal", "Publication changed after proposal review.", context);
+          }
+          const saved = { ...document, status: "draft", publishedAt: null };
+          records.set(saved.id, saved);
+          result = { cvId: saved.id, revisionId: saved.publishedRevisionId, slug: saved.slug, status: "draft" };
+        } else if (operation.type.startsWith("copy_")) {
           let source;
           if (operation.source.type === "editing_session") {
             source = session(operation.source.id);
@@ -489,35 +557,27 @@ export function createMemoryCvRepository(initial = [], { clock = () => new Date(
       records.set(id, saved);
       return copy(saved);
     },
-    async publish(id, slug) {
-      const current = records.get(id);
-      if (!current) throw new CvWorkspaceError("not-found", "CV not found.");
-      if (current.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before publishing it.");
-      if ([...records.values()].some((cv) => cv.id !== id && cv.slug === slug)) {
-        throw new CvWorkspaceError("slug-conflict", "That public slug is already in use.");
-      }
-      const saved = {
-        ...current,
-        slug,
-        status: "published",
-        publishedAt: new Date().toISOString(),
-      };
-      records.set(id, saved);
-      return copy(saved);
+    async publish() {
+      throw new CvWorkspaceError("explicit-apply-required", "Select an exact CV Revision and apply its publication Change Proposal.");
     },
-    async unpublish(id) {
-      const current = records.get(id);
-      if (!current) throw new CvWorkspaceError("not-found", "CV not found.");
-      if (current.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before changing publication.");
-      const saved = { ...current, status: "draft", publishedAt: null };
-      records.set(id, saved);
-      return copy(saved);
+    async unpublish() {
+      throw new CvWorkspaceError("explicit-apply-required", "Withdraw publication through a reviewed Change Proposal.");
     },
     async getPublished(slug) {
-      const value = [...records.values()].find(
+      const document = [...records.values()].find(
         (cv) => cv.slug === slug && cv.status === "published",
       );
-      return value ? copy(value) : null;
+      if (!document) return null;
+      const revision = (revisions.get(document.id) || []).find((item) => item.id === document.publishedRevisionId);
+      if (!revision) return null;
+      return copy(normalizeDraft({
+        ...document,
+        themeId: revision.themeId,
+        profile: revision.profile,
+        summary: revision.summary,
+        summaryProvenance: revision.summaryProvenance,
+        selections: revision.selections,
+      }));
     },
   };
 }

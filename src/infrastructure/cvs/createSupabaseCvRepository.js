@@ -56,6 +56,7 @@ function mapDocument(row, selections = []) {
     summary: row.summary,
     summaryProvenance: row.summary_provenance,
     publishedAt: row.published_at,
+    publishedRevisionId: row.published_revision_id || row.publishedRevisionId,
     selections,
   });
 }
@@ -302,8 +303,11 @@ export function createSupabaseCvRepository({ client }) {
     async createChangeProposal(input) {
       await actor();
       const lifecycle = input.operationType !== "replace_working_state";
+      const publication = ["publish_revision", "withdraw_publication"].includes(input.operationType);
       const { data, error } = await client.rpc(
-        lifecycle ? "create_cv_lifecycle_proposal" : "create_cv_change_proposal",
+        publication
+          ? "create_cv_publication_proposal"
+          : lifecycle ? "create_cv_lifecycle_proposal" : "create_cv_change_proposal",
         lifecycle
           ? { p_schema_version: input.schemaVersion, p_operation: input.operations[0] }
           : {
@@ -326,7 +330,9 @@ export function createSupabaseCvRepository({ client }) {
       const { data, error } = await client.rpc(
         current.operationType === "replace_working_state"
           ? "apply_cv_change_proposal"
-          : "apply_cv_lifecycle_proposal",
+          : ["publish_revision", "withdraw_publication"].includes(current.operationType)
+            ? "apply_cv_publication_proposal"
+            : "apply_cv_lifecycle_proposal",
         {
         p_proposal_id: id,
         },
@@ -337,6 +343,13 @@ export function createSupabaseCvRepository({ client }) {
         throw new CvWorkspaceError("proposal-expired", "Change Proposal has expired.");
       }
       if (proposal.status === "invalidated") {
+        if (["publish_revision", "withdraw_publication"].includes(proposal.operationType)) {
+          throw new CvWorkspaceError(
+            "stale-proposal",
+            "Publication changed after this Change Proposal was reviewed.",
+            proposal.result || undefined,
+          );
+        }
         const target = proposal.result?.target;
         const context = target
           ? {
@@ -380,23 +393,12 @@ export function createSupabaseCvRepository({ client }) {
       return normalizeDraft({ ...draft, id });
     },
 
-    async publish(id, slug) {
-      await actor();
-      const { data, error } = await client.rpc("publish_cv_document", {
-        p_cv_id: id,
-        p_slug: slug,
-      });
-      mapError(error);
-      return fetchOne("id", data || id);
+    async publish() {
+      throw new CvWorkspaceError("explicit-apply-required", "Select an exact CV Revision and apply its publication Change Proposal.");
     },
 
-    async unpublish(id) {
-      await actor();
-      const { data, error } = await client.rpc("unpublish_cv_document", {
-        p_cv_id: id,
-      });
-      mapError(error);
-      return fetchOne("id", data || id);
+    async unpublish() {
+      throw new CvWorkspaceError("explicit-apply-required", "Withdraw publication through a reviewed Change Proposal.");
     },
 
     async getPublished(slug) {

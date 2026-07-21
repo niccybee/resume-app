@@ -12,6 +12,12 @@ const unpublished = {
   message: "CV is not published.",
 };
 
+export function staticArtifactMatchesRevision(html, revisionId) {
+  if (typeof html !== "string" || !revisionId) return false;
+  const match = html.match(/<meta\s+name=["']cv-revision["']\s+content=["']([^"']+)["']\s*\/?\s*>/i);
+  return match?.[1] === revisionId;
+}
+
 export function createPublicationGate({
   supabaseUrl,
   publishableKey,
@@ -44,10 +50,10 @@ export function createPublicationGate({
       return unavailable;
     }
 
-    if (!document || document.status !== "published" || document.slug !== slug) {
+    if (!document || document.status !== "published" || document.slug !== slug || !document.revisionId) {
       return unpublished;
     }
 
-    return { allowed: true, status: 200 };
+    return { allowed: true, status: 200, revisionId: document.revisionId };
   };
 }

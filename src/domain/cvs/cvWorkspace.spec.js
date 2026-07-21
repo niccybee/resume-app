@@ -713,18 +713,78 @@ describe("CV workspace boundary", () => {
     expect(await workspace.getPublic("private")).toBeNull();
   });
 
-  it("publishes uniquely and unpublishes without deleting", async () => {
+  it("publishes, rolls back, and withdraws an exact CV Revision only after explicit apply", async () => {
     const repository = createMemoryCvRepository([
       { id: "cv-1", name: "Product CV", selections: [] },
       { id: "cv-2", name: "Other", slug: "other", status: "published", selections: [] },
     ]);
     const workspace = createCvWorkspace({ repository });
-    await expect(workspace.publish("cv-1", "other")).rejects.toMatchObject({ code: "slug-conflict" });
-    await workspace.publish("cv-1", "Product Lead CV");
-    expect(await workspace.getPublic("product-lead-cv")).toMatchObject({ id: "cv-1" });
-    await workspace.unpublish("cv-1");
+    const [revision1] = await workspace.history("cv-1");
+    const session = await workspace.startEditingSession("cv-1", revision1.id);
+    const saved = await workspace.saveEditingSession({ ...session, summary: "Revision two" });
+    await workspace.finishEditingSession(saved.id, saved.optimisticVersion);
+    const [revision2] = await workspace.history("cv-1");
+
+    await expect(workspace.proposeLifecycleChange({ operation: {
+      type: "publish_revision", target: { type: "cv_revision", id: revision2.id, cvId: "cv-1" }, slug: "other",
+    } })).rejects.toMatchObject({ code: "slug-conflict" });
+    const publish = await workspace.proposeLifecycleChange({ operation: {
+      type: "publish_revision", target: { type: "cv_revision", id: revision2.id, cvId: "cv-1" }, slug: "Product Lead CV",
+    } });
     expect(await workspace.getPublic("product-lead-cv")).toBeNull();
-    expect(await workspace.open("cv-1")).toMatchObject({ id: "cv-1", status: "draft" });
+    await workspace.applyChangeProposal(publish.id);
+    expect(await workspace.getPublic("product-lead-cv")).toMatchObject({
+      id: "cv-1", publishedRevisionId: revision2.id, summary: "Revision two",
+    });
+
+    const rollback = await workspace.proposeLifecycleChange({ operation: {
+      type: "publish_revision", target: { type: "cv_revision", id: revision1.id, cvId: "cv-1" }, slug: "product-lead-cv",
+    } });
+    expect(rollback.warnings.join(" ")).toMatch(/rolls back/i);
+    await workspace.applyChangeProposal(rollback.id);
+    expect(await workspace.getPublic("product-lead-cv")).toMatchObject({
+      publishedRevisionId: revision1.id, summary: "",
+    });
+
+    const withdraw = await workspace.proposeLifecycleChange({ operation: {
+      type: "withdraw_publication", target: { type: "cv", id: "cv-1" },
+    } });
+    const staleRepublish = await workspace.proposeLifecycleChange({ operation: {
+      type: "publish_revision", target: { type: "cv_revision", id: revision1.id, cvId: "cv-1" }, slug: "product-lead-cv",
+    } });
+    await workspace.applyChangeProposal(withdraw.id);
+    await expect(workspace.applyChangeProposal(staleRepublish.id))
+      .rejects.toMatchObject({ code: "stale-proposal" });
+    expect(await workspace.getPublic("product-lead-cv")).toBeNull();
+    expect(await workspace.open("cv-1")).toMatchObject({
+      id: "cv-1", status: "draft", slug: "product-lead-cv", publishedRevisionId: revision1.id,
+    });
+    const republish = await workspace.proposeLifecycleChange({ operation: {
+      type: "publish_revision", target: { type: "cv_revision", id: revision1.id, cvId: "cv-1" }, slug: "product-lead-cv",
+    } });
+    await workspace.applyChangeProposal(republish.id);
+    expect(await workspace.getPublic("product-lead-cv")).toMatchObject({
+      status: "published", publishedRevisionId: revision1.id,
+    });
+    const staleAfterArchive = await workspace.proposeLifecycleChange({ operation: {
+      type: "publish_revision", target: { type: "cv_revision", id: revision1.id, cvId: "cv-1" }, slug: "product-lead-cv",
+    } });
+    const archive = await workspace.proposeLifecycleChange({ operation: {
+      type: "archive_cv", target: { type: "cv", id: "cv-1" },
+    } });
+    await workspace.applyChangeProposal(archive.id);
+    await expect(workspace.applyChangeProposal(staleAfterArchive.id))
+      .rejects.toMatchObject({ code: "stale-proposal" });
+    await expect(workspace.history("cv-1")).resolves.toHaveLength(2);
+  });
+
+  it("rejects direct publication writes at the memory repository boundary", async () => {
+    const repository = createMemoryCvRepository([{ id: "cv-1", name: "Product CV", selections: [] }]);
+
+    await expect(repository.publish("cv-1", "product-cv"))
+      .rejects.toMatchObject({ code: "explicit-apply-required" });
+    await expect(repository.unpublish("cv-1"))
+      .rejects.toMatchObject({ code: "explicit-apply-required" });
   });
 
   it("keeps generated summaries as proposals until accepted", async () => {

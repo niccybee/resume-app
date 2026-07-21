@@ -10,6 +10,7 @@ describe("Supabase CV repository public boundary", () => {
           name: "Product CV",
           slug: "product-cv",
           status: "published",
+          revisionId: "revision-1",
           themeId: "editorial",
           profile: {
             basics: {
@@ -55,6 +56,7 @@ describe("Supabase CV repository public boundary", () => {
       summary: "Product leader.",
       summaryProvenance: null,
       publishedAt: "2026-07-21T00:00:00.000Z",
+      publishedRevisionId: "revision-1",
       selections: [
         {
           blockId: "block-1",
@@ -661,31 +663,7 @@ describe("Supabase CV repository authenticated save boundary", () => {
 });
 
 describe("Supabase CV repository legacy publication boundary", () => {
-  it("publishes through the transactional CV Revision pinning RPC", async () => {
-    const documentQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn().mockResolvedValue({
-        data: {
-          id: "cv-1",
-          owner_id: "user-1",
-          name: "Product CV",
-          slug: "product-cv",
-          status: "published",
-          profile: {},
-          published_at: "2026-07-21T00:00:00.000Z",
-        },
-        error: null,
-      }),
-    };
-    const compositionQuery = {
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      then(resolve) {
-        return Promise.resolve({ data: [], error: null }).then(resolve);
-      },
-    };
+  it("rejects direct publication writes without calling revoked RPCs", async () => {
     const client = {
       auth: {
         getSession: vi.fn().mockResolvedValue({
@@ -694,22 +672,47 @@ describe("Supabase CV repository legacy publication boundary", () => {
         }),
       },
       rpc: vi.fn().mockResolvedValue({ data: "cv-1", error: null }),
-      from: vi.fn((table) => ({
-        cv_documents: documentQuery,
-        cv_compositions: compositionQuery,
-      })[table]),
     };
     const repository = createSupabaseCvRepository({ client });
 
-    await expect(repository.publish("cv-1", "product-cv")).resolves.toMatchObject({
-      id: "cv-1",
-      status: "published",
-      slug: "product-cv",
+    await expect(repository.publish("cv-1", "product-cv"))
+      .rejects.toMatchObject({ code: "explicit-apply-required" });
+    await expect(repository.unpublish("cv-1"))
+      .rejects.toMatchObject({ code: "explicit-apply-required" });
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("Supabase CV publication proposal boundary", () => {
+  it("routes publish and withdrawal proposals through dedicated reviewed RPCs", async () => {
+    const pending = {
+      id: "proposal-1", schema_version: "1", operation_type: "publish_revision",
+      target_type: "cv_revision", target_id: "revision-2", target_cv_id: "cv-1",
+      normalized_operations: [], structured_diff: {}, warnings: [], status: "pending",
+    };
+    const client = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "user-1" } } }, error: null }) },
+      rpc: vi.fn(async (name) => {
+        if (name === "create_cv_publication_proposal") return { data: pending, error: null };
+        if (name === "get_cv_change_proposal") return { data: pending, error: null };
+        if (name === "apply_cv_publication_proposal") return { data: { ...pending, status: "applied", result: { cvId: "cv-1", revisionId: "revision-2" } }, error: null };
+        throw new Error(`Unexpected RPC ${name}`);
+      }),
+    };
+    const repository = createSupabaseCvRepository({ client });
+    const input = {
+      schemaVersion: "1", operationType: "publish_revision",
+      target: { type: "cv_revision", id: "revision-2", cvId: "cv-1" },
+      baseOptimisticVersion: null,
+      operations: [{ type: "publish_revision", target: { type: "cv_revision", id: "revision-2", cvId: "cv-1" }, slug: "product-cv" }],
+    };
+
+    await repository.createChangeProposal(input);
+    await repository.applyChangeProposal("proposal-1");
+
+    expect(client.rpc).toHaveBeenCalledWith("create_cv_publication_proposal", {
+      p_schema_version: "1", p_operation: input.operations[0],
     });
-    expect(client.rpc).toHaveBeenCalledWith("publish_cv_document", {
-      p_cv_id: "cv-1",
-      p_slug: "product-cv",
-    });
-    expect(documentQuery.update).toBeUndefined();
+    expect(client.rpc).toHaveBeenCalledWith("apply_cv_publication_proposal", { p_proposal_id: "proposal-1" });
   });
 });

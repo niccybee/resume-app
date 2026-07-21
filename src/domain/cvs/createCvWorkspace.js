@@ -167,11 +167,24 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
         "restore_editing_session",
         "archive_cv",
         "restore_cv",
+        "publish_revision",
+        "withdraw_publication",
       ]);
       if (!supported.has(operation?.type)) {
         throw new CvWorkspaceError("validation-failed", "Unsupported lifecycle Change Proposal operation.");
       }
-      if (operation.type.startsWith("copy_")) {
+      if (operation.type === "publish_revision") {
+        if (operation.target?.type !== "cv_revision" || !operation.target.id || !operation.target.cvId) {
+          throw new CvWorkspaceError("validation-failed", "Publishing requires an exact CV Revision target.");
+        }
+        const slug = normalizeSlug(operation.slug);
+        if (!slug) throw new CvWorkspaceError("invalid-slug", "Enter a valid public slug.");
+        operation.slug = slug;
+      } else if (operation.type === "withdraw_publication") {
+        if (operation.target?.type !== "cv" || !operation.target.id) {
+          throw new CvWorkspaceError("validation-failed", "Withdrawing publication requires a CV target.");
+        }
+      } else if (operation.type.startsWith("copy_")) {
         if (!operation.source?.id || !["editing_session", "cv_revision"].includes(operation.source.type)) {
           throw new CvWorkspaceError("validation-failed", "A CV Revision or Editing Session source is required.");
         }
@@ -189,7 +202,7 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
       if ((sessionSource || sessionTarget) && !Number.isInteger(operation.baseOptimisticVersion)) {
         throw new CvWorkspaceError("validation-failed", "An Editing Session base optimistic version is required.");
       }
-      if (["archive_cv", "restore_cv"].includes(operation.type) && operation.target?.type !== "cv") {
+      if (["archive_cv", "restore_cv", "withdraw_publication"].includes(operation.type) && operation.target?.type !== "cv") {
         throw new CvWorkspaceError("validation-failed", "CV lifecycle operations require a CV target.");
       }
       return repository.createChangeProposal({
@@ -228,10 +241,15 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
       const cv = await this.open(id);
       const slug = normalizeSlug(requestedSlug || cv.slug || cv.name);
       if (!slug) throw new CvWorkspaceError("invalid-slug", "Enter a valid public slug.");
-      return repository.publish(id, slug);
+      if (cv.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before publishing it.");
+      throw new CvWorkspaceError("explicit-apply-required", "Select an exact CV Revision and apply its publication Change Proposal.");
     },
 
-    unpublish: (id) => repository.unpublish(id),
+    async unpublish(id) {
+      const cv = await this.open(id);
+      if (cv.status === "archived") throw new CvWorkspaceError("invalid-lifecycle-transition", "Restore the CV before changing publication.");
+      throw new CvWorkspaceError("explicit-apply-required", "Withdraw publication through a reviewed Change Proposal.");
+    },
 
     async getPublic(slug) {
       const normalized = normalizeSlug(slug);

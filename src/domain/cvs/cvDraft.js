@@ -37,6 +37,7 @@ export function normalizeDraft(input = {}) {
     summary: input.summary || "",
     summaryProvenance: input.summaryProvenance || null,
     publishedAt: input.publishedAt || null,
+    publishedRevisionId: input.publishedRevisionId || input.revisionId || null,
     selections: normalizeSelections(input.selections || []),
   };
 }

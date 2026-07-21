@@ -53,12 +53,14 @@ const selectedExperienceGroups = computed(() => groupExperienceSelections(select
 const openEditingSessions = computed(() => editingSessions.value.filter((item) => item.status === "open"));
 const archivedEditingSessions = computed(() => editingSessions.value.filter((item) => item.status === "archived"));
 const activeBaseRevisionNumber = computed(() => activeSession.value?.baseRevisionNumber || revisions.value.find((item) => item.id === activeSession.value?.baseRevisionId)?.number || null);
+const publishedRevisionNumber = computed(() => revisions.value.find((item) => item.id === draft.publishedRevisionId)?.number || null);
 
 function activateEditingSession(session, baseRevisionNumber = null) {
   const publication = {
     slug: draft.slug,
     status: draft.status,
     publishedAt: draft.publishedAt,
+    publishedRevisionId: draft.publishedRevisionId,
   };
   activeSession.value = {
     ...session,
@@ -290,6 +292,9 @@ async function applySessionChangeProposal() {
     } else if (["archive_cv", "restore_cv"].includes(operationType)) {
       replaceDraft(await cvWorkspace.open(applied.result.cvId));
       if (operationType === "archive_cv") activeSession.value = null;
+    } else if (["publish_revision", "withdraw_publication"].includes(operationType)) {
+      replaceDraft(await cvWorkspace.open(applied.result.cvId));
+      publishSlug.value = draft.slug || publishSlug.value;
     }
     sessionChangeProposal.value = null;
     await refreshEditingContext();
@@ -320,8 +325,20 @@ async function discardSessionChangeProposal() {
     saving.value = false;
   }
 }
-async function publish() { try { if (!draft.id) await save(); const saved=await cvWorkspace.publish(draft.id,publishSlug.value); replaceDraft(saved); publishSlug.value=saved.slug; } catch(reason){error.value=reason.message;} }
-async function unpublish() { try { replaceDraft(await cvWorkspace.unpublish(draft.id)); } catch(reason){error.value=reason.message;} }
+function proposeRevisionPublication(revision) {
+  return proposeLifecycleChange({
+    type: "publish_revision",
+    target: { type: "cv_revision", id: revision.id, cvId: draft.id },
+    slug: publishSlug.value,
+  });
+}
+function publicationLabel(revision) {
+  if (draft.status === "published" && revision.id === draft.publishedRevisionId) return "Published Revision";
+  if (draft.status === "published" && publishedRevisionNumber.value && revision.number < publishedRevisionNumber.value) {
+    return `Roll back to Revision ${revision.number}`;
+  }
+  return `Publish Revision ${revision.number}`;
+}
 async function generateSummary() {
   error.value = "";
   generatingSummary.value = true;
@@ -429,7 +446,7 @@ function generateTaskProposal(instruction) {
       <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
       <button v-if="draft.id && draft.status !== 'archived'" class="secondary control-standard" @click="proposeLifecycleChange({ type: 'archive_cv', target: { type: 'cv', id: draft.id } })">Archive CV</button>
       <button v-else-if="draft.id" class="secondary control-standard" @click="proposeLifecycleChange({ type: 'restore_cv', target: { type: 'cv', id: draft.id } })">Restore CV</button>
-      <details v-if="draft.id && draft.status !== 'archived'"><summary>Publishing</summary><label>Public slug<input v-model="publishSlug" placeholder="product-lead" /></label><button v-if="draft.status !== 'published'" @click="publish">Publish unlisted link</button><template v-else><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="unpublish">Unpublish</button></template></details>
+      <details v-if="draft.id && draft.status !== 'archived'"><summary>Publishing</summary><label>Stable public slug<input v-model="publishSlug" :disabled="Boolean(draft.slug)" placeholder="product-lead" /></label><p>Select an exact immutable Revision below, review its Change Proposal, then apply.</p><template v-if="draft.status === 'published'"><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="proposeLifecycleChange({ type: 'withdraw_publication', target: { type: 'cv', id: draft.id } })">Withdraw publication</button></template></details>
       <section v-if="draft.id" aria-labelledby="revision-history-heading">
         <h2 id="revision-history-heading">Revision history</h2>
         <p v-if="!revisions.length">No immutable CV Revisions yet. <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="startEditingSession(null)">Start first Editing Session</button></p>
@@ -440,6 +457,7 @@ function generateTaskProposal(instruction) {
             <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="startEditingSession(revision)">Start from Revision {{ revision.number }}</button>
             <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="copyFrom(revision, 'copy_to_new_version')">Copy to New Version</button>
             <button class="secondary control-compact" :disabled="!copyRoleName.trim()" @click="copyFrom(revision, 'copy_for_new_role')">Copy for New Role</button>
+            <button v-if="draft.status !== 'archived'" class="secondary control-compact" :disabled="(draft.status === 'published' && revision.id === draft.publishedRevisionId) || !publishSlug.trim()" @click="proposeRevisionPublication(revision)">{{ publicationLabel(revision) }}</button>
           </li>
         </ol>
       </section>

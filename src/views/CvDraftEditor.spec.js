@@ -22,6 +22,7 @@ vi.mock("../domain/tasks/createTaskBlocks", () => ({
 vi.mock("../services/cvWorkspace", () => ({
   cvWorkspace: {
     open: vi.fn(),
+    history: vi.fn(),
     save: vi.fn(),
     publish: vi.fn(),
     unpublish: vi.fn(),
@@ -56,6 +57,7 @@ describe("CV summary proposals", () => {
     vi.clearAllMocks();
     blockLibrary.browse.mockResolvedValue({ blocks: [], experience: [], sidebar: {} });
     createTaskBlocks.mockResolvedValue([]);
+    cvWorkspace.history.mockResolvedValue([]);
     cvWorkspace.open.mockResolvedValue({
       id: "cv-1",
       name: "Product CV",
@@ -63,6 +65,31 @@ describe("CV summary proposals", () => {
       summary: "Existing summary",
       selections: [],
     });
+  });
+
+  it("shows immutable CV Revision history in the Nuxt editor", async () => {
+    cvWorkspace.history.mockResolvedValue([{
+      id: "revision-2",
+      cvId: "cv-1",
+      number: 2,
+      baseRevisionId: "revision-1",
+      baseRevisionNumber: 1,
+      createdAt: "2026-07-21T00:00:00.000Z",
+    }, {
+      id: "revision-1",
+      cvId: "cv-1",
+      number: 1,
+      baseRevisionId: null,
+      baseRevisionNumber: null,
+      createdAt: "2026-07-20T00:00:00.000Z",
+    }]);
+
+    const wrapper = await mountEditor();
+
+    expect(wrapper.text()).toContain("Revision history");
+    expect(wrapper.text()).toContain("Revision 2 · based on Revision 1");
+    expect(wrapper.text()).toContain("Revision 1");
+    expect(wrapper.text()).not.toContain("revision-1");
   });
 
   it("adds, regroups, reorders, removes, and saves exact Block Versions", async () => {

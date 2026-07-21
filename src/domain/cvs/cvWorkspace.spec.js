@@ -18,6 +18,58 @@ const employmentContext = {
 };
 
 describe("CV workspace boundary", () => {
+  it("exposes immutable CV Revision history for an existing lineage", async () => {
+    const repository = createMemoryCvRepository([{
+      id: "cv-1",
+      name: "Google Product Manager",
+      themeId: "modern",
+      summary: "Led product delivery.",
+      selections: [employment],
+    }]);
+    const workspace = createCvWorkspace({ repository });
+
+    const history = await workspace.history("cv-1");
+    history[0].summary = "Mutated outside the repository";
+
+    expect(history[0]).toMatchObject({
+      cvId: "cv-1",
+      number: 1,
+      baseRevisionId: null,
+    });
+    await expect(workspace.history("cv-1")).resolves.toEqual([
+      expect.objectContaining({
+        number: 1,
+        themeId: "modern",
+        summary: "Led product delivery.",
+      }),
+    ]);
+  });
+
+  it("resolves a Base Revision to its domain-facing Revision number", async () => {
+    const workspace = createCvWorkspace({
+      repository: {
+        async listRevisions() {
+          return [{
+            id: "revision-2",
+            cvId: "cv-1",
+            number: 2,
+            baseRevisionId: "revision-1",
+          }, {
+            id: "revision-1",
+            cvId: "cv-1",
+            number: 1,
+            baseRevisionId: null,
+          }];
+        },
+      },
+    });
+
+    await expect(workspace.history("cv-1")).resolves.toEqual([
+      expect.objectContaining({ number: 2, baseRevisionNumber: 1 }),
+      expect.objectContaining({ number: 1, baseRevisionNumber: null }),
+    ]);
+  });
+
   it("composes, saves, and reloads exact block versions", async () => {
     const repository = createMemoryCvRepository();
     const workspace = createCvWorkspace({ repository });

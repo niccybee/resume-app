@@ -30,6 +30,20 @@ function mapDocument(row, selections = []) {
   });
 }
 
+function mapRevision(row) {
+  return {
+    id: row.id,
+    cvId: row.cv_id,
+    number: row.revision_number,
+    baseRevisionId: row.base_revision_id,
+    themeId: row.theme_id,
+    profile: row.profile || {},
+    summary: row.summary,
+    summaryProvenance: row.summary_provenance,
+    createdAt: row.created_at,
+  };
+}
+
 export function createSupabaseCvRepository({ client }) {
   async function actor({ optional = false } = {}) {
     const { data, error } = await client.auth.getSession();
@@ -100,6 +114,18 @@ export function createSupabaseCvRepository({ client }) {
       return fetchOne("id", id);
     },
 
+    async listRevisions(cvId) {
+      const user = await actor();
+      const { data, error } = await client
+        .from("cv_revisions")
+        .select("id, cv_id, revision_number, base_revision_id, theme_id, profile, summary, summary_provenance, created_at")
+        .eq("cv_id", cvId)
+        .eq("owner_id", user.id)
+        .order("revision_number", { ascending: false });
+      mapError(error);
+      return (data || []).map(mapRevision);
+    },
+
     async save(input) {
       await actor();
       const draft = normalizeDraft(input);
@@ -126,16 +152,13 @@ export function createSupabaseCvRepository({ client }) {
     },
 
     async publish(id, slug) {
-      const user = await actor();
-      const { data, error } = await client
-        .from("cv_documents")
-        .update({ status: "published", slug, published_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("owner_id", user.id)
-        .select()
-        .single();
+      await actor();
+      const { data, error } = await client.rpc("publish_cv_document", {
+        p_cv_id: id,
+        p_slug: slug,
+      });
       mapError(error);
-      return mapDocument(data, await selectionsFor(id));
+      return fetchOne("id", data || id);
     },
 
     async unpublish(id) {

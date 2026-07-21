@@ -14,6 +14,17 @@ export function createCvWorkspace({ repository, summaryGenerator } = {}) {
   return {
     list: () => repository.list(),
 
+    async history(id) {
+      const revisions = await repository.listRevisions(id);
+      const numberById = new Map(revisions.map((revision) => [revision.id, revision.number]));
+      return revisions.map((revision) => ({
+        ...revision,
+        baseRevisionNumber: revision.baseRevisionId
+          ? numberById.get(revision.baseRevisionId) || null
+          : null,
+      }));
+    },
+
     async open(id) {
       const cv = await repository.get(id);
       if (!cv) throw new CvWorkspaceError("not-found", "CV not found.");

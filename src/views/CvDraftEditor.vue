@@ -14,6 +14,7 @@ import { openRouter } from "../services/openRouter";
 const route = useRoute(); const router = useRouter();
 const status = ref("loading"); const error = ref(""); const saving = ref(false); const generatingSummary = ref(false);
 const blocks = ref([]); const proposal = ref(null); const instruction = ref(""); const publishSlug = ref("");
+const revisions = ref([]);
 const selectedVersions = reactive({});
 const draft = reactive(normalizeDraft({ name: "", profile: { basics: {} }, selections: [] }));
 const themes = listThemes();
@@ -47,8 +48,13 @@ const selectedExperienceGroups = computed(() => groupExperienceSelections(select
 
 onMounted(async () => {
   try {
-    const [catalog, existing] = await Promise.all([blockLibrary.browse(), route.params.cvId ? cvWorkspace.open(route.params.cvId) : Promise.resolve(null)]);
+    const [catalog, existing, history] = await Promise.all([
+      blockLibrary.browse(),
+      route.params.cvId ? cvWorkspace.open(route.params.cvId) : Promise.resolve(null),
+      route.params.cvId ? cvWorkspace.history(route.params.cvId) : Promise.resolve([]),
+    ]);
     blocks.value = catalog.blocks;
+    revisions.value = history;
     if (existing) {
       replaceDraft(existing);
       publishSlug.value = existing.slug || "";
@@ -122,6 +128,16 @@ function generateTaskProposal(instruction) {
       <button class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">Save CV</button>
       <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
       <details v-if="draft.id"><summary>Publishing</summary><label>Public slug<input v-model="publishSlug" placeholder="product-lead" /></label><button v-if="draft.status !== 'published'" @click="publish">Publish unlisted link</button><template v-else><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="unpublish">Unpublish</button></template></details>
+      <section v-if="draft.id" aria-labelledby="revision-history-heading">
+        <h2 id="revision-history-heading">Revision history</h2>
+        <p v-if="!revisions.length">No immutable CV Revisions yet.</p>
+        <ol v-else>
+          <li v-for="revision in revisions" :key="revision.id">
+            <strong>Revision {{ revision.number }}</strong>
+            <span v-if="revision.baseRevisionNumber"> · based on Revision {{ revision.baseRevisionNumber }}</span>
+          </li>
+        </ol>
+      </section>
     </section>
     <aside class="live-preview"><p><strong>Live preview</strong></p><CvDocument :document="draft" /></aside>
   </div>

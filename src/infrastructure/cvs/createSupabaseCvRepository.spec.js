@@ -130,6 +130,55 @@ describe("Supabase CV repository list boundary", () => {
   });
 });
 
+describe("Supabase CV repository Revision history boundary", () => {
+  it("lists immutable Revisions for one owned CV lineage", async () => {
+    const query = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({
+        data: [{
+          id: "revision-1",
+          cv_id: "cv-1",
+          revision_number: 1,
+          base_revision_id: null,
+          theme_id: "modern",
+          profile: { basics: { name: "Nic" } },
+          summary: "Product leader.",
+          summary_provenance: null,
+          created_at: "2026-07-21T00:00:00.000Z",
+        }],
+        error: null,
+      }),
+    };
+    const client = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { user: { id: "user-1" } } },
+          error: null,
+        }),
+      },
+      from: vi.fn().mockReturnValue(query),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.listRevisions("cv-1")).resolves.toEqual([{
+      id: "revision-1",
+      cvId: "cv-1",
+      number: 1,
+      baseRevisionId: null,
+      themeId: "modern",
+      profile: { basics: { name: "Nic" } },
+      summary: "Product leader.",
+      summaryProvenance: null,
+      createdAt: "2026-07-21T00:00:00.000Z",
+    }]);
+    expect(client.from).toHaveBeenCalledWith("cv_revisions");
+    expect(query.eq).toHaveBeenCalledWith("cv_id", "cv-1");
+    expect(query.eq).toHaveBeenCalledWith("owner_id", "user-1");
+    expect(query.order).toHaveBeenCalledWith("revision_number", { ascending: false });
+  });
+});
+
 describe("Supabase CV repository authenticated save boundary", () => {
   it("saves the document and exact composition through one transactional RPC", async () => {
     const documentQuery = {
@@ -285,5 +334,59 @@ describe("Supabase CV repository authenticated save boundary", () => {
     await expect(repository.save({ id: "missing", name: "Product CV" }))
       .rejects.toMatchObject({ code: "not-found", message: "CV not found." });
     expect(client.from).not.toHaveBeenCalled();
+  });
+});
+
+describe("Supabase CV repository legacy publication boundary", () => {
+  it("publishes through the transactional CV Revision pinning RPC", async () => {
+    const documentQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({
+        data: {
+          id: "cv-1",
+          owner_id: "user-1",
+          name: "Product CV",
+          slug: "product-cv",
+          status: "published",
+          profile: {},
+          published_at: "2026-07-21T00:00:00.000Z",
+        },
+        error: null,
+      }),
+    };
+    const compositionQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      then(resolve) {
+        return Promise.resolve({ data: [], error: null }).then(resolve);
+      },
+    };
+    const client = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({
+          data: { session: { user: { id: "user-1" } } },
+          error: null,
+        }),
+      },
+      rpc: vi.fn().mockResolvedValue({ data: "cv-1", error: null }),
+      from: vi.fn((table) => ({
+        cv_documents: documentQuery,
+        cv_compositions: compositionQuery,
+      })[table]),
+    };
+    const repository = createSupabaseCvRepository({ client });
+
+    await expect(repository.publish("cv-1", "product-cv")).resolves.toMatchObject({
+      id: "cv-1",
+      status: "published",
+      slug: "product-cv",
+    });
+    expect(client.rpc).toHaveBeenCalledWith("publish_cv_document", {
+      p_cv_id: "cv-1",
+      p_slug: "product-cv",
+    });
+    expect(documentQuery.update).toBeUndefined();
   });
 });

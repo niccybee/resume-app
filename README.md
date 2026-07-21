@@ -12,6 +12,12 @@ A Nuxt 4 workspace for maintaining versioned CV content, composing role-specific
 
 The checked-in SQL in `database/` is the reproducible PRM2 schema. New public-schema objects use explicit Data API grants and row-level security.
 
+For the CV lineage expansion, apply `database/cv_revisions.sql` after the existing
+CV document, CV Block, and Composition schema, then apply
+`database/cv_public_read.sql`. The Revision migration is transactional and
+idempotent: it rejects duplicate CV Block identities before backfilling immutable
+v1 snapshots and pinning existing public slugs to those snapshots.
+
 OpenRouter requests run through the Nuxt server at `/api/openrouter`. The private
 service-role key is used only server-side to call the restricted Vault RPCs in
 `database/cv_ai_settings.sql`; provider keys are never placed in Nuxt public
@@ -21,7 +27,7 @@ runtime config or returned to the browser.
 
 The owner workspace uses Supabase passwordless email magic links with account creation disabled. `/app/**` routes require a session, and PRM2 RLS enforces ownership for documents, compositions, blocks, versions, contexts, and generation records.
 
-Shared CVs use an **unlisted public** model: a visitor who knows `/cv/:slug` can read a CV only while its document is marked `published`. Unpublishing immediately withdraws anonymous access without deleting the draft. Public queries can read only the document, composition rows, and exact immutable block versions referenced by that published document.
+Shared CVs use an **unlisted public** model: a visitor who knows `/cv/:slug` can read a CV only while its lineage is marked `published`. Unpublishing immediately withdraws anonymous access without deleting the draft. Existing public slugs are pinned to an explicit immutable CV Revision; public queries expose only that Revision's exact CV Composition and Block Versions.
 
 Published CV snapshots are generated before the Nuxt build and packaged as
 server assets. Nuxt verifies the slug through the curated public Supabase contract

@@ -7,6 +7,22 @@ function copy(value) {
 
 export function createMemoryCvRepository(initial = []) {
   const records = new Map(initial.map((item) => [item.id, normalizeDraft(item)]));
+  const revisions = new Map(initial
+    .filter((item) => item.id)
+    .map((item) => {
+      const snapshot = normalizeDraft(item);
+      return [item.id, [{
+        id: `${item.id}-revision-1`,
+        cvId: item.id,
+        number: 1,
+        baseRevisionId: null,
+        themeId: snapshot.themeId,
+        profile: snapshot.profile,
+        summary: snapshot.summary,
+        summaryProvenance: snapshot.summaryProvenance,
+        createdAt: item.createdAt || null,
+      }]];
+    }));
   let sequence = initial.length;
 
   return {
@@ -16,6 +32,9 @@ export function createMemoryCvRepository(initial = []) {
     async get(id) {
       const value = records.get(id);
       return value ? copy(value) : null;
+    },
+    async listRevisions(id) {
+      return copy(revisions.get(id) || []);
     },
     async save(input) {
       const draft = normalizeDraft(input);
@@ -54,4 +73,3 @@ export function createMemoryCvRepository(initial = []) {
     },
   };
 }
-

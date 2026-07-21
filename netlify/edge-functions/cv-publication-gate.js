@@ -50,6 +50,9 @@ export default async function handler(request, context) {
   const env = globalThis.Netlify?.env;
   return createPublicationGate({
     supabaseUrl: env?.get("SUPABASE_URL") || env?.get("VITE_SUPABASE_URL"),
-    publishableKey: env?.get("SUPABASE_PUBLISHABLE_KEY") || env?.get("VITE_SUPABASE_PUBLISHABLE_KEY"),
+    publishableKey:
+      env?.get("SUPABASE_PUBLISHABLE_KEY") ||
+      env?.get("NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY") ||
+      env?.get("VITE_SUPABASE_PUBLISHABLE_KEY"),
   })(request, context);
 }

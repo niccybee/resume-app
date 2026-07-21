@@ -5,11 +5,13 @@ printable HTML, but must not be indexed or made enumerable. Publication changes
 are infrequent enough that deployment latency is acceptable; withdrawal must
 prevent access immediately and must remove the snapshot from the next artifact.
 
-We generate one standalone HTML file at `/cv/<slug>/index.html` during each
-production build. The build uses a server-only Supabase service-role key to call a
+We generate one standalone HTML file at `/cv/<slug>/index.html` before each
+Nuxt production build. The staged `.generated/public` directory is registered as
+a Nitro public asset so its manifest and final `.output/public` artifact include
+the snapshots. The build uses a server-only Supabase service-role key to call a
 service-role-only slug-manifest function, then reads each document through the
 curated `get_published_cv` contract. Every run deletes the previous generated
-`dist/cv` tree before writing the current published set. Static pages retain
+`.generated/public/cv` tree before writing the current published set. Static pages retain
 `noindex, nofollow, noarchive`, escape all user content, contain no Supabase
 credential or private record, and work without client JavaScript.
 

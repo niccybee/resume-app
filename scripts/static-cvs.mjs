@@ -139,13 +139,16 @@ if (isMain) {
   const required = process.env.STATIC_CV_GENERATION_REQUIRED === "true";
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const root = dirname(dirname(fileURLToPath(import.meta.url)));
+  const outDir = join(root, ".generated", "public");
+  await mkdir(outDir, { recursive: true });
+  await rm(join(outDir, "cv"), { recursive: true, force: true });
   if (!supabaseUrl || !serviceRoleKey) {
     if (required) throw new Error("Static CV generation is required but its server-only Supabase environment is missing.");
     console.warn("Skipping static CV generation: server-only Supabase build environment is not configured.");
   } else {
-    const root = dirname(dirname(fileURLToPath(import.meta.url)));
     const result = await generateStaticCvs({
-      outDir: join(root, "dist"),
+      outDir,
       supabaseUrl,
       serviceRoleKey,
     });

@@ -1,6 +1,5 @@
 [build]
   command = "nr build"
-  publish = "dist"
 
 [build.environment]
   STATIC_CV_GENERATION_REQUIRED = "true"
@@ -8,8 +7,3 @@
 [[edge_functions]]
   function = "cv-publication-gate"
   path = "/cv/*"
-
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200

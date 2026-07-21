@@ -37,7 +37,7 @@ describe("native private CV preview", () => {
     const wrapper = mount(CvPreview, {
       global: {
         stubs: {
-          RouterLink: {
+          NuxtLink: {
             props: ["to"],
             template: '<a :data-to="to"><slot /></a>',
           },

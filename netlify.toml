@@ -1,5 +1,6 @@
 [build]
   command = "nr build"
+  publish = "dist"
 
 [build.environment]
   STATIC_CV_GENERATION_REQUIRED = "true"

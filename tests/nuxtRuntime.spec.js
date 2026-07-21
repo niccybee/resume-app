@@ -130,7 +130,7 @@ describe("Nuxt runtime", async () => {
     expect(html).toContain("Resume Studio runs on Nuxt 4");
   });
 
-  it("serves an unmigrated Vue screen through the Nuxt compatibility shell", async () => {
+  it("serves the public homepage natively from Nuxt", async () => {
     const html = await $fetch("/");
 
     expect(html).toContain("Write once.");
@@ -293,6 +293,13 @@ describe("Nuxt runtime", async () => {
       const blockSearch = page.getByRole("searchbox", { name: "Search CV Blocks, employers, roles…" });
       await blockSearch.waitFor();
       expect(await blockSearch.isVisible()).toBe(true);
+
+      await page.getByRole("link", { name: "AI settings", exact: true }).click();
+      await page.waitForURL("**/app/settings/ai");
+      await page.getByRole("heading", { name: "AI settings" }).waitFor();
+      const openRouterStatus = page.getByText("OpenRouter is not connected");
+      await openRouterStatus.waitFor();
+      expect(await openRouterStatus.isVisible()).toBe(true);
 
       await page.getByRole("button", { name: "Sign out" }).click();
       await page.waitForURL("**/login");

@@ -95,7 +95,7 @@ function generateTaskProposal(instruction) {
 
 <template>
   <p v-if="status === 'loading'" aria-busy="true">Loading CV workspace…</p>
-  <section v-else-if="status === 'missing'"><h2>CV not found</h2><RouterLink to="/app/cvs">Return to saved CVs</RouterLink></section>
+  <section v-else-if="status === 'missing'"><h2>CV not found</h2><NuxtLink to="/app/cvs">Return to saved CVs</NuxtLink></section>
   <div v-else-if="status === 'failed'" role="alert">{{ error }}</div>
   <div v-else class="editor-layout">
     <section class="editor-controls">
@@ -112,7 +112,7 @@ function generateTaskProposal(instruction) {
       />
 
       <h2>CV Block Library</h2>
-      <p v-if="!blocks.length">No CV Blocks available. <RouterLink to="/app/blocks">Create CV Blocks first.</RouterLink></p>
+      <p v-if="!blocks.length">No CV Blocks available. <NuxtLink to="/app/blocks">Create CV Blocks first.</NuxtLink></p>
       <article v-for="block in blocks" :key="block.id" class="library-row"><div><small>{{ block.kind }}</small><strong>{{ block.title }}</strong><select v-model="selectedVersions[block.id]" aria-label="Block Version"><option v-for="version in [...block.versions].reverse()" :key="version.id" :value="version.id">Block Version {{ version.number }} · {{ version.source.type }}</option></select></div><button v-if="!selectedForBlock(block.id)" class="secondary control-compact" @click="add(block)">Add Block Version</button><button v-else class="secondary control-compact" :disabled="selectedForBlock(block.id).versionId === selectedVersions[block.id]" @click="replaceVersion(block)">Replace Block Version</button></article>
 
       <h2>Selected Block Versions</h2>
@@ -120,8 +120,8 @@ function generateTaskProposal(instruction) {
       <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
       <button v-if="draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear selected Block Versions…</button>
       <button class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">Save CV</button>
-      <RouterLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</RouterLink>
-      <details v-if="draft.id"><summary>Publishing</summary><label>Public slug<input v-model="publishSlug" placeholder="product-lead" /></label><button v-if="draft.status !== 'published'" @click="publish">Publish unlisted link</button><template v-else><p><RouterLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</RouterLink></p><button class="secondary" @click="unpublish">Unpublish</button></template></details>
+      <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
+      <details v-if="draft.id"><summary>Publishing</summary><label>Public slug<input v-model="publishSlug" placeholder="product-lead" /></label><button v-if="draft.status !== 'published'" @click="publish">Publish unlisted link</button><template v-else><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="unpublish">Unpublish</button></template></details>
     </section>
     <aside class="live-preview"><p><strong>Live preview</strong></p><CvDocument :document="draft" /></aside>
   </div>

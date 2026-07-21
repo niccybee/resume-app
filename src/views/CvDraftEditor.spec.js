@@ -42,7 +42,7 @@ async function mountEditor({ taskChatStub = true } = {}) {
   const wrapper = mount(CvDraftEditor, {
     global: {
       stubs: {
-        RouterLink: { template: "<a><slot /></a>" },
+        NuxtLink: { template: "<a><slot /></a>" },
         TaskChat: taskChatStub,
       },
     },

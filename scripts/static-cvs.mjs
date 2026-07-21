@@ -137,7 +137,7 @@ export async function generateStaticCvs({
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMain) {
   const required = process.env.STATIC_CV_GENERATION_REQUIRED === "true";
-  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const root = dirname(dirname(fileURLToPath(import.meta.url)));
   const outDir = join(root, ".generated", "public");

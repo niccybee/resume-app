@@ -3,13 +3,10 @@ import { fileURLToPath } from "node:url";
 const publicSupabaseUrl =
   process.env.NUXT_PUBLIC_SUPABASE_URL ||
   process.env.SUPABASE_URL ||
-  process.env.VITE_SUPABASE_URL ||
   "";
 const publicSupabasePublishableKey =
   process.env.NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY ||
   "";
 
 export default defineNuxtConfig({

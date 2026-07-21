@@ -3,6 +3,8 @@ import { loginDestination } from "../../src/auth/navigation";
 import { useAuthStore } from "../../src/stores/authStore";
 import { isSupabaseConfigured } from "../../src/supabase";
 
+definePageMeta({ layout: "public" });
+
 const email = ref("");
 const route = useRoute();
 const auth = useAuthStore();

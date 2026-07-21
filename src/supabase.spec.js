@@ -10,7 +10,7 @@ beforeEach(() => {
   createClient.mockClear();
 });
 
-it("reconfigures the stable compatibility client from Nuxt public runtime config", () => {
+it("reconfigures the stable Supabase client from Nuxt public runtime config", () => {
   const originalClient = supabaseModule.supabase;
 
   supabaseModule.configureSupabase({

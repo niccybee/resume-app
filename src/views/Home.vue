@@ -9,8 +9,8 @@
           then compose a focused CV for the role in front of you.
         </p>
         <div class="actions">
-          <RouterLink class="primary-action" to="/app/blocks">Open the workspace</RouterLink>
-          <RouterLink class="text-action" to="/login">Owner sign in <span aria-hidden="true">→</span></RouterLink>
+          <NuxtLink class="primary-action" to="/app/blocks">Open the workspace</NuxtLink>
+          <NuxtLink class="text-action" to="/login">Owner sign in <span aria-hidden="true">→</span></NuxtLink>
         </div>
       </div>
 

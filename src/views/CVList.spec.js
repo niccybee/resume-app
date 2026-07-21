@@ -13,7 +13,7 @@ function mountList() {
   return mount(CVList, {
     global: {
       stubs: {
-        RouterLink: {
+        NuxtLink: {
           props: ["to"],
           template: '<a :data-to="to"><slot /></a>',
         },

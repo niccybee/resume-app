@@ -62,6 +62,8 @@ describe("completed Nuxt migration", () => {
     const netlify = await readFile(fromRoot("netlify.toml"), "utf8");
 
     expect(netlify).toContain('publish = "dist"');
+    expect(netlify).toMatch(/\[build\.environment\][\s\S]*STATIC_CV_GENERATION_REQUIRED = "true"/);
+    expect(netlify).toMatch(/\[context\.deploy-preview\.environment\][\s\S]*STATIC_CV_GENERATION_REQUIRED = "false"/);
     expect(netlify).not.toContain("edge_functions");
     expect(netlify).not.toContain("cv-publication-gate");
   });

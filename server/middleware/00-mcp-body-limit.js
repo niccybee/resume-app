@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
     });
   }
   try {
-    await readMcpBodyLimited(event.node.req, MAX_MCP_REQUEST_BYTES);
+    await readMcpBodyLimited(event, MAX_MCP_REQUEST_BYTES);
   } catch (cause) {
     if (cause?.statusCode !== 413) throw cause;
     throw createError({

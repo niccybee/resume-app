@@ -164,7 +164,6 @@ export function createMemoryCvRepository(initial = [], {
   function isBlockReferencedByActiveCv(blockId) {
     return [...records.values()].some((document) => document.status !== "archived" && (
       (revisions.get(document.id) || []).some((revision) => revision.selections.some((item) => item.blockId === blockId))
-      || [...editingSessions.values()].some((item) => item.cvId === document.id && item.selections.some((selection) => selection.blockId === blockId))
     ));
   }
 
@@ -249,6 +248,21 @@ export function createMemoryCvRepository(initial = [], {
       editingSessions.set(saved.id, saved);
       return copy(saved);
     },
+    async removeBlockFromWorkingCompositions(blockId) {
+      const affectedSessionIds = [];
+      for (const [id, current] of editingSessions.entries()) {
+        const selections = current.selections.filter((selection) => selection.blockId !== blockId);
+        if (selections.length === current.selections.length) continue;
+        editingSessions.set(id, {
+          ...current,
+          selections,
+          optimisticVersion: current.optimisticVersion + 1,
+          updatedAt: nowIso(),
+        });
+        affectedSessionIds.push(id);
+      }
+      return { affectedSessionIds };
+    },
     async finishEditingSession(id, expectedVersion) {
       return finishSession(id, expectedVersion);
     },
@@ -300,7 +314,19 @@ export function createMemoryCvRepository(initial = [], {
         let source;
         let warnings = [];
         let diff = { lifecycle: { operation: operation.type, source: copy(input.target) } };
-        if (operation.type === "publish_revision") {
+        if (operation.type === "create_cv_block") {
+          source = null;
+          diff = { block: {
+            operation: operation.type,
+            after: {
+              kind: operation.kind,
+              title: operation.title,
+              schemaVersion: operation.schemaVersion,
+              content: copy(operation.content),
+              contexts: copy(operation.contexts),
+            },
+          } };
+        } else if (operation.type === "publish_revision") {
           source = [...revisions.values()].flat().find((item) => item.id === operation.target.id && item.cvId === operation.target.cvId);
           if (!source) throw new CvWorkspaceError("not-found", "CV Revision not found.");
           const document = records.get(source.cvId);
@@ -339,7 +365,7 @@ export function createMemoryCvRepository(initial = [], {
             throw new CvWorkspaceError("not-found", "Base CV Revision not found.");
           }
           diff = { lifecycle: { operation: operation.type, target: copy(operation.target), baseRevisionId: operation.baseRevisionId || null } };
-        } else if (["archive_cv_block", "restore_cv_block"].includes(operation.type)) {
+        } else if (["archive_cv_block", "restore_cv_block", "duplicate_cv_block", "delete_cv_block"].includes(operation.type)) {
           if (!blockRepository) throw new CvWorkspaceError("repository-error", "Block repository is required for CV Block lifecycle changes.");
           [source] = await blockRepository.browse({ blockId: operation.target.id, includeArchived: true });
           if (!source) throw new CvWorkspaceError("not-found", "CV Block not found.");
@@ -348,12 +374,20 @@ export function createMemoryCvRepository(initial = [], {
               blockId: source.id, currentVersionId: source.currentVersion?.id || null,
             });
           }
-          const expectedStatus = operation.type === "archive_cv_block" ? "active" : "archived";
-          if (source.status !== expectedStatus) throw new CvWorkspaceError("invalid-lifecycle-transition", "CV Block cannot make that lifecycle transition.");
-          if (operation.type === "archive_cv_block" && isBlockReferencedByActiveCv(source.id)) {
-            throw new CvWorkspaceError("invalid-lifecycle-transition", "CV Block is referenced by a non-archived CV Composition or Working Composition.");
+          if (["archive_cv_block", "restore_cv_block"].includes(operation.type)) {
+            const expectedStatus = operation.type === "archive_cv_block" ? "active" : "archived";
+            if (source.status !== expectedStatus) throw new CvWorkspaceError("invalid-lifecycle-transition", "CV Block cannot make that lifecycle transition.");
           }
-          diff = { lifecycle: { operation: operation.type, target: copy(operation.target), baseVersionId: operation.baseVersionId } };
+          if (operation.type === "archive_cv_block" && isBlockReferencedByActiveCv(source.id)) {
+            throw new CvWorkspaceError("invalid-lifecycle-transition", "CV Block is referenced by a non-archived CV Composition.");
+          }
+          diff = { block: {
+            operation: operation.type,
+            target: copy(operation.target),
+            baseVersionId: operation.baseVersionId,
+            before: { title: source.title, status: source.status, content: copy(source.currentVersion?.content) },
+            ...(operation.type === "duplicate_cv_block" ? { after: { title: operation.title || `${source.title} copy` } } : {}),
+          } };
         } else if (operation.type.startsWith("copy_")) {
           if (operation.source.type === "editing_session") {
             source = session(operation.source.id);
@@ -504,6 +538,12 @@ export function createMemoryCvRepository(initial = [], {
         const next = replacement
           ? normalizeDraft({ ...replacement.value, id: target.cvId })
           : normalizeDraft({ ...target, id: target.cvId });
+        const appendedByBlockId = new Map(appended.map((version) => [version.blockId, version.id]));
+        const selections = next.selections.map((selection) => (
+          appendedByBlockId.has(selection.blockId)
+            ? { ...selection, versionId: appendedByBlockId.get(selection.blockId) }
+            : selection
+        ));
         const saved = {
           ...target,
           name: next.name,
@@ -511,7 +551,7 @@ export function createMemoryCvRepository(initial = [], {
           profile: next.profile,
           summary: next.summary,
           summaryProvenance: next.summaryProvenance,
-          selections: next.selections,
+          selections,
           optimisticVersion: target.optimisticVersion + 1,
           updatedAt: nowIso(),
         };
@@ -588,6 +628,33 @@ export function createMemoryCvRepository(initial = [], {
           }
           const started = startSession(document.id, operation.baseRevisionId || null);
           result = { cvId: started.cvId, editingSessionId: started.id, optimisticVersion: started.optimisticVersion };
+        } else if (["create_cv_block", "duplicate_cv_block", "delete_cv_block"].includes(operation.type)) {
+          if (!blockRepository) throw new CvWorkspaceError("repository-error", "Block repository is required for CV Block changes.");
+          if (operation.type === "create_cv_block") {
+            const version = await blockRepository.saveVersion({
+              newBlockId: operation.target.id,
+              kind: operation.kind,
+              title: operation.title,
+              schemaVersion: operation.schemaVersion,
+              content: operation.content,
+              source: operation.source || { type: "human" },
+              contexts: operation.contexts,
+            });
+            result = { blockId: version.blockId, versionId: version.id, status: "active" };
+          } else {
+            const [target] = await blockRepository.browse({ blockId: operation.target.id, includeArchived: true });
+            if (!target || target.currentVersion?.id !== operation.baseVersionId) {
+              const context = { blockId: operation.target.id, currentVersionId: target?.currentVersion?.id || null };
+              changeProposals.set(id, { ...current, status: "invalidated", result: context, nextActions: [] });
+              throw new CvWorkspaceError("stale-block-version", "The CV Block has a newer current Block Version.", context);
+            }
+            if (operation.type === "duplicate_cv_block") {
+              const version = await blockRepository.duplicateBlock(target.id, { title: operation.title });
+              result = { blockId: version.blockId, versionId: version.id, status: "active" };
+            } else {
+              result = await blockRepository.deleteBlock(target.id);
+            }
+          }
         } else if (["archive_cv_block", "restore_cv_block"].includes(operation.type)) {
           if (!blockRepository) throw new CvWorkspaceError("repository-error", "Block repository is required for CV Block lifecycle changes.");
           const [target] = await blockRepository.browse({ blockId: operation.target.id, includeArchived: true });

@@ -399,9 +399,10 @@ export function createSupabaseCvRepository({ client, getActor } = {}) {
             proposal.result || undefined,
           );
         }
-        if (["archive_cv_block", "restore_cv_block"].includes(proposal.operationType)) {
+        if (["archive_cv_block", "restore_cv_block", "duplicate_cv_block", "delete_cv_block"].includes(proposal.operationType)) {
           const code = proposal.result?.reason === "invalid-lifecycle-transition"
             || /non-archived CV Composition/i.test(proposal.result?.reason || "")
+            || /referenced; archive it instead/i.test(proposal.result?.reason || "")
             ? "invalid-lifecycle-transition"
             : "stale-block-version";
           throw new CvWorkspaceError(

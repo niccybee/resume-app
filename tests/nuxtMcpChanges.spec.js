@@ -15,9 +15,17 @@ describe("Nuxt MCP Change Proposal surface", () => {
       expect(source).toContain(`name: "${name}"`);
     }
     expect(source).toMatch(/z\.discriminatedUnion/);
+    expect(source).toMatch(/blockContentSchema/);
     expect(source).toMatch(/append_block_version/);
     expect(source).toMatch(/replace_working_state/);
     expect(source).not.toMatch(/name: "(save|update|delete|append)_/);
+    expect(source).toMatch(/create_cv_block/);
+    expect(source).toMatch(/duplicate_cv_block/);
+    expect(source).toMatch(/delete_cv_block/);
+    const blockSchemas = await readFile(new URL("server/utils/mcpBlockSchema.js", root), "utf8");
+    expect(blockSchemas).toMatch(/z\.strictObject/);
+    expect(blockSchemas).toMatch(/z\.string\(\)\.refine\(isSupportedBlockDate/);
+    expect(blockSchemas).toMatch(/employmentOccasionSchema/);
   });
 
   it("keeps MCP mutations on the authenticated shared application boundary", async () => {

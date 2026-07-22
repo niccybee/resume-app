@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { blockContentSchema } from "../../../utils/mcpBlockSchema";
 import { defineMcpChangeTool } from "../../../utils/mcpChangeTool";
 
 const selectionSchema = z.object({
@@ -6,7 +7,7 @@ const selectionSchema = z.object({
   versionId: z.string().min(1),
   section: z.enum(["experience", "skills", "certifications", "education", "interests"]),
   order: z.number().int().nonnegative(),
-  content: z.record(z.string(), z.unknown()).optional(),
+  content: blockContentSchema.optional(),
   block: z.record(z.string(), z.unknown()).optional(),
   group: z.record(z.string(), z.unknown()).optional(),
 });
@@ -17,7 +18,7 @@ const operationSchema = z.discriminatedUnion("type", [
     blockId: z.string().min(1),
     basedOnVersionId: z.string().min(1),
     schemaVersion: z.literal("1"),
-    content: z.record(z.string(), z.unknown()),
+    content: blockContentSchema,
   }),
   z.object({
     type: z.literal("replace_working_state"),

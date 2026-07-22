@@ -1,6 +1,7 @@
 import { normalizeDraft, normalizeSlug } from "./cvDraft";
 import { exportCvRevision } from "./compositionAdapterRegistry";
-import { validateBlockContent } from "../blocks/blockSchemaRegistry";
+import { isSupportedBlockDate, validateBlockContent } from "../blocks/blockSchemaRegistry";
+import { createEmploymentContext } from "../employment/occasion";
 import {
   CONTENT_CHANGE_OPERATION_TYPES,
   LIFECYCLE_CHANGE_PROPOSAL_OPERATION_TYPES,
@@ -14,6 +15,13 @@ export class CvWorkspaceError extends Error {
     if (context !== undefined) this.context = context;
   }
 }
+
+const SIDEBAR_SECTION_BY_BLOCK_KIND = Object.freeze({
+  skill: "skills",
+  certification: "certifications",
+  education: "education",
+  interest: "interests",
+});
 
 export function createCvWorkspace({ repository, blockLibrary, summaryGenerator } = {}) {
   if (!repository) throw new CvWorkspaceError("missing-repository", "A CV repository is required.");
@@ -309,6 +317,50 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
         if (operation.type === "copy_for_new_role" && !String(operation.name || "").trim()) {
           throw new CvWorkspaceError("validation-failed", "Enter a name for the new role-focused CV.");
         }
+      } else if (operation.type === "create_cv_block") {
+        if (!String(operation.title || "").trim()) {
+          throw new CvWorkspaceError("validation-failed", "Enter a title for the new CV Block.");
+        }
+        const schemaVersion = operation.schemaVersion || "1";
+        try {
+          validateBlockContent({ kind: operation.kind, schemaVersion, content: operation.content });
+        } catch (cause) {
+          throw new CvWorkspaceError(
+            cause?.code === "unsupported-schema-version" ? "unsupported-schema" : "validation-failed",
+            cause?.message || "CV Block content is invalid.",
+          );
+        }
+        operation.title = String(operation.title).trim();
+        operation.schemaVersion = schemaVersion;
+        operation.target = { type: "cv_block", id: crypto.randomUUID() };
+        if (operation.kind === "experience") {
+          const occasion = operation.employmentOccasion;
+          if (!String(occasion?.employer || "").trim()
+            || !String(occasion?.role || "").trim()
+            || !isSupportedBlockDate(occasion?.startDate)
+            || (occasion?.endDate !== undefined && !isSupportedBlockDate(occasion.endDate))) {
+            throw new CvWorkspaceError(
+              "validation-failed",
+              "An Experience Block requires an Employment Occasion with employer, role, and valid dates.",
+            );
+          }
+          operation.contexts = [createEmploymentContext({
+            employer: occasion.employer.trim(),
+            role: occasion.role.trim(),
+            startDate: occasion.startDate,
+            ...(occasion.endDate ? { endDate: occasion.endDate } : {}),
+          })];
+        } else {
+          if (operation.employmentOccasion !== undefined) {
+            throw new CvWorkspaceError("validation-failed", "Only Experience Blocks use an Employment Occasion.");
+          }
+          operation.contexts = [{
+            type: "sidebar",
+            key: SIDEBAR_SECTION_BY_BLOCK_KIND[operation.kind],
+            label: operation.title,
+            metadata: {},
+          }];
+        }
       } else if (!operation.target?.id) {
         throw new CvWorkspaceError("validation-failed", "A lifecycle target is required.");
       }
@@ -332,7 +384,7 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
       if (["archive_cv", "restore_cv", "withdraw_publication"].includes(operation.type) && operation.target?.type !== "cv") {
         throw new CvWorkspaceError("validation-failed", "CV lifecycle operations require a CV target.");
       }
-      if (["archive_cv_block", "restore_cv_block"].includes(operation.type)) {
+      if (["archive_cv_block", "restore_cv_block", "duplicate_cv_block", "delete_cv_block"].includes(operation.type)) {
         if (operation.target?.type !== "cv_block" || !operation.baseVersionId) {
           throw new CvWorkspaceError("validation-failed", "CV Block lifecycle operations require a CV Block and exact base Block Version.");
         }
@@ -346,9 +398,11 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
             currentVersionId: block.currentVersion?.id || null,
           });
         }
-        const expectedStatus = operation.type === "archive_cv_block" ? "active" : "archived";
-        if (block.status !== expectedStatus) {
-          throw new CvWorkspaceError("invalid-lifecycle-transition", "CV Block cannot make that lifecycle transition.");
+        if (["archive_cv_block", "restore_cv_block"].includes(operation.type)) {
+          const expectedStatus = operation.type === "archive_cv_block" ? "active" : "archived";
+          if (block.status !== expectedStatus) {
+            throw new CvWorkspaceError("invalid-lifecycle-transition", "CV Block cannot make that lifecycle transition.");
+          }
         }
       }
       return repository.createChangeProposal({

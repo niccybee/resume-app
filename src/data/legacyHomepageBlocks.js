@@ -75,7 +75,7 @@ const skills = [
 ];
 
 const certifications = [
-  { name: "Basic Web Design Short Course", date: "", issuer: "RMIT", url: "" },
+  { name: "Basic Web Design Short Course", issuer: "RMIT", url: "" },
   { name: "Fundamentals of Digital Marketing", date: "2021", issuer: "Google", url: "" },
   { name: "Hubspot Marketing Software Certification", date: "2021", issuer: "HubSpot", url: "" },
 ];

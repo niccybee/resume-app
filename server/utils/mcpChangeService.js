@@ -41,7 +41,18 @@ export function createMcpChangeService({ client, user, oauthClient }) {
           : operation
       )),
     }),
-    proposeLifecycleChange: (input) => cvWorkspace.proposeLifecycleChange(input),
+    proposeLifecycleChange: (input) => cvWorkspace.proposeLifecycleChange({
+      ...input,
+      operation: input.operation.type === "create_cv_block"
+        ? {
+            ...input.operation,
+            source: {
+              type: "mcp",
+              clientId: oauthClient?.id || oauthClient?.client_id || "unknown-client",
+            },
+          }
+        : input.operation,
+    }),
     applyChangeProposal: (proposalId) => cvWorkspace.applyChangeProposal(proposalId),
     discardChangeProposal: (proposalId) => cvWorkspace.discardChangeProposal(proposalId),
   };

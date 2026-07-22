@@ -12,6 +12,9 @@ export const CHANGE_PROPOSAL_OPERATION_TYPES = Object.freeze([
   "restore_cv",
   "archive_cv_block",
   "restore_cv_block",
+  "create_cv_block",
+  "duplicate_cv_block",
+  "delete_cv_block",
   "publish_revision",
   "withdraw_publication",
 ]);

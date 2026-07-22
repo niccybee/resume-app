@@ -17,13 +17,16 @@ describe("CV Block identity and lifecycle migration", () => {
       expect(sql).toContain(`'${kind}'`);
     }
     expect(sql).toMatch(/unsupported CV Block schema version/i);
-    expect(sql).toMatch(/Experience optional fields must be strings/i);
+    expect(sql).toMatch(/create or replace function public\.is_valid_cv_block_date/i);
+    expect(sql).toMatch(/v_leap := mod\(v_year, 4\)/i);
+    expect(sql).toMatch(/jsonb_object_keys\(p_content\)[\s\S]*field outside schema version/i);
     expect(sql).toMatch(/Skill level must be a string/i);
     expect(sql).toMatch(/Certification optional fields must be strings/i);
     expect(sql).toMatch(/Education optional fields must be strings/i);
+    expect(sql).toMatch(/CV Block dates must use YYYY, YYYY-MM, or YYYY-MM-DD format/i);
     expect(sql).toMatch(/not \(p_content \? 'text'\)[\s\S]*not \(p_content \? 'name'\)[\s\S]*not \(p_content \? 'institution'\)/i);
     expect(sql).toMatch(/p_kind in \('skill', 'interest'\) and \(p_content \? 'keywords'\)/i);
-    expect(sql).toMatch(/p_kind = 'experience' and \(p_content \? 'highlights'\)/i);
+    expect(sql).not.toMatch(/p_kind = 'experience' and \(p_content \? 'highlights'\)/i);
     expect(sql).toMatch(/p_kind = 'education' and \(p_content \? 'courses'\)/i);
     expect(sql).toMatch(/for existing_version in[\s\S]*perform public\.validate_cv_block_content/i);
     expect(sql.trim()).toMatch(/commit;$/i);
@@ -55,7 +58,9 @@ describe("CV Block identity and lifecycle migration", () => {
     expect(sql).toMatch(/insert into public\.cv_block_versions/i);
     expect(sql).toMatch(/based_on_version_id[\s\S]*null/i);
     expect(sql).toMatch(/create or replace function public\.delete_cv_block/i);
-    expect(sql).toMatch(/cv_compositions[\s\S]*cv_editing_session_compositions[\s\S]*cv_revision_compositions/i);
+    const deletion = sql.slice(sql.indexOf("create or replace function public.delete_cv_block"));
+    expect(deletion).toMatch(/cv_compositions[\s\S]*cv_revision_compositions/i);
+    expect(deletion).toMatch(/delete from public\.cv_editing_session_compositions[\s\S]*optimistic_version = optimistic_version \+ 1/i);
     expect(sql).toMatch(/CV Block is referenced; archive it instead/i);
     expect(sql).toMatch(/create or replace function public\.set_cv_block_status/i);
   });

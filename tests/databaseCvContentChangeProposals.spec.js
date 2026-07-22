@@ -16,6 +16,9 @@ describe("content Change Proposal migration", () => {
     expect(create).toMatch(/schemaVersion/i);
     expect(create).toMatch(/structured_diff/i);
     expect(create).toMatch(/validate_cv_block_proposal_content/i);
+    expect(sql).toMatch(/jsonb_object_keys\(p_content\)[\s\S]*field outside schema version/i);
+    expect(sql).toMatch(/CV Block dates must use YYYY, YYYY-MM, or YYYY-MM-DD format/i);
+    expect(sql).toMatch(/public\.is_valid_cv_block_date\(field\.value\)/i);
     expect(create).toMatch(/having count\(\*\) > 1/i);
     expect(create).not.toMatch(/insert into public\.cv_block_versions/i);
     expect(create).not.toMatch(/update public\.cv_editing_sessions/i);
@@ -34,6 +37,7 @@ describe("content Change Proposal migration", () => {
     expect(apply).toMatch(/select distinct[\s\S]*order by source\.id[\s\S]*for update of source/i);
     expect(apply).toMatch(/optimistic_version = optimistic_version \+ 1/i);
     expect(apply).toMatch(/affectedIdentities/i);
+    expect(apply).toMatch(/set version_id[\s\S]*jsonb_each_text\(version_replacements\)/i);
     expect(sql.trim()).toMatch(/commit;$/i);
     expect(sql).toMatch(/source_type in \('human', 'ai', 'import', 'mcp'\)/i);
   });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { blockContentSchema, employmentOccasionSchema } from "../../../utils/mcpBlockSchema";
 import { defineMcpChangeTool } from "../../../utils/mcpChangeTool";
 
 const id = z.string().min(1);
@@ -8,6 +9,7 @@ const sessionTarget = z.object({ type: z.literal("editing_session"), id });
 const revisionTarget = z.object({ type: z.literal("cv_revision"), id, cvId: id });
 const revisionSource = revisionTarget;
 const sessionSource = sessionTarget;
+const blockKind = z.enum(["experience", "skill", "certification", "education", "interest"]);
 
 const operationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start_editing_session"), target: cvTarget, baseRevisionId: id.nullable().optional() }),
@@ -21,6 +23,16 @@ const operationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("restore_cv"), target: cvTarget }),
   z.object({ type: z.literal("archive_cv_block"), target: blockTarget, baseVersionId: id }),
   z.object({ type: z.literal("restore_cv_block"), target: blockTarget, baseVersionId: id }),
+  z.object({
+    type: z.literal("create_cv_block"),
+    kind: blockKind,
+    title: z.string().min(1),
+    schemaVersion: z.literal("1"),
+    content: blockContentSchema,
+    employmentOccasion: employmentOccasionSchema.optional(),
+  }),
+  z.object({ type: z.literal("duplicate_cv_block"), target: blockTarget, baseVersionId: id, title: z.string().min(1).optional() }),
+  z.object({ type: z.literal("delete_cv_block"), target: blockTarget, baseVersionId: id }),
   z.object({ type: z.literal("publish_revision"), target: revisionTarget, slug: z.string().min(1) }),
   z.object({ type: z.literal("withdraw_publication"), target: cvTarget }),
 ]);

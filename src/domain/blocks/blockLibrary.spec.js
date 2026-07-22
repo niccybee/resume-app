@@ -26,7 +26,7 @@ const employmentContext = {
 describe("BlockLibrary", () => {
   it("validates every CV Block kind through the versioned schema registry", () => {
     const valid = {
-      experience: { text: "Led a product launch.", highlights: ["Three markets"] },
+      experience: { text: "Led a product launch." },
       skill: { name: "Product analytics", keywords: ["SQL"] },
       certification: { name: "GA4", issuer: "Google" },
       education: { institution: "RMIT", area: "Marketing" },
@@ -38,6 +38,16 @@ describe("BlockLibrary", () => {
     }
     expect(() => validateBlockContent({ kind: "skill", schemaVersion: "1", content: { name: "", keywords: "SQL" } }))
       .toThrow(expect.objectContaining({ code: "invalid-content" }));
+    expect(() => validateBlockContent({ kind: "experience", schemaVersion: "1", content: { text: "Led a launch.", highlights: ["Three markets"] } }))
+      .toThrow(expect.objectContaining({ code: "invalid-content" }));
+    expect(() => validateBlockContent({ kind: "skill", schemaVersion: "1", content: { name: "Analytics", privateNote: "not in schema" } }))
+      .toThrow(expect.objectContaining({ code: "invalid-content" }));
+    expect(() => validateBlockContent({ kind: "certification", schemaVersion: "1", content: { name: "GA4", date: "2026-99" } }))
+      .toThrow(expect.objectContaining({ code: "invalid-content" }));
+    expect(() => validateBlockContent({ kind: "education", schemaVersion: "1", content: { institution: "RMIT", startDate: "2026-02-29" } }))
+      .toThrow(expect.objectContaining({ code: "invalid-content" }));
+    expect(validateBlockContent({ kind: "education", schemaVersion: "1", content: { institution: "RMIT", startDate: "2024-02-29", endDate: "2026-07" } }))
+      .toMatchObject({ startDate: "2024-02-29", endDate: "2026-07" });
     expect(() => validateBlockContent({ kind: "skill", schemaVersion: "99", content: valid.skill }))
       .toThrow(expect.objectContaining({ code: "unsupported-schema-version" }));
   });

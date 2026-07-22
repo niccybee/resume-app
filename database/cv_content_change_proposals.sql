@@ -38,10 +38,21 @@ begin
     raise exception 'CV Block content is missing its required field.' using errcode = '22023';
   end if;
   if exists (
+    select 1 from jsonb_object_keys(p_content) field
+    where not (
+      (p_kind = 'experience' and field = 'text')
+      or (p_kind = 'skill' and field in ('name', 'level', 'keywords'))
+      or (p_kind = 'certification' and field in ('name', 'issuer', 'date', 'url'))
+      or (p_kind = 'education' and field in ('institution', 'url', 'area', 'studyType', 'startDate', 'endDate', 'score', 'courses'))
+      or (p_kind = 'interest' and field in ('name', 'keywords'))
+    )
+  ) then
+    raise exception 'CV Block content contains a field outside schema version %.', p_schema_version using errcode = '22023';
+  end if;
+  if exists (
     select 1 from jsonb_each(p_content) field
     where (
-      (p_kind = 'experience' and field.key in ('name', 'position', 'url', 'startDate', 'endDate', 'summary'))
-      or (p_kind = 'skill' and field.key = 'level')
+      (p_kind = 'skill' and field.key = 'level')
       or (p_kind = 'certification' and field.key in ('issuer', 'date', 'url'))
       or (p_kind = 'education' and field.key in ('url', 'area', 'studyType', 'startDate', 'endDate', 'score'))
     ) and jsonb_typeof(field.value) <> 'string'
@@ -49,8 +60,14 @@ begin
     raise exception 'CV Block content contains an invalid string field.' using errcode = '22023';
   end if;
   if exists (
+    select 1 from jsonb_each_text(p_content) field
+    where (
+      (p_kind = 'certification' and field.key = 'date')
+      or (p_kind = 'education' and field.key in ('startDate', 'endDate'))
+    ) and not public.is_valid_cv_block_date(field.value)
+  ) then raise exception 'CV Block dates must use YYYY, YYYY-MM, or YYYY-MM-DD format.' using errcode = '22023'; end if;
+  if exists (
     select 1 from (values
-      ('experience', 'highlights'),
       ('skill', 'keywords'),
       ('education', 'courses'),
       ('interest', 'keywords')
@@ -215,6 +232,7 @@ declare
   saved_version jsonb;
   block_ids jsonb := '[]'::jsonb;
   version_ids jsonb := '[]'::jsonb;
+  version_replacements jsonb := '{}'::jsonb;
 begin
   if v_owner_id is null then raise exception 'Authentication is required.' using errcode = '42501'; end if;
   select source.* into change_proposal from public.cv_change_proposals source
@@ -301,6 +319,7 @@ begin
       ) into saved_version;
       block_ids := block_ids || jsonb_build_array(saved_version->>'blockId');
       version_ids := version_ids || jsonb_build_array(saved_version->>'id');
+      version_replacements := version_replacements || jsonb_build_object(saved_version->>'blockId', saved_version->>'id');
     end if;
   end loop;
 
@@ -331,6 +350,12 @@ begin
     update public.cv_editing_sessions set optimistic_version = optimistic_version + 1, updated_at = now()
     where id = editing_session.id and owner_id = v_owner_id;
   end if;
+  update public.cv_editing_session_compositions composition
+  set version_id = (replacement.value)::uuid
+  from jsonb_each_text(version_replacements) replacement
+  where composition.session_id = editing_session.id
+    and composition.owner_id = v_owner_id
+    and composition.block_id = replacement.key::uuid;
 
   update public.cv_change_proposals set status = 'applied', applied_at = now(), result = jsonb_build_object(
     'editingSessionId', editing_session.id,

@@ -3,6 +3,40 @@ begin;
 alter table public.cv_block_versions
   add column if not exists schema_version text not null default '1';
 
+create or replace function public.is_valid_cv_block_date(p_value text)
+returns boolean
+language plpgsql
+immutable
+set search_path = ''
+as $$
+declare
+  v_parts text[];
+  v_year integer;
+  v_month integer;
+  v_day integer;
+  v_max_day integer;
+  v_leap boolean;
+begin
+  if p_value is null or p_value !~ '^[0-9]{4}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12][0-9]|3[01]))?)?$' then
+    return false;
+  end if;
+  v_parts := string_to_array(p_value, '-');
+  if array_length(v_parts, 1) < 3 then return true; end if;
+  v_year := v_parts[1]::integer;
+  v_month := v_parts[2]::integer;
+  v_day := v_parts[3]::integer;
+  v_leap := mod(v_year, 4) = 0 and (mod(v_year, 100) <> 0 or mod(v_year, 400) = 0);
+  v_max_day := case
+    when v_month in (1, 3, 5, 7, 8, 10, 12) then 31
+    when v_month in (4, 6, 9, 11) then 30
+    when v_leap then 29
+    else 28
+  end;
+  return v_day <= v_max_day;
+end;
+$$;
+revoke all on function public.is_valid_cv_block_date(text) from public, anon, authenticated;
+
 create or replace function public.validate_cv_block_content(
   p_kind text,
   p_schema_version text,
@@ -44,11 +78,19 @@ begin
     raise exception 'Education content requires a non-empty institution' using errcode = '22023';
   end if;
 
-  if p_kind = 'experience' and exists (
-    select 1 from jsonb_each(p_content) field
-    where field.key in ('name', 'position', 'url', 'startDate', 'endDate', 'summary')
-      and jsonb_typeof(field.value) <> 'string'
-  ) then raise exception 'Experience optional fields must be strings' using errcode = '22023'; end if;
+  if exists (
+    select 1 from jsonb_object_keys(p_content) field
+    where not (
+      (p_kind = 'experience' and field = 'text')
+      or (p_kind = 'skill' and field in ('name', 'level', 'keywords'))
+      or (p_kind = 'certification' and field in ('name', 'issuer', 'date', 'url'))
+      or (p_kind = 'education' and field in ('institution', 'url', 'area', 'studyType', 'startDate', 'endDate', 'score', 'courses'))
+      or (p_kind = 'interest' and field in ('name', 'keywords'))
+    )
+  ) then
+    raise exception 'CV Block content contains a field outside schema version %', p_schema_version using errcode = '22023';
+  end if;
+
   if p_kind = 'skill' and exists (
     select 1 from jsonb_each(p_content) field
     where field.key = 'level' and jsonb_typeof(field.value) <> 'string'
@@ -62,15 +104,18 @@ begin
     where field.key in ('url', 'area', 'studyType', 'startDate', 'endDate', 'score')
       and jsonb_typeof(field.value) <> 'string'
   ) then raise exception 'Education optional fields must be strings' using errcode = '22023'; end if;
+  if exists (
+    select 1 from jsonb_each_text(p_content) field
+    where (
+      (p_kind = 'certification' and field.key = 'date')
+      or (p_kind = 'education' and field.key in ('startDate', 'endDate'))
+    ) and not public.is_valid_cv_block_date(field.value)
+  ) then raise exception 'CV Block dates must use YYYY, YYYY-MM, or YYYY-MM-DD format' using errcode = '22023'; end if;
 
   if p_kind in ('skill', 'interest') and (p_content ? 'keywords') and (
     jsonb_typeof(p_content -> 'keywords') <> 'array'
     or exists (select 1 from jsonb_array_elements(p_content -> 'keywords') item where jsonb_typeof(item) <> 'string')
   ) then raise exception 'CV Block keywords must be an array of strings' using errcode = '22023'; end if;
-  if p_kind = 'experience' and (p_content ? 'highlights') and (
-    jsonb_typeof(p_content -> 'highlights') <> 'array'
-    or exists (select 1 from jsonb_array_elements(p_content -> 'highlights') item where jsonb_typeof(item) <> 'string')
-  ) then raise exception 'Experience highlights must be an array of strings' using errcode = '22023'; end if;
   if p_kind = 'education' and (p_content ? 'courses') and (
     jsonb_typeof(p_content -> 'courses') <> 'array'
     or exists (select 1 from jsonb_array_elements(p_content -> 'courses') item where jsonb_typeof(item) <> 'string')
@@ -147,13 +192,22 @@ begin
     where id = p_block_id and owner_id = v_owner_id for update;
     if not found then raise exception 'Block not found' using errcode = 'P0002'; end if;
     if v_block.status = 'archived' then raise exception 'Restore this CV Block before appending a Block Version' using errcode = '55000'; end if;
-    if v_block.current_version_id is distinct from p_based_on_version_id then
-      raise exception 'This block has changed since the selected base version' using errcode = '40001';
-    end if;
-    select * into base_version from public.cv_block_versions
-    where id = p_based_on_version_id and owner_id = v_owner_id;
-    if not found or base_version.block_id <> v_block.id then
-      raise exception 'Base Block Version must belong to the same CV Block identity' using errcode = '23514';
+    if v_block.current_version_id is null then
+      if p_based_on_version_id is not null then
+        raise exception 'A new CV Block identity cannot use based_on_version_id' using errcode = '23514';
+      end if;
+      if p_kind is not null and p_kind <> v_block.kind then
+        raise exception 'Reserved CV Block kind does not match' using errcode = '23514';
+      end if;
+    else
+      if v_block.current_version_id is distinct from p_based_on_version_id then
+        raise exception 'This block has changed since the selected base version' using errcode = '40001';
+      end if;
+      select * into base_version from public.cv_block_versions
+      where id = p_based_on_version_id and owner_id = v_owner_id;
+      if not found or base_version.block_id <> v_block.id then
+        raise exception 'Base Block Version must belong to the same CV Block identity' using errcode = '23514';
+      end if;
     end if;
     perform public.validate_cv_block_content(v_block.kind, p_schema_version, p_content);
   end if;
@@ -350,12 +404,18 @@ begin
   if exists (
     select 1 from public.cv_compositions where block_id = p_block_id and owner_id = v_owner_id
     union all
-    select 1 from public.cv_editing_session_compositions where block_id = p_block_id and owner_id = v_owner_id
-    union all
     select 1 from public.cv_revision_compositions where block_id = p_block_id and owner_id = v_owner_id
   ) then
     raise exception 'CV Block is referenced; archive it instead' using errcode = '55000';
   end if;
+  with removed as (
+    delete from public.cv_editing_session_compositions
+    where block_id = p_block_id and owner_id = v_owner_id
+    returning session_id
+  )
+  update public.cv_editing_sessions session
+  set optimistic_version = optimistic_version + 1, updated_at = now()
+  where session.id in (select distinct session_id from removed);
   delete from public.cv_blocks where id = p_block_id and owner_id = v_owner_id;
   return jsonb_build_object('deletedBlockId', p_block_id);
 end;

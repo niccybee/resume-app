@@ -79,6 +79,7 @@ it("persists a reviewed task set through one atomic library operation", async ()
   const selections = await createTaskBlocks({ blockLibrary, tasks });
 
   expect(saveVersions).toHaveBeenCalledOnce();
+  expect(saveVersions.mock.calls[0][0][1].contexts[0].metadata).not.toHaveProperty("endDate");
   expect(saveVersions).toHaveBeenCalledWith([
     expect.objectContaining({
       kind: "experience",

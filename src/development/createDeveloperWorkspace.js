@@ -15,7 +15,6 @@ const contexts = {
     employer: "Google",
     role: "Product Manager",
     startDate: "2021-03",
-    endDate: "present",
   }),
   atlassianProduct: createEmploymentContext({
     employer: "Atlassian",
@@ -106,7 +105,7 @@ export const DEVELOPER_VERSION_FIXTURES = [
     blockId: "dev-block-google-launch",
     number: 1,
     schemaVersion: "1",
-    content: { text: "Led the launch of a new collaboration product across three APAC markets.", highlights: ["Three-market launch", "Cross-functional delivery"] },
+    content: { text: "Led the launch of a new collaboration product across three APAC markets." },
     source: { type: "human" },
     basedOnVersionId: null,
     createdAt: createdAt.early,
@@ -116,7 +115,7 @@ export const DEVELOPER_VERSION_FIXTURES = [
     blockId: "dev-block-google-launch",
     number: 2,
     schemaVersion: "1",
-    content: { text: "Led an evidence-driven launch across three APAC markets, reaching 120,000 activated users in the first quarter.", highlights: ["120,000 activated users", "Three-market launch", "Cross-functional delivery"] },
+    content: { text: "Led an evidence-driven launch across three APAC markets, reaching 120,000 activated users in the first quarter." },
     source: { type: "human" },
     basedOnVersionId: "dev-version-google-launch-1",
     createdAt: createdAt.recent,
@@ -126,7 +125,7 @@ export const DEVELOPER_VERSION_FIXTURES = [
     blockId: "dev-block-google-growth",
     number: 1,
     schemaVersion: "1",
-    content: { text: "Reworked onboarding using cohort analysis and customer interviews, improving 30-day retention by 18%.", highlights: ["18% retention improvement", "Cohort analysis"] },
+    content: { text: "Reworked onboarding using cohort analysis and customer interviews, improving 30-day retention by 18%." },
     source: { type: "human" },
     basedOnVersionId: null,
     createdAt: createdAt.middle,
@@ -136,7 +135,7 @@ export const DEVELOPER_VERSION_FIXTURES = [
     blockId: "dev-block-atlassian-research",
     number: 1,
     schemaVersion: "1",
-    content: { text: "Established a continuous discovery programme that connected weekly customer interviews to quarterly roadmap decisions.", highlights: ["Continuous discovery", "Roadmap strategy"] },
+    content: { text: "Established a continuous discovery programme that connected weekly customer interviews to quarterly roadmap decisions." },
     source: { type: "human" },
     basedOnVersionId: null,
     createdAt: createdAt.early,
@@ -303,16 +302,17 @@ export function createDeveloperWorkspace() {
     isBlockReferenced: async (blockId) => {
       if (!cvRepository) return false;
       const cvs = await cvRepository.list();
-      for (const cv of cvs.filter((item) => item.status !== "archived")) {
+      for (const cv of cvs) {
         const revisions = await cvRepository.listRevisions(cv.id);
         for (const revision of revisions) {
           const exact = await cvRepository.getRevision(cv.id, revision.id);
           if (exact.selections.some((selection) => selection.blockId === blockId)) return true;
         }
-        const sessions = await cvRepository.listEditingSessions(cv.id);
-        if (sessions.some((session) => session.selections.some((selection) => selection.blockId === blockId))) return true;
       }
       return false;
+    },
+    onDeleteBlock: async (blockId) => {
+      if (cvRepository) await cvRepository.removeBlockFromWorkingCompositions(blockId);
     },
   });
   const blockLibrary = createBlockLibrary({

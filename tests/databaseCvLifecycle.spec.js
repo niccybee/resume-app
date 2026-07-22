@@ -11,7 +11,7 @@ describe("CV and Editing Session lifecycle migration", () => {
   it("extends Change Proposals with typed copy and archive operations", async () => {
     const sql = await migration();
     expect(sql).toMatch(/^begin;/i);
-    for (const operation of ["start_editing_session", "resume_editing_session", "finish_editing_session", "copy_to_new_version", "copy_for_new_role", "archive_editing_session", "restore_editing_session", "archive_cv", "restore_cv", "archive_cv_block", "restore_cv_block"]) {
+    for (const operation of ["start_editing_session", "resume_editing_session", "finish_editing_session", "copy_to_new_version", "copy_for_new_role", "archive_editing_session", "restore_editing_session", "archive_cv", "restore_cv", "archive_cv_block", "restore_cv_block", "create_cv_block", "duplicate_cv_block", "delete_cv_block"]) {
       expect(sql).toContain(operation);
     }
     expect(sql).toMatch(/create or replace function public\.create_cv_lifecycle_proposal/i);
@@ -36,13 +36,19 @@ describe("CV and Editing Session lifecycle migration", () => {
     const apply = sql.slice(sql.indexOf("create or replace function public.apply_cv_lifecycle_proposal"), sql.indexOf("revoke all on function public.apply_cv_lifecycle_proposal"));
     expect(create).toMatch(/baseRevisionId/i);
     expect(create).toMatch(/baseVersionId/i);
+    expect(create).toMatch(/An Experience Block requires a valid Employment Occasion/i);
     expect(create).not.toMatch(/start_cv_editing_session/i);
     expect(create).not.toMatch(/finish_cv_editing_session/i);
     expect(apply).toMatch(/start_cv_editing_session/i);
     expect(apply).toMatch(/finish_cv_editing_session/i);
     expect(apply).toMatch(/published_revision_id/i);
     expect(apply).toMatch(/archive_cv_block/i);
+    expect(apply).toMatch(/save_cv_block_version/i);
+    expect(apply).toMatch(/insert into public\.cv_blocks\(id, owner_id, kind, title, status\)[\s\S]*p_block_id => change_proposal\.target_id/i);
+    expect(apply).toMatch(/duplicate_cv_block/i);
+    expect(apply).toMatch(/delete_cv_block/i);
     expect(apply).toMatch(/non-archived CV Composition/i);
+    expect(create).not.toMatch(/cv_editing_session_compositions/i);
   });
 
   it("copies atomically while retaining source state and new-role v1 semantics", async () => {

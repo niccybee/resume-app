@@ -96,7 +96,12 @@ async function load() {
 async function createBlock() {
   saving.value = true; error.value = "";
   try {
-    const employmentContext = createEmploymentContext({ employer: form.employer, role: form.role, startDate: form.startDate, endDate: form.endDate || "present" });
+    const employmentContext = createEmploymentContext({
+      employer: form.employer,
+      role: form.role,
+      startDate: form.startDate,
+      ...(form.endDate ? { endDate: form.endDate } : {}),
+    });
     const contexts = form.kind === "experience"
       ? [employmentContext]
       : [{ type: "sidebar", key: `${form.kind}s`, label: form.title, metadata: {} }];

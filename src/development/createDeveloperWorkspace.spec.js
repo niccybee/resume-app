@@ -11,6 +11,10 @@ describe("developer workspace fixtures", () => {
     expect(catalog.blocks.find((block) => block.id === "dev-block-google-launch")?.versions).toHaveLength(2);
     expect(catalog.sidebar.skills).toHaveLength(2);
     expect(cvs.map((cv) => cv.status)).toEqual(expect.arrayContaining(["draft", "published", "archived"]));
+    const googleContext = catalog.blocks
+      .find((block) => block.id === "dev-block-google-launch")
+      ?.contexts.find((context) => context.type === "employment");
+    expect(googleContext?.metadata).not.toHaveProperty("endDate");
     await expect(cvWorkspace.revision(
       "dev-cv-product-google",
       "dev-cv-product-google-revision-1",
@@ -40,7 +44,7 @@ describe("developer workspace fixtures", () => {
         type: "append_block_version",
         blockId: block.id,
         basedOnVersionId: block.currentVersion.id,
-        content: { text: "Developer access edit", highlights: ["Safe fixture"] },
+        content: { text: "Developer access edit" },
       }],
     });
     const applied = await cvWorkspace.applyChangeProposal(proposal.id);
@@ -55,8 +59,34 @@ describe("developer workspace fixtures", () => {
       selections: expect.arrayContaining([
         expect.objectContaining({
           blockId: block.id,
-          versionId: "dev-version-google-launch-2",
+          versionId: appended.id,
         }),
+      ]),
+    });
+  });
+
+  it("removes a deleted uncommitted Block from Working Compositions", async () => {
+    const { blockLibrary, cvWorkspace } = createDeveloperWorkspace();
+    const version = await blockLibrary.saveVersion({
+      kind: "skill",
+      title: "Temporary skill",
+      content: { name: "Temporary skill" },
+    });
+    const [session] = await cvWorkspace.editingSessions("dev-cv-product-google");
+    const saved = await cvWorkspace.saveEditingSession({
+      ...session,
+      selections: [
+        ...session.selections,
+        { blockId: version.blockId, versionId: version.id, section: "skills", order: 2 },
+      ],
+    });
+
+    await blockLibrary.deleteBlock(version.blockId);
+
+    await expect(cvWorkspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      optimisticVersion: saved.optimisticVersion + 1,
+      selections: expect.not.arrayContaining([
+        expect.objectContaining({ blockId: version.blockId }),
       ]),
     });
   });

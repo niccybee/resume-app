@@ -127,6 +127,115 @@ describe("CV workspace boundary", () => {
     await expect(blockLibrary.getBlock(version.blockId)).resolves.toMatchObject({ status: "active" });
   });
 
+  it("allows Block archival when only a Working Composition references it", async () => {
+    const blockRepository = createMemoryBlockRepository();
+    const blockLibrary = createBlockLibrary({ repository: blockRepository });
+    const version = await blockLibrary.saveVersion({
+      kind: "skill", title: "Strategy", content: { name: "Product strategy" },
+    });
+    const repository = createMemoryCvRepository([{
+      id: "cv-1", name: "Product CV", selections: [],
+    }], { blockRepository });
+    const workspace = createCvWorkspace({ repository, blockLibrary });
+    const session = await workspace.startEditingSession("cv-1");
+    await workspace.saveEditingSession({
+      ...session,
+      selections: [{
+        blockId: version.blockId,
+        versionId: version.id,
+        section: "skills",
+        order: 0,
+      }],
+    });
+
+    const archive = await workspace.proposeLifecycleChange({ operation: {
+      type: "archive_cv_block",
+      target: { type: "cv_block", id: version.blockId },
+      baseVersionId: version.id,
+    } });
+    await workspace.applyChangeProposal(archive.id);
+
+    await expect(blockLibrary.getBlock(version.blockId)).resolves.toMatchObject({
+      status: "archived",
+    });
+  });
+
+  it("creates, duplicates, and deletes CV Blocks only after explicit apply", async () => {
+    const blockRepository = createMemoryBlockRepository();
+    const blockLibrary = createBlockLibrary({ repository: blockRepository });
+    const workspace = createCvWorkspace({
+      repository: createMemoryCvRepository([], { blockRepository }),
+      blockLibrary,
+    });
+
+    const createProposal = await workspace.proposeLifecycleChange({ operation: {
+      type: "create_cv_block",
+      kind: "skill",
+      title: "Product analytics",
+      schemaVersion: "1",
+      content: { name: "Product analytics", keywords: ["SQL"] },
+    } });
+    expect((await blockLibrary.browse()).blocks).toHaveLength(0);
+    const created = await workspace.applyChangeProposal(createProposal.id);
+    expect(created.result.blockId).toBe(createProposal.target.id);
+    const source = await blockLibrary.getBlock(created.result.blockId);
+
+    const duplicateProposal = await workspace.proposeLifecycleChange({ operation: {
+      type: "duplicate_cv_block",
+      target: { type: "cv_block", id: source.id },
+      baseVersionId: source.currentVersion.id,
+      title: "Product analytics copy",
+    } });
+    const duplicated = await workspace.applyChangeProposal(duplicateProposal.id);
+    const duplicate = await blockLibrary.getBlock(duplicated.result.blockId);
+
+    const deleteProposal = await workspace.proposeLifecycleChange({ operation: {
+      type: "delete_cv_block",
+      target: { type: "cv_block", id: duplicate.id },
+      baseVersionId: duplicate.currentVersion.id,
+    } });
+    await workspace.applyChangeProposal(deleteProposal.id);
+
+    await expect(blockLibrary.getBlock(duplicate.id)).rejects.toMatchObject({ code: "block-not-found" });
+    await expect(blockLibrary.getBlock(source.id)).resolves.toMatchObject({ title: "Product analytics" });
+  });
+
+  it("requires and persists an Employment Occasion when MCP creates an Experience Block", async () => {
+    const blockRepository = createMemoryBlockRepository();
+    const blockLibrary = createBlockLibrary({ repository: blockRepository });
+    const workspace = createCvWorkspace({
+      repository: createMemoryCvRepository([], { blockRepository }),
+      blockLibrary,
+    });
+    const operation = {
+      type: "create_cv_block",
+      kind: "experience",
+      title: "Google product launch",
+      schemaVersion: "1",
+      content: { text: "Led an APAC product launch." },
+    };
+
+    await expect(workspace.proposeLifecycleChange({ operation })).rejects.toMatchObject({
+      code: "validation-failed",
+    });
+    const proposal = await workspace.proposeLifecycleChange({ operation: {
+      ...operation,
+      employmentOccasion: {
+        employer: "Google",
+        role: "Product Manager",
+        startDate: "2024-02",
+      },
+    } });
+    const applied = await workspace.applyChangeProposal(proposal.id);
+
+    await expect(blockLibrary.getBlock(applied.result.blockId)).resolves.toMatchObject({
+      contexts: [expect.objectContaining({
+        type: "employment",
+        metadata: expect.objectContaining({ employer: "Google", role: "Product Manager", startDate: "2024-02" }),
+      })],
+    });
+  });
+
   it("copies a CV Revision into a new role-focused lineage whose first finish is Revision 1", async () => {
     const repository = createMemoryCvRepository([{
       id: "cv-1", name: "Product Manager at Google", summary: "Google focus", selections: [employment],
@@ -412,6 +521,12 @@ describe("CV workspace boundary", () => {
     await expect(blockLibrary.getBlock(initialVersion.blockId)).resolves.toMatchObject({
       currentVersion: { id: "version-2" },
       versions: [{ id: initialVersion.id }, { id: "version-2" }],
+    });
+    await expect(workspace.resumeEditingSession(session.id)).resolves.toMatchObject({
+      selections: [expect.objectContaining({
+        blockId: initialVersion.blockId,
+        versionId: "version-2",
+      })],
     });
   });
 

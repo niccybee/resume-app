@@ -7,6 +7,7 @@ function clone(value) {
 
 export function createMemoryBlockRepository({
   isBlockReferenced = () => false,
+  onDeleteBlock = () => undefined,
   initialBlocks = [],
   initialVersions = [],
 } = {}) {
@@ -77,7 +78,7 @@ export function createMemoryBlockRepository({
           throw new BlockLibraryError("invalid-base-version", "A new CV Block cannot use a base Version from another identity.");
         }
         block = {
-          id: `block-${++blockSequence}`,
+          id: input.newBlockId || `block-${++blockSequence}`,
           kind: input.kind,
           title: input.title,
           status: "active",
@@ -184,6 +185,7 @@ export function createMemoryBlockRepository({
           { nextActions: ["archive"] },
         );
       }
+      await onDeleteBlock(blockId);
       blocks.splice(blockIndex, 1);
       for (let index = versions.length - 1; index >= 0; index -= 1) {
         if (versions[index].blockId === blockId) versions.splice(index, 1);

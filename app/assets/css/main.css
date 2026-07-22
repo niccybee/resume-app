@@ -133,30 +133,13 @@ p {
   min-height: 100vh;
 }
 
-[data-layout="workspace"] :is(input, select, textarea) {
-  width: 100%;
-  margin-top: 0.35rem;
-  border: 1px solid #a99984;
-  border-radius: 0;
-  background: var(--paper-light);
+[data-layout="workspace"] :is(input, textarea) {
   color: var(--ink);
   font: inherit;
 }
 
-[data-layout="workspace"] :is(input, select) {
-  min-height: var(--control-standard-height);
-  padding: 0 0.75rem;
-}
-
 [data-layout="workspace"] textarea {
   min-height: 7rem;
-  padding: 0.75rem;
-}
-
-[data-layout="workspace"] :is(input, select, textarea):focus-visible {
-  border-color: var(--marker-dark);
-  outline: 3px solid rgb(240 90 61 / 18%);
-  outline-offset: 1px;
 }
 
 [data-layout="workspace"] label {
@@ -200,7 +183,7 @@ p {
   text-transform: uppercase;
 }
 
-[data-layout="workspace"] button:not(.nuxt-ui-button),
+[data-layout="workspace"] button:not(.nuxt-ui-button):not([role="combobox"]),
 [data-layout="workspace"] [role="button"]:not(.nuxt-ui-button) {
   display: inline-flex;
   align-items: center;

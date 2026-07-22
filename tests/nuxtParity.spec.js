@@ -76,6 +76,23 @@ describe("completed Nuxt migration", () => {
     expect(`${config}\n${staticBuild}`).not.toContain("VITE_");
   });
 
+  it("renders active form surfaces through Nuxt UI controls", async () => {
+    const formSurfaces = [
+      "app/pages/login.vue",
+      "src/components/TaskChat.vue",
+      "src/views/BlockLibraryView.vue",
+      "src/views/CvDraftEditor.vue",
+      "src/views/OpenRouterSettings.vue",
+    ];
+    const sources = await Promise.all(formSurfaces.map((path) => readFile(fromRoot(path), "utf8")));
+    const combined = sources.join("\n");
+
+    expect(combined).not.toMatch(/<(?:input|select|textarea)\b/i);
+    expect(combined).toContain("<UInput");
+    expect(combined).toContain("<USelect");
+    expect(combined).toContain("<UTextarea");
+  });
+
   it("publishes the Netlify-recognized Nuxt output without an external gate", async () => {
     const netlify = await readFile(fromRoot("netlify.toml"), "utf8");
 

@@ -129,14 +129,14 @@ async function createTasks() {
     </ol>
 
     <div class="chat-input-group">
-      <textarea
+      <UTextarea
         v-model="prompt"
         rows="3"
         aria-label="Task instructions"
         placeholder="E2 as Growth Lead from 2024-02 to present: Built…"
         @keydown.meta.enter.prevent="submitPrompt"
         @keydown.ctrl.enter.prevent="submitPrompt"
-      ></textarea>
+      />
       <div class="chat-input-addon">
         <small>JSON or one occasion per line · ⌘/Ctrl + Enter</small>
         <div class="chat-input-actions">
@@ -194,13 +194,13 @@ async function createTasks() {
       </div>
       <label class="review-editor-label">
         Edit Change Proposal JSON
-        <textarea
+        <UTextarea
           v-model="reviewJson"
           data-testid="edit-task-json"
           aria-label="Edit Change Proposal JSON"
           rows="12"
           spellcheck="false"
-        ></textarea>
+        />
       </label>
       <pre data-testid="task-json"><code>{{ formattedOutput }}</code></pre>
     </div>

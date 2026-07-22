@@ -20,17 +20,21 @@ export default defineAppConfig({
     },
     input: {
       slots: {
-        base: "rounded-none",
+        root: "w-full",
+        base: "min-h-[var(--control-standard-height)] rounded-none bg-default",
       },
     },
     textarea: {
       slots: {
-        base: "rounded-none",
+        root: "w-full",
+        base: "rounded-none bg-default",
       },
     },
     select: {
       slots: {
-        base: "rounded-none",
+        base: "min-h-[var(--control-standard-height)] w-full rounded-none bg-default",
+        content: "rounded-none",
+        item: "rounded-none",
       },
     },
   },

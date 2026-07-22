@@ -72,6 +72,12 @@ const occasions = computed(() => catalog.value.experience.flatMap((employer) =>
   })),
 ));
 const sidebarSections = computed(() => Object.keys(catalog.value.sidebar));
+const blockKindFilterItems = BLOCK_KINDS.map((kind) => ({ label: kind, value: kind }));
+const employerFilterItems = computed(() => employers.value.map((employer) => ({ label: employer.label, value: employer.id })));
+const roleFilterItems = computed(() => roles.value.map((role) => ({ label: role.label, value: role.id })));
+const occasionFilterItems = computed(() => occasions.value.map((occasion) => ({ label: occasion.label, value: occasion.id })));
+const sidebarFilterItems = computed(() => sidebarSections.value.map((section) => ({ label: section, value: section })));
+const editingSessionItems = computed(() => editingSessions.value.map((session) => ({ label: session.label, value: session.id })));
 
 async function load() {
   status.value = "loading";
@@ -236,22 +242,22 @@ onMounted(load);
 
 <template>
   <section class="library-tools">
-    <input v-model="filters.search" type="search" placeholder="Search CV Blocks, employers, roles…" />
-    <select v-model="filters.kind"><option value="">All CV Block types</option><option v-for="kind in BLOCK_KINDS" :key="kind">{{ kind }}</option></select>
-    <select v-model="filters.companyId"><option value="">All employers</option><option v-for="employer in employers" :key="employer.id" :value="employer.id">{{ employer.label }}</option></select>
-    <select v-model="filters.roleId"><option value="">All roles</option><option v-for="role in roles" :key="role.id" :value="role.id">{{ role.label }}</option></select>
-    <select v-model="filters.occasionId"><option value="">All Employment Occasions</option><option v-for="occasion in occasions" :key="occasion.id" :value="occasion.id">{{ occasion.label }}</option></select>
-    <select v-model="filters.section"><option value="">All sidebar sections</option><option v-for="section in sidebarSections" :key="section" :value="section">{{ section }}</option></select>
+    <UInput v-model="filters.search" type="search" aria-label="Search CV Blocks, employers, roles…" placeholder="Search CV Blocks, employers, roles…" />
+    <USelect v-model="filters.kind" :items="blockKindFilterItems" aria-label="CV Block type" placeholder="All CV Block types" />
+    <USelect v-model="filters.companyId" :items="employerFilterItems" aria-label="Employer" placeholder="All employers" />
+    <USelect v-model="filters.roleId" :items="roleFilterItems" aria-label="Role" placeholder="All roles" />
+    <USelect v-model="filters.occasionId" :items="occasionFilterItems" aria-label="Employment Occasion" placeholder="All Employment Occasions" />
+    <USelect v-model="filters.section" :items="sidebarFilterItems" aria-label="Sidebar section" placeholder="All sidebar sections" />
     <button class="secondary control-compact" @click="Object.assign(filters, { search: '', kind: '', companyId: '', roleId: '', occasionId: '', section: '' })">Clear filters</button>
   </section>
 
   <details class="create-panel">
     <summary>Create CV Block</summary>
     <form @submit.prevent="createBlock">
-      <div class="grid"><label>Type<select v-model="form.kind"><option v-for="kind in BLOCK_KINDS" :key="kind">{{ kind }}</option></select></label><label>Title<input v-model="form.title" required /></label></div>
-      <div v-if="form.kind === 'experience'" class="grid"><label>Employer<input v-model="form.employer" required /></label><label>Role<input v-model="form.role" required /></label></div>
-      <div v-if="form.kind === 'experience'" class="grid"><label>Start period<input v-model="form.startDate" type="month" required /></label><label>End period <small>(blank means present)</small><input v-model="form.endDate" type="month" /></label></div>
-      <label>Content<textarea v-model="form.value" required></textarea></label>
+      <div class="grid"><label>Type<USelect v-model="form.kind" :items="BLOCK_KINDS" aria-label="CV Block type" /></label><label>Title<UInput v-model="form.title" required /></label></div>
+      <div v-if="form.kind === 'experience'" class="grid"><label>Employer<UInput v-model="form.employer" required /></label><label>Role<UInput v-model="form.role" required /></label></div>
+      <div v-if="form.kind === 'experience'" class="grid"><label>Start period<UInput v-model="form.startDate" type="month" required /></label><label>End period <small>(blank means present)</small><UInput v-model="form.endDate" type="month" /></label></div>
+      <label>Content<UTextarea v-model="form.value" required /></label>
       <button :aria-busy="saving" :disabled="saving">Save CV Block</button>
     </form>
   </details>
@@ -306,11 +312,11 @@ onMounted(load);
 
   <dialog :open="Boolean(editing)">
     <article v-if="editing"><header><button aria-label="Close" rel="prev" @click="editing = null"></button><h2>{{ editing.title }}</h2></header>
-      <label>Editing Session<select v-model="editingSessionId"><option value="">Choose an open Editing Session</option><option v-for="session in editingSessions" :key="session.id" :value="session.id">{{ session.label }}</option></select></label>
+      <label>Editing Session<USelect v-model="editingSessionId" :items="editingSessionItems" aria-label="Editing Session" placeholder="Choose an open Editing Session" /></label>
       <p v-if="!editingSessions.length"><small>Start or resume an Editing Session before changing this CV Block.</small></p>
-      <label>New Block Version<textarea v-model="editValue"></textarea></label><button :disabled="saving || !editingSessionId" @click="reviewEdit()">Review Block Version Change</button>
+      <label>New Block Version<UTextarea v-model="editValue" /></label><button :disabled="saving || !editingSessionId" @click="reviewEdit()">Review Block Version Change</button>
       <details><summary>Block Version history</summary><ol><li v-for="version in [...editing.versions].reverse()" :key="version.id">v{{ version.number }} · {{ version.source.type }}<br /><small>{{ JSON.stringify(version.content) }}</small></li></ol></details>
-      <hr /><label>AI change instruction<input v-model="instruction" placeholder="Emphasise stakeholder leadership…" /></label><button class="secondary" @click="suggest">Generate Change Proposal</button>
+      <hr /><label>AI change instruction<UInput v-model="instruction" placeholder="Emphasise stakeholder leadership…" /></label><button class="secondary" @click="suggest">Generate Change Proposal</button>
       <article v-if="proposal"><strong>Unsaved Change Proposal</strong><p>{{ proposal.content.text || proposal.content.name || proposal.content.institution }}</p><div class="grid"><button @click="reviewEdit(proposal.content, proposal.source)">Review as Change Proposal</button><button class="secondary" @click="proposal = null">Reject</button></div></article>
       <article v-if="reviewedProposal && (!reviewedProposal.operationType || reviewedProposal.operationType === 'edit_content')" aria-label="Reviewed Block Version Change Proposal"><strong>Reviewed Change Proposal</strong><p>Applying appends an immutable Block Version and advances Working Composition {{ reviewedProposal.baseOptimisticVersion }}.</p><div class="grid"><button :disabled="saving" @click="applyReviewedEdit">Apply reviewed Change Proposal</button><button class="secondary" :disabled="saving" @click="discardReviewedEdit">Discard reviewed Change Proposal</button></div></article>
     </article>
@@ -318,7 +324,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.library-tools { display: grid; grid-template-columns: minmax(16rem, 2fr) repeat(3, minmax(9rem, 1fr)) auto; gap: .6rem; align-items: start; padding-bottom: 1.25rem; border-bottom: 1px solid var(--ink); }
+.library-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; align-items: start; padding-bottom: 1.25rem; border-bottom: 1px solid var(--ink); }
 .create-panel { margin: 1.5rem 0 2rem !important; }
 .import-panel { display: flex; justify-content: space-between; align-items: center; gap: 2rem; border: 2px solid var(--ink) !important; background: var(--paper-light); box-shadow: 6px 6px 0 var(--paper-deep); }
 .import-panel p { margin: .3rem 0; color: var(--muted); }
@@ -338,6 +344,6 @@ footer { display: flex; justify-content: space-between; align-items: flex-start;
 .block-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
 dialog { width: min(94vw, 50rem); border: 2px solid var(--ink); border-radius: 0; background: var(--paper); box-shadow: 10px 10px 0 var(--marker); }
 dialog article { max-width: 46rem; }
-@media (max-width: 1050px) { .library-tools { grid-template-columns: 1fr 1fr; } .import-panel { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 1050px) { .import-panel { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 600px) { .library-tools { grid-template-columns: 1fr; } .employer-group { padding-left: .7rem; } footer { flex-direction: column; } .block-actions { justify-content: flex-start; } }
 </style>

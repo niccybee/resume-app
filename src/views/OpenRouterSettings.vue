@@ -91,7 +91,7 @@ async function verify() {
     <form @submit.prevent="save">
       <label>
         OpenRouter API key
-        <input
+        <UInput
           v-model="apiKey"
           name="apiKey"
           type="password"
@@ -102,7 +102,7 @@ async function verify() {
       </label>
       <label>
         Model
-        <input
+        <UInput
           v-model="status.model"
           name="model"
           autocomplete="off"

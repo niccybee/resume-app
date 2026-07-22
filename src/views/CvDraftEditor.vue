@@ -33,10 +33,29 @@ function normalizeEditorDraft(input) {
 }
 const draft = reactive(normalizeEditorDraft({ name: "", profile: { basics: {} }, selections: [] }));
 const themes = listThemes();
+const defaultThemeValue = "__default_editorial__";
+const themeItems = [
+  { label: "Default — Editorial", value: defaultThemeValue },
+  ...themes.map((theme) => ({
+    label: `${theme.name} — ${theme.description}`,
+    value: theme.id,
+  })),
+];
+const compositionSectionItems = ["experience", "skills", "certifications", "education", "interests"];
+const selectedTheme = computed({
+  get: () => draft.themeId || defaultThemeValue,
+  set: (value) => { draft.themeId = value === defaultThemeValue ? null : value; },
+});
 
 function replaceDraft(next) { Object.assign(draft, normalizeEditorDraft(next)); }
 function sectionFor(kind) { return { experience:"experience", skill:"skills", certification:"certifications", education:"education", interest:"interests" }[kind]; }
 function selectedVersion(block) { return block.versions.find((item)=>item.id===(selectedVersions[block.id]||block.currentVersion.id))||block.currentVersion; }
+function blockVersionItems(block) {
+  return [...block.versions].reverse().map((version) => ({
+    label: `Block Version ${version.number} · ${version.source.type}`,
+    value: version.id,
+  }));
+}
 function selectionFor(block, version, section = sectionFor(block.kind)) { return { blockId:block.id, versionId:version.id, section, block:{ title:block.title, kind:block.kind, contexts:block.contexts, versionNumber:version.number }, content:version.content }; }
 function selectedForBlock(blockId) { return draft.selections.find((item) => item.blockId === blockId); }
 function add(block) { replaceDraft(addSelection(draft, selectionFor(block, selectedVersion(block)))); }
@@ -411,11 +430,11 @@ function generateTaskProposal(instruction) {
         </template>
         <p v-if="activeSession"><strong>{{ editingSessionLabel({ baseRevisionNumber: activeBaseRevisionNumber }) }}</strong> · working version {{ activeSession.optimisticVersion }}</p>
       </section>
-      <label>CV name<input v-model="draft.name" placeholder="Product lead CV" /></label>
-      <div class="grid"><label>Name<input v-model="draft.profile.basics.name" /></label><label>Target role<input v-model="draft.profile.basics.label" /></label></div>
-      <label>Email<input v-model="draft.profile.basics.email" type="email" /></label>
-      <label>Theme<select v-model="draft.themeId"><option :value="null">Default — Editorial</option><option v-for="theme in themes" :key="theme.id" :value="theme.id">{{ theme.name }} — {{ theme.description }}</option></select></label>
-      <details><summary>Summary generator</summary><label>Direction<input v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary control-standard" :aria-busy="generatingSummary" :disabled="generatingSummary" @click="generateSummary">Generate Summary Change Proposal</button><article v-if="proposal"><label>Edit Summary Change Proposal<textarea v-model="proposal.text" aria-label="Edit Summary Change Proposal"></textarea></label><div class="grid"><button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Apply Change Proposal</button><button class="secondary control-standard" @click="proposal=null">Discard</button></div></article></details>
+      <label>CV name<UInput v-model="draft.name" placeholder="Product lead CV" /></label>
+      <div class="grid"><label>Name<UInput v-model="draft.profile.basics.name" /></label><label>Target role<UInput v-model="draft.profile.basics.label" /></label></div>
+      <label>Email<UInput v-model="draft.profile.basics.email" type="email" /></label>
+      <label>Theme<USelect v-model="selectedTheme" :items="themeItems" aria-label="Theme" /></label>
+      <details><summary>Summary generator</summary><label>Direction<UInput v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary control-standard" :aria-busy="generatingSummary" :disabled="generatingSummary" @click="generateSummary">Generate Summary Change Proposal</button><article v-if="proposal"><label>Edit Summary Change Proposal<UTextarea v-model="proposal.text" aria-label="Edit Summary Change Proposal" /></label><div class="grid"><button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Apply Change Proposal</button><button class="secondary control-standard" @click="proposal=null">Discard</button></div></article></details>
 
       <TaskChat
         :generate-tasks-handler="generateTaskProposal"
@@ -424,16 +443,16 @@ function generateTaskProposal(instruction) {
 
       <h2>CV Block Library</h2>
       <p v-if="!blocks.length">No CV Blocks available. <NuxtLink to="/app/blocks">Create CV Blocks first.</NuxtLink></p>
-      <article v-for="block in blocks" :key="block.id" class="library-row"><div><small>{{ block.kind }}</small><strong>{{ block.title }}</strong><select v-model="selectedVersions[block.id]" aria-label="Block Version"><option v-for="version in [...block.versions].reverse()" :key="version.id" :value="version.id">Block Version {{ version.number }} · {{ version.source.type }}</option></select></div><button v-if="!selectedForBlock(block.id)" class="secondary control-compact" @click="add(block)">Add Block Version</button><button v-else class="secondary control-compact" :disabled="selectedForBlock(block.id).versionId === selectedVersions[block.id]" @click="replaceVersion(block)">Replace Block Version</button></article>
+      <article v-for="block in blocks" :key="block.id" class="library-row"><div><small>{{ block.kind }}</small><strong>{{ block.title }}</strong><USelect v-model="selectedVersions[block.id]" :items="blockVersionItems(block)" aria-label="Block Version" /></div><button v-if="!selectedForBlock(block.id)" class="secondary control-compact" @click="add(block)">Add Block Version</button><button v-else class="secondary control-compact" :disabled="selectedForBlock(block.id).versionId === selectedVersions[block.id]" @click="replaceVersion(block)">Replace Block Version</button></article>
 
       <h2>Selected Block Versions</h2>
-      <section class="section-list experience-composition"><h3>experience</h3><p v-if="!selectedExperienceGroups.length"><small>No selected Block Versions.</small></p><section v-for="employer in selectedExperienceGroups" :key="employer.employerId" class="selection-employer"><h4>{{ employer.employer }}</h4><div v-for="occasion in employer.occasions" :key="occasion.occasionId"><h5>{{ occasion.role }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</h5><article v-for="item in occasion.items" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection.experience.length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></div></section></section>
-      <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><select :value="item.section" aria-label="CV section" @change="changeSection(item,$event.target.value)"><option v-for="target in ['experience','skills','certifications','education','interests']" :key="target">{{ target }}</option></select><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
+      <section class="section-list experience-composition"><h3>experience</h3><p v-if="!selectedExperienceGroups.length"><small>No selected Block Versions.</small></p><section v-for="employer in selectedExperienceGroups" :key="employer.employerId" class="selection-employer"><h4>{{ employer.employer }}</h4><div v-for="occasion in employer.occasions" :key="occasion.occasionId"><h5>{{ occasion.role }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</h5><article v-for="item in occasion.items" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text }} · Block Version {{ selectionVersionNumber(item) }}</span><div><USelect class="selection-section" :model-value="item.section" :items="compositionSectionItems" aria-label="CV section" @update:model-value="changeSection(item, $event)" /><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection.experience.length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></div></section></section>
+      <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><USelect class="selection-section" :model-value="item.section" :items="compositionSectionItems" aria-label="CV section" @update:model-value="changeSection(item, $event)" /><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
       <button v-if="draft.status !== 'archived' && draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear selected Block Versions…</button>
       <button v-if="draft.status !== 'archived' && (activeSession || !draft.id)" class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">{{ activeSession ? "Save Editing Session" : "Create CV Editing Session" }}</button>
       <button v-if="activeSession" class="secondary control-standard" :aria-busy="proposingChange" :disabled="saving || proposingChange" @click="proposeEditingSessionChange">Review Change Proposal</button>
       <button v-if="activeSession" class="secondary control-standard" :disabled="saving" @click="finishEditingSession">Finish as CV Revision</button>
-      <label v-if="draft.id">New role-focused CV name<input v-model="copyRoleName" placeholder="Head of Marketing at Facebook" /></label>
+      <label v-if="draft.id">New role-focused CV name<UInput v-model="copyRoleName" placeholder="Head of Marketing at Facebook" /></label>
       <template v-if="activeSession && draft.status !== 'archived'">
         <button class="secondary control-standard" :disabled="saving || proposingChange" @click="copyFrom(activeSession, 'copy_to_new_version')">Copy to New Version</button>
         <button class="secondary control-standard" :disabled="saving || proposingChange || !copyRoleName.trim()" @click="copyFrom(activeSession, 'copy_for_new_role')">Copy for New Role</button>
@@ -462,7 +481,7 @@ function generateTaskProposal(instruction) {
       <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
       <button v-if="draft.id && draft.status !== 'archived'" class="secondary control-standard" @click="proposeLifecycleChange({ type: 'archive_cv', target: { type: 'cv', id: draft.id } })">Archive CV</button>
       <button v-else-if="draft.id" class="secondary control-standard" @click="proposeLifecycleChange({ type: 'restore_cv', target: { type: 'cv', id: draft.id } })">Restore CV</button>
-      <details v-if="draft.id && draft.status !== 'archived'"><summary>Publishing</summary><label>Stable public slug<input v-model="publishSlug" :disabled="Boolean(draft.slug)" placeholder="product-lead" /></label><p>Select an exact immutable Revision below, review its Change Proposal, then apply.</p><template v-if="draft.status === 'published'"><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="proposeLifecycleChange({ type: 'withdraw_publication', target: { type: 'cv', id: draft.id } })">Withdraw publication</button></template></details>
+      <details v-if="draft.id && draft.status !== 'archived'"><summary>Publishing</summary><label>Stable public slug<UInput v-model="publishSlug" :disabled="Boolean(draft.slug)" placeholder="product-lead" /></label><p>Select an exact immutable Revision below, review its Change Proposal, then apply.</p><template v-if="draft.status === 'published'"><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="proposeLifecycleChange({ type: 'withdraw_publication', target: { type: 'cv', id: draft.id } })">Withdraw publication</button></template></details>
       <section v-if="draft.id" aria-labelledby="revision-history-heading">
         <h2 id="revision-history-heading">Revision history</h2>
         <p v-if="!revisions.length">No immutable CV Revisions yet. <button v-if="draft.status !== 'archived' && !openEditingSessions.length" class="secondary control-compact" @click="startEditingSession(null)">Start first Editing Session</button></p>
@@ -491,7 +510,7 @@ function generateTaskProposal(instruction) {
 .library-row, .selection, .session-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .85rem !important; margin: .6rem 0 !important; border: 1px solid var(--ink) !important; background: var(--paper-light); box-shadow: 3px 3px 0 var(--paper-deep); }
 .library-row strong { display: block; font-family: var(--font-editorial); font-size: 1.05rem; }
 .selection button { width: auto; margin: 0 .15rem; }
-.selection select { display: inline-block; width: auto !important; margin: 0 .3rem !important; }
+.selection .selection-section { display: inline-flex; width: auto; min-width: 9rem; margin: 0 .3rem; }
 .section-list { margin: 1.5rem 0; }
 .section-list > h3 { font-family: var(--font-label); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; }
 .selection-employer { margin: .75rem 0 1.25rem; padding-left: .9rem; border-left: 4px solid var(--marker); }
@@ -500,6 +519,6 @@ function generateTaskProposal(instruction) {
 .proposal-review { margin: 1.5rem 0 !important; border: 2px solid var(--ink) !important; box-shadow: 6px 6px 0 var(--marker) !important; }
 .proposal-review pre { max-height: 22rem; overflow: auto; padding: 1rem; background: var(--ink); color: var(--paper-light); font-family: var(--font-label); font-size: .7rem; }
 @media (max-width: 1180px) { .editor-layout { grid-template-columns: 1fr; } .live-preview { position: static; } }
-@media (max-width: 650px) { .library-row, .selection, .session-row { align-items: stretch; flex-direction: column; } .selection select { width: 100% !important; margin: .4rem 0 !important; } }
+@media (max-width: 650px) { .library-row, .selection, .session-row { align-items: stretch; flex-direction: column; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
 @media print { .editor-controls { display: none; } .editor-layout { display: block; } }
 </style>

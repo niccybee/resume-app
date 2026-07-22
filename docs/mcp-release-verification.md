@@ -5,6 +5,15 @@ the audit migration applied, and both automated and external-client checks green
 
 ## Deployment controls
 
+The production Netlify project is `cv-obair`, serving `https://cv.obair.tech`.
+Its production branch is GitHub `main`, and Git-only production deployments are
+enforced in Netlify. Release by merging reviewed work into `main`; do not publish
+production directly with the Netlify CLI, API, or deploy-preview promotion.
+`netlify.toml` owns portable build and deploy-context configuration, while the
+repository-to-project association remains in Netlify. The ignored local
+`.netlify/state.json` should point to `cv-obair` so preview and diagnostic CLI
+commands cannot accidentally target the retired preview project.
+
 Apply the `enable_user_mcp_settings` migration so each authenticated owner can
 enable or disable MCP for their own account. A missing or disabled setting fails
 closed at `/mcp`. Generate a separate random `NUXT_MCP_GATEWAY_KEY` of at least 32 characters,

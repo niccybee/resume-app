@@ -1,8 +1,13 @@
+# Production is deployed by Netlify's Git integration only:
+# niccybee/resume-app main -> cv-obair -> https://cv.obair.tech
+# Site identity and the production branch live in Netlify project settings;
+# this file intentionally contains only portable build/context configuration.
 [build]
-  command = "nr build"
+  command = "bun run build"
   publish = "dist"
 
 [build.environment]
+  BUN_VERSION = "1.2.15"
   STATIC_CV_GENERATION_REQUIRED = "true"
 
 [context.deploy-preview.environment]

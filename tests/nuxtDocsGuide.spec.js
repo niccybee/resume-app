@@ -1,0 +1,42 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+const fromRoot = (path) => resolve(root, path);
+
+describe("public MCP setup guide", () => {
+  it("explains the connection and review gate in plain language", async () => {
+    const guide = await readFile(fromRoot("app/pages/docs/index.vue"), "utf8");
+    const plainText = guide.replace(/\s+/g, " ");
+
+    expect(plainText).toContain("MCP is a secure connection between Resume Studio and an AI chat app");
+    expect(plainText).toContain("Nothing is added to a CV until you review and apply it");
+    expect(guide).toContain("Turn on the connection in Resume Studio");
+    expect(guide).toContain('to="/app/settings/mcp"');
+  });
+
+  it("covers ChatGPT and OpenCode without leading with configuration", async () => {
+    const guide = await readFile(fromRoot("app/pages/docs/index.vue"), "utf8");
+
+    expect(guide).toContain('id="chatgpt"');
+    expect(guide).toContain('id="opencode"');
+    expect(guide).toContain("Show the OpenCode technical steps");
+    expect(guide).toContain("<UCollapsible");
+    expect(guide.indexOf("Add Resume Studio to OpenCode")).toBeLessThan(guide.indexOf("opencode.json"));
+    expect(guide).toContain("https://cv.obair.tech/mcp");
+  });
+
+  it("is discoverable from the public header and authenticated MCP settings", async () => {
+    const [header, settings] = await Promise.all([
+      readFile(fromRoot("app/components/PublicSiteHeader.vue"), "utf8"),
+      readFile(fromRoot("src/views/McpSettings.vue"), "utf8"),
+    ]);
+
+    expect(header).toContain('to="/docs"');
+    expect(header).toContain('label="MCP guide"');
+    expect(settings).toContain('to="/docs"');
+    expect(settings).toContain('label="Read the setup guide"');
+  });
+});

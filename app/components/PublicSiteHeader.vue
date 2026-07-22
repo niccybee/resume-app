@@ -10,6 +10,13 @@
     <template #right>
       <UButton
         class="nuxt-ui-button"
+        to="/docs"
+        label="MCP guide"
+        color="neutral"
+        variant="link"
+      />
+      <UButton
+        class="nuxt-ui-button"
         to="/login"
         label="Owner sign in"
         color="neutral"

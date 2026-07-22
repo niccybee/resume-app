@@ -10,6 +10,7 @@ describe("completed Nuxt migration", () => {
   it("owns every supported route through native Nuxt files", async () => {
     const nativeRoutes = [
       "app/pages/index.vue",
+      "app/pages/docs/index.vue",
       "app/pages/login.vue",
       "app/pages/[...path].vue",
       "app/pages/build.vue",

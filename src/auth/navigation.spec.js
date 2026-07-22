@@ -49,4 +49,12 @@ describe("workspace authentication navigation", () => {
       fullPath: "/app/cvs",
     })).toBe(true);
   });
+
+  it("allows explicitly enabled developer access without a user", () => {
+    expect(workspaceAccessResult({
+      user: null,
+      fullPath: "/app/cvs",
+      developerAccess: true,
+    })).toBe(true);
+  });
 });

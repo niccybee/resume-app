@@ -1,5 +1,10 @@
 <script setup>
 import { loginDestination } from "../../src/auth/navigation";
+import {
+  enableDeveloperAccess,
+  isDeveloperAccessAvailable,
+  isDeveloperAccessEnabled,
+} from "../../src/auth/developerAccess";
 import { useAuthStore } from "../../src/stores/authStore";
 import { isSupabaseConfigured } from "../../src/supabase";
 
@@ -9,14 +14,25 @@ const email = ref("");
 const route = useRoute();
 const auth = useAuthStore();
 const destination = computed(() => loginDestination(route.query.redirect));
+const developerAccessAvailable = computed(() => (
+  isDeveloperAccessAvailable() &&
+  (destination.value === "/app" || destination.value.startsWith("/app/"))
+));
 
 await auth.initialize();
-if (auth.user) await navigateTo(destination.value, { replace: true });
+if (auth.user || (developerAccessAvailable.value && isDeveloperAccessEnabled())) {
+  await navigateTo(destination.value, { replace: true });
+}
 
 async function requestMagicLink() {
   const redirectTo = new URL("/login", window.location.origin);
   redirectTo.searchParams.set("redirect", destination.value);
   await auth.requestMagicLink(email.value, redirectTo.href);
+}
+
+async function continueWithDeveloperAccess() {
+  if (!enableDeveloperAccess()) return;
+  await navigateTo(destination.value, { replace: true });
 }
 </script>
 
@@ -32,6 +48,11 @@ async function requestMagicLink() {
     <p v-if="!isSupabaseConfigured" role="alert">Add the PRM2 URL and publishable key to your local environment first.</p>
     <p v-if="auth.error" role="alert">{{ auth.error }}</p>
     <p v-if="auth.notice" class="notice">{{ auth.notice }}</p>
+    <template v-if="developerAccessAvailable">
+      <hr>
+      <button class="secondary" type="button" @click="continueWithDeveloperAccess">Continue with developer access</button>
+      <small>Opens the local workspace without a session. Protected data and writes still require Supabase authentication.</small>
+    </template>
   </section>
 </template>
 

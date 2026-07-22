@@ -27,8 +27,8 @@ export function loginDestination(value) {
   return `${destination.pathname}${destination.search}${destination.hash}`;
 }
 
-export function workspaceAccessResult({ user, fullPath }) {
-  if (user) return true;
+export function workspaceAccessResult({ user, fullPath, developerAccess = false }) {
+  if (user || developerAccess) return true;
   return {
     path: "/login",
     query: { redirect: loginDestination(fullPath) },

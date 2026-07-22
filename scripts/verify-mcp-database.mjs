@@ -36,6 +36,8 @@ $$;
 create or replace function auth.uid() returns uuid language sql stable as $$
   select nullif(auth.jwt() ->> 'sub', '')::uuid
 $$;
+grant usage on schema auth to authenticated;
+grant execute on function auth.jwt(), auth.uid() to authenticated;
 
 create table public.cv_documents(
   id uuid primary key,
@@ -97,7 +99,27 @@ create table public.cv_change_proposals(
 `;
 
 const assertions = String.raw`
-insert into auth.users(id) values ('00000000-0000-4000-8000-000000000001');
+insert into auth.users(id) values
+  ('00000000-0000-4000-8000-000000000001'),
+  ('00000000-0000-4000-8000-000000000002');
+
+set request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000001","role":"authenticated"}';
+set role authenticated;
+insert into public.cv_mcp_user_settings(owner_id, enabled)
+values ('00000000-0000-4000-8000-000000000001', true);
+do $$
+begin
+  begin
+    insert into public.cv_mcp_user_settings(owner_id, enabled)
+    values ('00000000-0000-4000-8000-000000000002', true);
+    raise exception 'Owner unexpectedly enabled MCP for another account';
+  exception when insufficient_privilege then
+    null;
+  end;
+end
+$$;
+reset role;
+
 insert into public.cv_mcp_gateway_config(singleton, gateway_key_sha256)
 values (true, encode(extensions.digest('database-integration-gateway-key-123456', 'sha256'), 'hex'));
 
@@ -165,9 +187,10 @@ try {
   run("psql", [...connection, "-v", "ON_ERROR_STOP=1"], { input: fixture });
   run("psql", [...connection, "-v", "ON_ERROR_STOP=1", "-f", resolve(root, "database/cv_mcp_release_hardening.sql")]);
   run("psql", [...connection, "-v", "ON_ERROR_STOP=1", "-f", resolve(root, "database/cv_mcp_advisor_hardening.sql")]);
+  run("psql", [...connection, "-v", "ON_ERROR_STOP=1", "-f", resolve(root, "supabase/migrations/20260722112756_enable_user_mcp_settings.sql")]);
   run("psql", [...connection, "-v", "ON_ERROR_STOP=1"], { input: assertions });
   console.log(JSON.stringify({ verified: true, cases: [
-    "browser-jwt-pass", "oauth-direct-deny", "gateway-oauth-pass",
+    "owner-mcp-opt-in", "browser-jwt-pass", "oauth-direct-deny", "gateway-oauth-pass",
     "mutation-audit-commit", "audit-failure-rolls-back-mutation",
   ] }));
 } finally {

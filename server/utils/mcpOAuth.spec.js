@@ -43,8 +43,16 @@ describe("MCP Supabase OAuth boundary", () => {
       exp: 1999999999,
     });
     const user = { id: "owner-1", email: "owner@example.test" };
-    const supabase = { auth: { getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }) } };
-    const createClient = vi.fn().mockReturnValue(supabase);
+    const authClient = { auth: { getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }) } };
+    const settingQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { enabled: true }, error: null }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(settingQuery) };
+    const createClient = vi.fn()
+      .mockReturnValueOnce(authClient)
+      .mockReturnValueOnce(supabase);
 
     const context = await authenticateMcpRequest({
       authorization: `Bearer ${accessToken}`,
@@ -53,6 +61,7 @@ describe("MCP Supabase OAuth boundary", () => {
       createClient,
       now: () => 1_800_000_000,
       gatewayKey: "gateway-key-with-at-least-32-characters",
+      requireUserOptIn: true,
     });
 
     expect(context).toEqual({
@@ -61,7 +70,9 @@ describe("MCP Supabase OAuth boundary", () => {
       accessToken,
       supabase,
     });
-    expect(supabase.auth.getUser).toHaveBeenCalledWith(accessToken);
+    expect(authClient.auth.getUser).toHaveBeenCalledWith(accessToken);
+    expect(supabase.from).toHaveBeenCalledWith("cv_mcp_user_settings");
+    expect(settingQuery.eq).toHaveBeenCalledWith("owner_id", "owner-1");
     expect(createClient).toHaveBeenNthCalledWith(
       1,
       "https://project.supabase.co",
@@ -150,26 +161,34 @@ describe("MCP Supabase OAuth boundary", () => {
       publishableKey: "publishable-key",
       createClient,
       now: () => 1_800_000_000,
-      allowedUserIds: ["owner-1"],
     })).rejects.toMatchObject({ code: "invalid-token", statusCode: 401 });
   });
 
-  it("fails closed for users outside the configured MCP allow-list", async () => {
+  it("fails closed until the authenticated owner enables MCP", async () => {
     const accessToken = token({
       sub: "owner-2", role: "authenticated", aud: "authenticated",
       iss: "https://project.supabase.co/auth/v1", client_id: "client-1", exp: 1999999999,
     });
-    const createClient = vi.fn().mockReturnValue({
+    const authClient = {
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "owner-2" } }, error: null }) },
-    });
+    };
+    const settingQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { enabled: false }, error: null }),
+    };
+    const createClient = vi.fn()
+      .mockReturnValueOnce(authClient)
+      .mockReturnValueOnce({ from: vi.fn().mockReturnValue(settingQuery) });
 
     await expect(authenticateMcpRequest({
       authorization: `Bearer ${accessToken}`,
       supabaseUrl: "https://project.supabase.co",
       publishableKey: "publishable-key",
       createClient,
-      allowedUserIds: ["owner-1"],
-    })).rejects.toMatchObject({ code: "account-not-allow-listed", statusCode: 403 });
+      gatewayKey: "gateway-key-with-at-least-32-characters",
+      requireUserOptIn: true,
+    })).rejects.toMatchObject({ code: "mcp-not-enabled", statusCode: 403 });
   });
 
   it("rejects the same OAuth token after grant revocation", async () => {
@@ -186,7 +205,6 @@ describe("MCP Supabase OAuth boundary", () => {
       supabaseUrl: "https://project.supabase.co",
       publishableKey: "publishable-key",
       createClient,
-      allowedUserIds: ["owner-1"],
     };
 
     await expect(authenticateMcpRequest(input)).resolves.toMatchObject({ user: { id: "owner-1" } });

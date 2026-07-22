@@ -78,10 +78,9 @@ export async function authenticateMcpRequest({
   publishableKey,
   createClient,
   now = () => Math.floor(Date.now() / 1000),
-  allowedUserIds = [],
-  requireAllowList = false,
   gatewayKey = "",
   requireGateway = false,
+  requireUserOptIn = false,
 }) {
   const accessToken = extractBearerToken(authorization);
   if (!accessToken) {
@@ -131,26 +130,6 @@ export async function authenticateMcpRequest({
       { cause: error || undefined },
     );
   }
-  const allowList = new Set((Array.isArray(allowedUserIds)
-    ? allowedUserIds
-    : String(allowedUserIds).split(","))
-    .map((id) => id.trim())
-    .filter(Boolean));
-  if (requireAllowList && allowList.size === 0) {
-    throw new McpOAuthError(
-      "mcp-allow-list-missing",
-      "MCP access is unavailable until an allow-list is configured.",
-      { statusCode: 503 },
-    );
-  }
-  if (allowList.size > 0 && !allowList.has(data.user.id)) {
-    throw new McpOAuthError(
-      "account-not-allow-listed",
-      "This account is not allowed to use Resume Studio MCP.",
-      { statusCode: 403 },
-    );
-  }
-
   const supabase = gatewayKey
     ? createClient(url, publishableKey, {
         global: {
@@ -166,6 +145,28 @@ export async function authenticateMcpRequest({
         },
       })
     : authClient;
+
+  if (requireUserOptIn) {
+    const { data: setting, error: settingError } = await supabase
+      .from("cv_mcp_user_settings")
+      .select("enabled")
+      .eq("owner_id", data.user.id)
+      .maybeSingle();
+    if (settingError) {
+      throw new McpOAuthError(
+        "mcp-settings-unavailable",
+        "MCP settings are temporarily unavailable.",
+        { statusCode: 503, cause: settingError },
+      );
+    }
+    if (setting?.enabled !== true) {
+      throw new McpOAuthError(
+        "mcp-not-enabled",
+        "Enable MCP in Resume Studio settings before connecting a chat client.",
+        { statusCode: 403 },
+      );
+    }
+  }
 
   return {
     user: data.user,

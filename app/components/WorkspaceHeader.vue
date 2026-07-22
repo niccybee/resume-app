@@ -11,6 +11,7 @@ const navigation = [
   { label: "Saved CVs", icon: "i-lucide-files", to: "/app/cvs" },
   { label: "CV Blocks", icon: "i-lucide-library", to: "/app/blocks" },
   { label: "CV Builder", icon: "i-lucide-file-pen-line", to: "/app/cvs/new" },
+  { label: "MCP settings", icon: "i-lucide-plug-zap", to: "/app/settings/mcp" },
   { label: "AI settings", icon: "i-lucide-sparkles", to: "/app/settings/ai" },
 ];
 

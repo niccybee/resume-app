@@ -56,7 +56,7 @@ export async function loadOAuthAuthorization({ oauth, authorizationId, user }) {
   }
   if (data.user?.id !== user.id) {
     throw new OAuthConsentError(
-      "account-not-allow-listed",
+      "authorization-owner-mismatch",
       "This authorization request does not belong to the signed-in account.",
     );
   }

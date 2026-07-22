@@ -65,7 +65,7 @@ try {
   await firstClient.connect(transport());
   const cvs = await firstClient.callTool({ name: "list_cvs", arguments: { limit: 100 } });
   if (!cvs.structuredContent?.data?.some((cv) => cv.id === cvId)) {
-    throw new Error("The selected CV is not visible to this allow-listed connection.");
+    throw new Error("The selected CV is not visible to this MCP-enabled connection.");
   }
   const sourceSessions = await firstClient.callTool({
     name: "list_editing_sessions",

@@ -27,6 +27,8 @@ describe("Nuxt MCP OAuth integration", () => {
     expect(handler).toMatch(/authenticateMcpRequest/);
     expect(handler).toMatch(/event\.context\.oauthClient/);
     expect(handler).toMatch(/event\.context\.supabase/);
+    expect(handler).toMatch(/requireUserOptIn:\s*true/);
+    expect(authBoundary).toMatch(/cv_mcp_user_settings/);
     expect(`${handler}\n${authBoundary}`).not.toMatch(/service.?role/i);
   });
 
@@ -43,5 +45,19 @@ describe("Nuxt MCP OAuth integration", () => {
     expect(combined).toMatch(/denyAuthorization/);
     expect(combined).toMatch(/authorization_servers/);
     expect(combined).toMatch(/oauth-authorization-server\/auth\/v1/);
+  });
+
+  it("publishes owner-controlled MCP settings and client connection instructions", async () => {
+    const [page, view, migration] = await Promise.all([
+      readFile(new URL("app/pages/app/settings/mcp.vue", root), "utf8"),
+      readFile(new URL("src/views/McpSettings.vue", root), "utf8"),
+      readFile(new URL("supabase/migrations/20260722112756_enable_user_mcp_settings.sql", root), "utf8"),
+    ]);
+    expect(page).toMatch(/MCP settings/);
+    expect(view).toMatch(/Enable MCP/);
+    expect(view).toMatch(/ChatGPT/);
+    expect(view).toMatch(/opencode mcp auth resume-studio/);
+    expect(migration).toMatch(/enable row level security/);
+    expect(migration).toMatch(/auth\.uid\(\)\) = owner_id/);
   });
 });

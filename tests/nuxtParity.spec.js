@@ -20,6 +20,7 @@ describe("completed Nuxt migration", () => {
       "app/pages/app/cvs/[cvId]/index.vue",
       "app/pages/app/cvs/[cvId]/preview.vue",
       "app/pages/app/settings/ai.vue",
+      "app/pages/app/settings/mcp.vue",
       "server/routes/cv/[slug].get.js",
     ];
 
@@ -83,6 +84,7 @@ describe("completed Nuxt migration", () => {
       "src/views/BlockLibraryView.vue",
       "src/views/CvDraftEditor.vue",
       "src/views/OpenRouterSettings.vue",
+      "src/views/McpSettings.vue",
     ];
     const sources = await Promise.all(formSurfaces.map((path) => readFile(fromRoot(path), "utf8")));
     const combined = sources.join("\n");

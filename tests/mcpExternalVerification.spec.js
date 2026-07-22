@@ -21,6 +21,7 @@ describe("external MCP release verification", () => {
   it("ships an executable disposable Postgres verification for gateway and audit atomicity", async () => {
     const source = await readFile(new URL("scripts/verify-mcp-database.mjs", root), "utf8");
     expect(source).toMatch(/browser-jwt-pass/);
+    expect(source).toMatch(/owner-mcp-opt-in/);
     expect(source).toMatch(/oauth-direct-deny/);
     expect(source).toMatch(/gateway-oauth-pass/);
     expect(source).toMatch(/audit-failure-rolls-back-mutation/);

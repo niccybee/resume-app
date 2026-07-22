@@ -34,7 +34,6 @@ export default defineNuxtConfig({
     mcpSupabasePublishableKey:
       process.env.SUPABASE_PUBLISHABLE_KEY ||
       publicSupabasePublishableKey,
-    mcpAllowedUserIds: process.env.NUXT_MCP_ALLOWED_USER_IDS || "",
     mcpGatewayKey: process.env.NUXT_MCP_GATEWAY_KEY || "",
     mcpAuthenticationRateLimit: Number(process.env.NUXT_MCP_AUTHENTICATION_RATE_LIMIT) || 120,
     public: {

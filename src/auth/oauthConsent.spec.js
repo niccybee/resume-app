@@ -62,7 +62,7 @@ describe("Supabase OAuth consent boundary", () => {
       authorizationId: "authorization-1",
       user: { id: "owner-1" },
     })).rejects.toMatchObject({
-      code: "account-not-allow-listed",
+      code: "authorization-owner-mismatch",
     });
   });
 

@@ -108,19 +108,20 @@ available at `/.well-known/oauth-protected-resource` and the `/mcp`-specific for
 Before deploying, enable the OAuth server and dynamic client registration in the
 Supabase dashboard, set the authorization path to `/oauth/consent`, and configure
 the production Site URL and allowed redirect URLs. Disable new-user signups so
-the project's account list remains the authorization allow-list. Use asymmetric JWT signing so
-clients can consume OpenID discovery. Account creation remains disabled in the
-application's magic-link flow, so consent is available only to existing
-allow-listed accounts.
+only existing Resume Studio accounts can authorize clients. Use asymmetric JWT
+signing so clients can consume OpenID discovery. Account creation remains
+disabled in the application's magic-link flow; each existing user must also
+enable MCP in settings.
 
 Every MCP request must carry the Supabase user access token issued to the OAuth
 client. The server validates it with Supabase Auth, requires its OAuth `client_id`,
 then builds the database client with that same bearer token. MCP tools therefore
 run as the user under existing RLS policies; no privileged database credential is
 used for MCP access. OAuth scopes describe the connection but do not replace RLS.
-`NUXT_MCP_ALLOWED_USER_IDS` is a required server-only comma-separated allow-list;
-an empty list fails closed. `NUXT_MCP_GATEWAY_KEY` is a separate random
-server-only value of at least 32 characters. Store only its SHA-256 digest in
+`cv_mcp_user_settings` is an owner-scoped, RLS-protected opt-in: missing or
+disabled rows fail closed, and every authenticated user controls only their own
+setting. `NUXT_MCP_GATEWAY_KEY` is a separate random server-only value of at
+least 32 characters. Store only its SHA-256 digest in
 `cv_mcp_gateway_config`; the database pre-request guard rejects OAuth JWTs that
 try to call the Supabase Data API without the gateway header, while ordinary
 browser sessions remain governed by their existing RLS policies. Authentication,

@@ -1,19 +1,20 @@
 # MCP release verification
 
-Resume Studio MCP is released only with a non-empty server-side user allow-list,
+Resume Studio MCP is released only with owner-controlled opt-in settings,
 the audit migration applied, and both automated and external-client checks green.
 
 ## Deployment controls
 
-Set `NUXT_MCP_ALLOWED_USER_IDS` to a comma-separated list of Supabase user UUIDs.
-Generate a separate random `NUXT_MCP_GATEWAY_KEY` of at least 32 characters,
+Apply the `enable_user_mcp_settings` migration so each authenticated owner can
+enable or disable MCP for their own account. A missing or disabled setting fails
+closed at `/mcp`. Generate a separate random `NUXT_MCP_GATEWAY_KEY` of at least 32 characters,
 store it only in the server environment, and upsert its lowercase SHA-256 digest
 into the single row of `cv_mcp_gateway_config`. Never put the raw key in SQL,
 repository files, client runtime configuration, or release logs. The PostgREST
 pre-request hook allows normal browser JWTs through but rejects OAuth JWTs unless
 they arrived through the Resume Studio MCP server with this key.
-An empty list fails closed at `/mcp`. The defaults allow 120 authentication
-attempts, 120 reads, and 60 mutations per actor/client per minute. Netlify's
+The defaults allow 120 authentication attempts, 120 reads, and 60 mutations per
+actor/client per minute. Netlify's
 Edge Function applies the shared pre-authentication IP/domain bucket; Supabase's
 atomic `enforce_mcp_rate_limit` function owns the authenticated read/mutation
 buckets and does not accept caller-selected limits or windows. Change those
@@ -57,7 +58,7 @@ nr build
 ```
 
 The suite covers database contracts, malformed/expired/wrong-audience tokens,
-allow-list denial, OAuth grant revocation, MCP protocol discovery, browser smoke,
+user opt-in denial, OAuth grant revocation, MCP protocol discovery, browser smoke,
 secret scans, bounded enumeration, proposal redaction, audit redaction, explicit
 apply, reconnect, and persisted readback.
 `verify:database` starts a disposable local PostgreSQL cluster, applies the real
@@ -66,7 +67,8 @@ transactional audit commit, and mutation rollback when its audit cannot commit.
 
 ## Live external-client verification
 
-First connect an allow-listed existing account from the intended chat client and
+First enable MCP in Resume Studio settings for an existing account, then connect
+that account from the intended chat client and
 confirm it discovers `resume-studio://glossary/v1`, `list_cvs`,
 `propose_lifecycle_change`, and `apply_change_proposal`. Ask it to use **Copy to
 New Version**, review the pending proposal, explicitly approve that exact

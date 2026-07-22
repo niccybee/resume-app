@@ -36,10 +36,9 @@ export default defineMcpHandler({
         supabaseUrl: config.mcpSupabaseUrl,
         publishableKey: config.mcpSupabasePublishableKey,
         createClient,
-        allowedUserIds: config.mcpAllowedUserIds,
-        requireAllowList: true,
         gatewayKey: config.mcpGatewayKey,
         requireGateway: true,
+        requireUserOptIn: true,
       });
       event.context.user = auth.user;
       event.context.oauthClient = auth.oauthClient;

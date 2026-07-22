@@ -124,6 +124,11 @@ const publicationServer = createServer(async (request, response) => {
     response.writeHead(403).end(JSON.stringify({ message: "MCP gateway required" }));
     return;
   }
+  if (requestUrl.pathname === "/rest/v1/cv_mcp_user_settings") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify([{ enabled: true }]));
+    return;
+  }
   if (requestUrl.pathname === "/rest/v1/cv_documents") {
     response.setHeader("Content-Type", "application/json");
     const rows = requestUrl.searchParams.get("id") === "eq.cv-another-user" ? [] : [{
@@ -536,7 +541,6 @@ describe("Nuxt runtime", async () => {
         publicationSupabasePublishableKey: "t06-publication-key",
         mcpSupabaseUrl: publicationServerUrl,
         mcpSupabasePublishableKey: "t16-mcp-publishable-key",
-        mcpAllowedUserIds: "mcp-owner",
         mcpGatewayKey,
         mcpAuthenticationRateLimit: 1_000,
         public: {

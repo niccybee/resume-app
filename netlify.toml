@@ -12,3 +12,6 @@
 
 [context.deploy-preview.environment]
   STATIC_CV_GENERATION_REQUIRED = "false"
+
+[context.branch-deploy.environment]
+  STATIC_CV_GENERATION_REQUIRED = "false"

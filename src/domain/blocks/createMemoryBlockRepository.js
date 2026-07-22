@@ -5,9 +5,13 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-export function createMemoryBlockRepository({ isBlockReferenced = () => false } = {}) {
-  const blocks = [];
-  const versions = [];
+export function createMemoryBlockRepository({
+  isBlockReferenced = () => false,
+  initialBlocks = [],
+  initialVersions = [],
+} = {}) {
+  const blocks = clone(initialBlocks);
+  const versions = clone(initialVersions);
   let blockSequence = 0;
   let versionSequence = 0;
   let generationSequence = 0;

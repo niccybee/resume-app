@@ -114,7 +114,7 @@ async function continueWithDeveloperAccess() {
           <div>
             <p class="panel-number">LOCAL / DEV</p>
             <strong>Review the interface without a session</strong>
-            <small>Protected data and writes still require Supabase authentication.</small>
+            <small>Uses disposable sample CVs and CV Blocks. Supabase data is never read or changed.</small>
           </div>
           <UButton
             class="nuxt-ui-button"

@@ -26,6 +26,7 @@ describe("public MCP setup guide", () => {
     expect(guide).toContain("<UCollapsible");
     expect(guide.indexOf("Add Resume Studio to OpenCode")).toBeLessThan(guide.indexOf("opencode.json"));
     expect(guide).toContain("https://cv.obair.tech/mcp");
+    expect(guide).toContain('document.execCommand("copy")');
   });
 
   it("is discoverable from the public header and authenticated MCP settings", async () => {

@@ -9,7 +9,7 @@ useSeoMeta({
 });
 
 const endpoint = "https://cv.obair.tech/mcp";
-const copied = ref(false);
+const copyState = ref("idle");
 const opencodeConfig = `{
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
@@ -20,13 +20,29 @@ const opencodeConfig = `{
     }
   }
 }`;
-const copyLabel = computed(() => copied.value ? "Copied" : "Copy connection address");
+const copyLabel = computed(() => ({
+  copied: "Copied",
+  failed: "Copy manually",
+}[copyState.value] || "Copy connection address"));
 
 async function copyEndpoint() {
-  await navigator.clipboard.writeText(endpoint);
-  copied.value = true;
+  copyState.value = "idle";
+  try {
+    await navigator.clipboard.writeText(endpoint);
+    copyState.value = "copied";
+  } catch {
+    const field = document.createElement("textarea");
+    field.value = endpoint;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    copyState.value = document.execCommand("copy") ? "copied" : "failed";
+    field.remove();
+  }
   window.setTimeout(() => {
-    copied.value = false;
+    copyState.value = "idle";
   }, 2000);
 }
 </script>
@@ -90,7 +106,7 @@ async function copyEndpoint() {
         <UButton
           class="nuxt-ui-button"
           :label="copyLabel"
-          :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+          :icon="copyState === 'copied' ? 'i-lucide-check' : 'i-lucide-copy'"
           color="neutral"
           variant="outline"
           @click="copyEndpoint"

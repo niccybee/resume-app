@@ -468,8 +468,13 @@ const publicationServer = createServer(async (request, response) => {
     ? { slug, status: "published", revisionId: "revision-runtime" }
     : null));
 });
-const startPublicationCheckServer = (port = 0) => new Promise((resolveListen) => {
-  publicationServer.listen(port, "127.0.0.1", resolveListen);
+const startPublicationCheckServer = (port = 0) => new Promise((resolveListen, rejectListen) => {
+  const rejectOnError = (error) => rejectListen(error);
+  publicationServer.once("error", rejectOnError);
+  publicationServer.listen(port, "127.0.0.1", () => {
+    publicationServer.off("error", rejectOnError);
+    resolveListen();
+  });
 });
 const stopPublicationCheckServer = () => new Promise((resolveClose, rejectClose) => {
   publicationServer.close((error) => {
@@ -1045,7 +1050,8 @@ describe("Nuxt runtime", async () => {
       }],
     });
     expect(invalidContent.result).toMatchObject({ isError: true });
-    expect(invalidContent.result.content[0].text).toContain('"code": "validation-failed"');
+    expect(invalidContent.result.content[0].text).toContain("MCP error -32602");
+    expect(invalidContent.result.content[0].text).toContain("Input validation error");
 
     const discardable = await call("propose_content_changes", {
       schemaVersion: "1",

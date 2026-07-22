@@ -73,45 +73,177 @@ async function decide(decision) {
 </script>
 
 <template>
-  <section class="consent-panel" aria-labelledby="consent-heading">
-    <p class="eyebrow">Connect a chat client</p>
-    <h1 id="consent-heading">Allow access to Resume Studio?</h1>
+  <section class="consent-shell">
+    <UCard class="consent-panel" variant="outline" aria-labelledby="consent-heading">
+      <template #header>
+        <p class="eyebrow">Connect a chat client / OAuth</p>
+        <h1 id="consent-heading">Allow access to Resume Studio?</h1>
+      </template>
 
-    <p v-if="loading">Checking this authorization request…</p>
-    <p v-else-if="error" role="alert">{{ error }}</p>
+      <p v-if="loading" aria-busy="true">Checking this authorization request…</p>
+      <UAlert
+        v-else-if="error"
+        color="error"
+        variant="outline"
+        icon="i-lucide-circle-alert"
+        :description="error"
+      />
 
-    <template v-else-if="request">
-      <h2>{{ request.client.name }}</h2>
-      <p>
-        This client is asking to act as your signed-in Resume Studio account.
-        Its database access will remain limited by your existing account permissions.
-      </p>
-      <dl>
-        <template v-if="request.client.uri">
-          <dt>Client website</dt>
-          <dd><a :href="request.client.uri" rel="noreferrer">{{ request.client.uri }}</a></dd>
-        </template>
-        <dt>Redirect destination</dt>
-        <dd><code>{{ request.redirectUri }}</code></dd>
-        <dt>Requested access</dt>
-        <dd>{{ request.scopes.length ? request.scopes.join(", ") : "Account access" }}</dd>
-      </dl>
-      <p>You can disconnect the client later. Resume Studio will still require explicit apply confirmation before MCP writes.</p>
-      <div class="actions">
-        <button class="secondary" :disabled="submitting" @click="decide('deny')">Deny</button>
-        <button :aria-busy="submitting" :disabled="submitting" @click="decide('approve')">Approve</button>
-      </div>
-    </template>
+      <template v-else-if="request">
+        <div class="client-heading">
+          <span class="client-mark" aria-hidden="true">MCP</span>
+          <div>
+            <p class="eyebrow">Requesting client</p>
+            <h2>{{ request.client.name }}</h2>
+          </div>
+        </div>
+        <p>
+          This client is asking to act as your signed-in Resume Studio account.
+          Its database access will remain limited by your existing account permissions.
+        </p>
+        <dl>
+          <template v-if="request.client.uri">
+            <dt>Client website</dt>
+            <dd><a :href="request.client.uri" rel="noreferrer">{{ request.client.uri }}</a></dd>
+          </template>
+          <dt>Redirect destination</dt>
+          <dd><code>{{ request.redirectUri }}</code></dd>
+          <dt>Requested access</dt>
+          <dd>{{ request.scopes.length ? request.scopes.join(", ") : "Account access" }}</dd>
+        </dl>
+        <UAlert
+          color="warning"
+          variant="outline"
+          icon="i-lucide-shield-check"
+          title="Explicit apply remains required"
+          description="You can disconnect this client later. MCP writes still require a reviewed Change Proposal and explicit confirmation."
+        />
+      </template>
+
+      <template v-if="request && !loading && !error" #footer>
+        <div class="actions">
+          <UButton
+            class="nuxt-ui-button"
+            label="Deny"
+            color="neutral"
+            variant="outline"
+            :disabled="submitting"
+            @click="decide('deny')"
+          />
+          <UButton
+            class="nuxt-ui-button approve-action"
+            label="Approve"
+            trailing-icon="i-lucide-arrow-right"
+            :loading="submitting"
+            :disabled="submitting"
+            @click="decide('approve')"
+          />
+        </div>
+      </template>
+    </UCard>
   </section>
 </template>
 
 <style scoped>
-.consent-panel { max-width: 40rem; margin: 8vh auto; padding: 3rem; background: white; border: 1px solid #dde3df; border-radius: 20px; }
-.eyebrow { color: #37624e; text-transform: uppercase; font-weight: 700; letter-spacing: .12em; }
-h2 { margin-block-end: .5rem; }
-dl { display: grid; grid-template-columns: minmax(9rem, auto) 1fr; gap: .65rem 1rem; margin: 2rem 0; }
-dt { font-weight: 700; }
-dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: 2rem; }
-.secondary { background: transparent; color: inherit; border: 1px solid currentColor; }
+.consent-shell {
+  display: grid;
+  min-height: calc(100vh - var(--ui-header-height));
+  padding: clamp(3rem, 8vw, 7rem) 0;
+  place-items: center;
+}
+
+.consent-panel {
+  width: min(100%, 44rem);
+  border: 2px solid var(--ink);
+  background: var(--paper-light);
+  box-shadow: 10px 10px 0 var(--marker);
+}
+
+.consent-panel h1 {
+  margin: 0.3rem 0 0;
+  font-size: clamp(2.5rem, 6vw, 4.6rem);
+  font-weight: 400;
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+}
+
+.client-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.client-heading h2,
+.client-heading p {
+  margin: 0;
+}
+
+.client-mark {
+  display: grid;
+  width: 3.25rem;
+  height: 3.25rem;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: var(--marker-soft);
+  font-family: var(--font-label);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) 1fr;
+  gap: 0;
+  margin: 2rem 0;
+  border-top: 1px solid var(--ink);
+}
+
+dt,
+dd {
+  margin: 0;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--paper-deep);
+}
+
+dt {
+  font-family: var(--font-label);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.approve-action {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  box-shadow: 4px 4px 0 var(--marker);
+  color: var(--paper-light);
+}
+
+@media (max-width: 560px) {
+  dl {
+    grid-template-columns: 1fr;
+  }
+
+  dt {
+    padding-bottom: 0.1rem;
+    border-bottom: 0;
+  }
+
+  dd {
+    padding-top: 0.2rem;
+  }
+}
 </style>

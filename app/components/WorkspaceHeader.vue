@@ -5,9 +5,14 @@ import {
   isDeveloperAccessEnabled,
 } from "../../src/auth/developerAccess";
 
-const route = useRoute();
 const auth = useAuthStore();
 const developerAccess = isDeveloperAccessEnabled();
+const navigation = [
+  { label: "Saved CVs", icon: "i-lucide-files", to: "/app/cvs" },
+  { label: "CV Blocks", icon: "i-lucide-library", to: "/app/blocks" },
+  { label: "CV Builder", icon: "i-lucide-file-pen-line", to: "/app/cvs/new" },
+  { label: "AI settings", icon: "i-lucide-sparkles", to: "/app/settings/ai" },
+];
 
 async function leaveWorkspace() {
   if (developerAccess) {
@@ -22,32 +27,125 @@ async function leaveWorkspace() {
 </script>
 
 <template>
-  <header id="workspace-header" data-workspace-navigation>
-    <nav>
-      <ul>
-        <li><strong>Resume Studio</strong></li>
-      </ul>
-      <ul>
-        <li><NuxtLink data-nav="cvs" to="/app/cvs">Saved CVs</NuxtLink></li>
-        <li><NuxtLink data-nav="blocks" to="/app/blocks">Blocks</NuxtLink></li>
-        <li><NuxtLink data-nav="builder" to="/app/cvs/new">Builder</NuxtLink></li>
-        <li><NuxtLink data-nav="settings" to="/app/settings/ai">AI settings</NuxtLink></li>
-        <li><button class="outline sign-out control-compact" @click="leaveWorkspace">{{ developerAccess ? "Exit developer access" : "Sign out" }}</button></li>
-      </ul>
-    </nav>
-    <p v-if="developerAccess" class="developer-access-notice" role="status">Developer access: the workspace shell is available, while protected data and writes still require authentication.</p>
-    <hr>
-    <hgroup>
-      <h1>{{ route.meta.title }}</h1>
-      <p v-if="route.meta.description">{{ route.meta.description }}</p>
-    </hgroup>
-  </header>
+  <UDashboardSidebar
+    id="workspace-navigation"
+    data-workspace-navigation
+    class="workspace-sidebar"
+    collapsible
+    resizable
+    :min-size="18"
+    :max-size="24"
+  >
+    <template #header="{ collapsed }">
+      <NuxtLink class="workspace-brand" to="/app/cvs" aria-label="Resume Studio saved CVs">
+        <span class="workspace-brand-mark">RS</span>
+        <span v-if="!collapsed" class="workspace-brand-copy">
+          <strong>Resume Studio</strong>
+          <small>Compose with evidence</small>
+        </span>
+      </NuxtLink>
+    </template>
+
+    <template #default="{ collapsed }">
+      <p v-if="!collapsed" class="sidebar-label">Workspace index</p>
+      <UNavigationMenu
+        :items="navigation"
+        orientation="vertical"
+        :collapsed="collapsed"
+        :ui="{
+          link: 'rounded-none border-b border-[var(--paper-deep)] font-medium',
+          linkLeadingIcon: 'text-[var(--marker-dark)]'
+        }"
+      />
+
+      <UAlert
+        v-if="developerAccess && !collapsed"
+        class="developer-access-notice"
+        color="warning"
+        variant="outline"
+        icon="i-lucide-construction"
+        title="Developer access"
+        description="The workspace shell is open. Protected data and writes still require authentication."
+      />
+    </template>
+
+    <template #footer="{ collapsed }">
+      <UButton
+        class="nuxt-ui-button leave-workspace"
+        :icon="collapsed ? 'i-lucide-log-out' : undefined"
+        :label="collapsed ? undefined : (developerAccess ? 'Exit developer access' : 'Sign out')"
+        color="neutral"
+        variant="outline"
+        block
+        :ui="{ label: 'whitespace-normal text-left leading-tight' }"
+        @click="leaveWorkspace"
+      />
+    </template>
+  </UDashboardSidebar>
 </template>
 
-<style>
-.sign-out { width: auto; padding: .35rem .7rem; margin: 0; }
-.developer-access-notice { margin: .75rem 0 0; padding: .65rem .8rem; border: 1px solid #d8b76a; border-radius: 8px; background: #fff7df; color: #684f19; }
+<style scoped>
+.workspace-sidebar {
+  --ui-bg: var(--paper-light);
+  border-right: 2px solid var(--ink);
+}
+
+.workspace-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.workspace-brand-mark {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid var(--ink);
+  background: var(--marker);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-family: var(--font-label);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.workspace-brand-copy {
+  display: grid;
+  line-height: 1.15;
+}
+
+.workspace-brand-copy strong {
+  font-family: var(--font-editorial);
+  font-size: 1.15rem;
+}
+
+.workspace-brand-copy small,
+.sidebar-label {
+  color: var(--muted);
+  font-family: var(--font-label);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-label {
+  margin: 0 0 0.65rem;
+}
+
+.developer-access-notice {
+  margin-top: 1.25rem;
+}
+
+.leave-workspace {
+  box-shadow: none;
+}
+
 @media print {
-  #workspace-header { display: none; }
+  .workspace-sidebar {
+    display: none;
+  }
 }
 </style>

@@ -78,7 +78,7 @@ async function verify() {
 <template>
   <p v-if="loading" aria-busy="true">Checking OpenRouter configuration…</p>
   <section v-else class="settings-panel">
-    <p class="connection-state">
+    <p :class="['connection-state', { connected: status.configured }]">
       <strong>{{ status.configured ? "OpenRouter is connected" : "OpenRouter is not connected" }}</strong>
     </p>
     <p>
@@ -138,7 +138,8 @@ async function verify() {
 </template>
 
 <style scoped>
-.settings-panel { max-width: 42rem; }
-.connection-state { color: var(--success); }
-.settings-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.settings-panel { max-width: 46rem; padding: clamp(1.5rem, 4vw, 3rem); border: 2px solid var(--ink); background: var(--paper-light); box-shadow: 8px 8px 0 var(--paper-deep); }
+.connection-state { display: inline-flex; margin-top: 0; padding: .3rem .45rem; border: 1px solid currentColor; color: var(--muted); font-family: var(--font-label); font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; }
+.connection-state.connected { color: var(--success); }
+.settings-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--ink); }
 </style>

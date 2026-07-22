@@ -14,10 +14,10 @@ export default defineNuxtConfig({
   experimental: {
     asyncContext: true,
   },
-  modules: ["@pinia/nuxt", "@nuxtjs/mcp-toolkit"],
+  modules: ["@pinia/nuxt", "@nuxt/ui", "@nuxtjs/mcp-toolkit"],
   css: [
     fileURLToPath(
-      new URL("./src/styles/design-system.css", import.meta.url),
+      new URL("./app/assets/css/main.css", import.meta.url),
     ),
   ],
   runtimeConfig: {

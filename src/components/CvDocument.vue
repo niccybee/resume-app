@@ -73,7 +73,7 @@ function value(item) {
 </template>
 
 <style scoped>
-.cv-document { --ink: #19221f; --accent: #345c4b; background: white; color: var(--ink); max-width: 210mm; min-height: 280mm; margin: 0 auto; padding: 18mm; border: 1px solid #d9dedb; box-shadow: 0 18px 50px rgba(22, 32, 28, .1); }
+.cv-document { --ink: #191713; --accent: #f05a3d; background: #fffaf0; color: var(--ink); max-width: 210mm; min-height: 280mm; margin: 0 auto; padding: 18mm; border: 2px solid var(--ink); box-shadow: 10px 12px 0 #dfd2bd; }
 .cv-hero { display: flex; justify-content: space-between; gap: 2rem; padding-bottom: 1.5rem; border-bottom: 3px solid var(--accent); }
 .cv-hero h1 { margin: 0; font-size: clamp(2.4rem, 7vw, 4.8rem); line-height: .9; letter-spacing: -.05em; }
 .eyebrow { margin: 0 0 .7rem; color: var(--accent); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; font-size: .72rem; }
@@ -86,7 +86,7 @@ h3 { font-size: 1rem; margin-bottom: .35rem; }
 .cv-role { margin: .65rem 0 0; }
 .cv-role h4 { margin: 0 0 .3rem; font-size: .86rem; }
 .cv-occasion-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
-.cv-period { margin: 0; color: #5c6964; font-size: .75rem; white-space: nowrap; }
+.cv-period { margin: 0; color: #645d52; font-size: .75rem; white-space: nowrap; }
 .cv-role ul { margin: 0; padding-left: 1.1rem; }
 .cv-entry { break-inside: avoid; }
 .cv-entry p, .cv-document li, .cv-document main > section > p { font-size: .86rem; line-height: 1.6; }

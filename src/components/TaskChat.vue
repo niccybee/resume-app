@@ -208,27 +208,27 @@ async function createTasks() {
 </template>
 
 <style scoped>
-.task-chat { margin: 1.5rem 0 2rem; border: 1px solid #cbd7d1; background: #fff; }
+.task-chat { margin: 1.5rem 0 2rem; border: 2px solid var(--ink); background: var(--paper-light); box-shadow: 6px 6px 0 var(--paper-deep); }
 .task-chat-header, .json-review-heading, .chat-input-addon { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.task-chat-header { padding: 1.25rem; border-bottom: 1px solid #dce3df; }
+.task-chat-header { padding: 1.25rem; border-bottom: 1px solid var(--ink); }
 .task-chat h2, .task-chat h3, .task-chat p { margin-bottom: 0; }
-.task-chat h2 { font-size: clamp(1.35rem, 3vw, 1.8rem); }
-.task-chat-eyebrow, .chat-message > span { color: #37624e; font-size: .65rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.task-chat h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); font-weight: 400; }
+.task-chat-eyebrow, .chat-message > span { color: var(--marker-dark); font-family: var(--font-label); font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .chat-thread { display: grid; gap: .75rem; max-height: 17rem; margin: 0; padding: 1.25rem; overflow-y: auto; list-style: none; }
-.chat-message { max-width: 82%; padding: .75rem .9rem; border: 1px solid #cbd7d1; background: #f6f8f6; }
-.chat-message-user { justify-self: end; background: #e6f0eb; }
+.chat-message { max-width: 82%; padding: .75rem .9rem; border: 1px solid var(--ink); background: var(--paper); }
+.chat-message-user { justify-self: end; background: var(--marker-soft); }
 .chat-message p { margin-top: .25rem; font-size: .9rem; }
-.chat-input-group { margin: 0 1.25rem 1.25rem; border: 1px solid #8ca398; background: #fff; }
-.chat-input-group:focus-within { box-shadow: 0 0 0 .2rem rgba(55, 98, 78, .2); }
+.chat-input-group { margin: 0 1.25rem 1.25rem; border: 1px solid var(--ink); background: var(--paper-light); }
+.chat-input-group:focus-within { box-shadow: 0 0 0 .2rem rgb(240 90 61 / 20%); }
 .chat-input-group textarea { min-height: 6.25rem; margin: 0; border: 0 !important; border-radius: 0; resize: vertical; box-shadow: none; }
-.chat-input-addon { padding: .6rem; border-top: 1px solid #dce3df; }
-.chat-input-addon small { color: #52635b; font-size: .72rem; }
+.chat-input-addon { padding: .6rem; border-top: 1px solid var(--paper-deep); }
+.chat-input-addon small { color: var(--muted); font-size: .72rem; }
 .chat-input-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
-.inline-error { margin: -.5rem 1.25rem 1.25rem; color: #a12626; }
-.json-review { padding: 1.25rem; border-top: 1px solid #dce3df; background: #19221f; }
-.json-review h3, .json-review .task-chat-eyebrow { color: #fff; }
-.json-review pre { max-height: 20rem; margin: 1rem 0 0; padding: 1rem; overflow: auto; border: 1px solid #52635b; border-radius: 0; background: #0f1513; color: #fff; font-size: .72rem; }
-.review-editor-label { display: block; margin-top: 1rem; color: #fff; }
-.review-editor-label textarea { margin-top: .4rem; border-color: #52635b; background: #0f1513; color: #fff; font-family: var(--font-label); font-size: .75rem; }
+.inline-error { margin: -.5rem 1.25rem 1.25rem; color: var(--danger); }
+.json-review { padding: 1.25rem; border-top: 1px solid var(--ink); background: var(--ink); }
+.json-review h3, .json-review .task-chat-eyebrow { color: var(--paper-light); }
+.json-review pre { max-height: 20rem; margin: 1rem 0 0; padding: 1rem; overflow: auto; border: 1px solid var(--paper-deep); border-radius: 0; background: #0e0d0b; color: var(--paper-light); font-size: .72rem; }
+.review-editor-label { display: block; margin-top: 1rem; color: var(--paper-light); }
+.review-editor-label textarea { margin-top: .4rem; border-color: var(--paper-deep); background: #0e0d0b; color: var(--paper-light); font-family: var(--font-label); font-size: .75rem; }
 @media (max-width: 640px) { .task-chat-header, .json-review-heading, .chat-input-addon { align-items: stretch; flex-direction: column; } .chat-message { max-width: 95%; } }
 </style>

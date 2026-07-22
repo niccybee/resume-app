@@ -482,4 +482,24 @@ function generateTaskProposal(instruction) {
   </div>
 </template>
 
-<style scoped>.editor-layout{display:grid;grid-template-columns:minmax(22rem,.8fr) minmax(36rem,1.2fr);gap:2rem;align-items:start}.editor-controls{min-width:0}.live-preview{position:sticky;top:1rem;transform-origin:top left}.library-row,.selection,.session-row{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.7rem;margin:.5rem 0;border:1px solid #dce3df;box-shadow:none}.library-row strong{display:block}.selection button{width:auto;margin:0 .15rem}.selection select{display:inline-block;width:auto;margin:0 .3rem}.section-list{margin:1.2rem 0}.selection-employer{margin:.75rem 0 1.25rem;padding-left:.75rem;border-left:3px solid #37624e}.selection-employer h4{margin:0 0 .6rem}.selection-employer h5{margin:.7rem 0 .35rem;color:#52635b}@media(max-width:1100px){.editor-layout{grid-template-columns:1fr}.live-preview{position:static}}@media print{.editor-controls{display:none}.editor-layout{display:block}}</style>
+<style scoped>
+.editor-layout { display: grid; grid-template-columns: minmax(23rem, .9fr) minmax(34rem, 1.1fr); gap: clamp(1.5rem, 3vw, 3rem); align-items: start; }
+.editor-controls { min-width: 0; }
+.editor-controls > h2, .editor-controls > section > h2 { margin-top: 2.5rem; padding-bottom: .55rem; border-bottom: 2px solid var(--ink); font-size: 1.8rem; font-weight: 400; }
+.live-preview { position: sticky; top: 1rem; transform-origin: top left; }
+.live-preview > p { margin: 0 0 .65rem; font-family: var(--font-label); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; }
+.library-row, .selection, .session-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .85rem !important; margin: .6rem 0 !important; border: 1px solid var(--ink) !important; background: var(--paper-light); box-shadow: 3px 3px 0 var(--paper-deep); }
+.library-row strong { display: block; font-family: var(--font-editorial); font-size: 1.05rem; }
+.selection button { width: auto; margin: 0 .15rem; }
+.selection select { display: inline-block; width: auto !important; margin: 0 .3rem !important; }
+.section-list { margin: 1.5rem 0; }
+.section-list > h3 { font-family: var(--font-label); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; }
+.selection-employer { margin: .75rem 0 1.25rem; padding-left: .9rem; border-left: 4px solid var(--marker); }
+.selection-employer h4 { margin: 0 0 .6rem; }
+.selection-employer h5 { margin: .7rem 0 .35rem; color: var(--muted); font-family: var(--font-label); font-size: .72rem; }
+.proposal-review { margin: 1.5rem 0 !important; border: 2px solid var(--ink) !important; box-shadow: 6px 6px 0 var(--marker) !important; }
+.proposal-review pre { max-height: 22rem; overflow: auto; padding: 1rem; background: var(--ink); color: var(--paper-light); font-family: var(--font-label); font-size: .7rem; }
+@media (max-width: 1180px) { .editor-layout { grid-template-columns: 1fr; } .live-preview { position: static; } }
+@media (max-width: 650px) { .library-row, .selection, .session-row { align-items: stretch; flex-direction: column; } .selection select { width: 100% !important; margin: .4rem 0 !important; } }
+@media print { .editor-controls { display: none; } .editor-layout { display: block; } }
+</style>

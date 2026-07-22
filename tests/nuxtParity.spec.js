@@ -34,6 +34,22 @@ describe("completed Nuxt migration", () => {
       "src/main.js",
       "src/router/index.js",
       "src/router/routes.js",
+      "src/views/CVBuilder.vue",
+      "src/components/Builder.vue",
+      "src/components/CreateItem.vue",
+      "src/components/Filter.vue",
+      "src/components/Item.vue",
+      "src/components/List.vue",
+      "src/components/SearchBar.vue",
+      "src/components/Spare.vue",
+      "src/components/TableBlock.vue",
+      "src/components/CV",
+      "src/stores/appSettingsStore.js",
+      "src/stores/cvStore.js",
+      "src/stores/itemStore.js",
+      "src/stores/searchStore",
+      "src/styles/design-system.css",
+      "src/assets/logo.png",
       "vite.config.js",
       "index.html",
     ];
@@ -49,7 +65,9 @@ describe("completed Nuxt migration", () => {
     const staticBuild = await readFile(fromRoot("scripts/static-cvs.mjs"), "utf8");
 
     expect(packageJson.devDependencies).not.toHaveProperty("vite");
-    expect(packageJson.devDependencies).toHaveProperty("@vitejs/plugin-vue");
+    expect(packageJson.devDependencies).not.toHaveProperty("@vitejs/plugin-vue");
+    expect(packageJson.dependencies).toHaveProperty("@nuxt/ui");
+    expect(config).toContain('"@nuxt/ui"');
     expect(packageJson.scripts).toMatchObject({
       dev: expect.stringContaining("nuxt dev"),
       build: expect.stringContaining("nuxt build"),

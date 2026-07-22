@@ -1289,7 +1289,9 @@ describe("Nuxt runtime", async () => {
       expect(new URL(page.url()).searchParams.get("redirect")).toBe(
         "/app/settings/ai?tab=model",
       );
-      expect(await page.getByRole("heading", { name: "Sign in to manage CVs" }).isVisible()).toBe(true);
+      const loginHeading = page.getByRole("heading", { name: "Sign in to manage CVs" });
+      await loginHeading.waitFor();
+      expect(await loginHeading.isVisible()).toBe(true);
       expect(await page.locator("[data-workspace-navigation]").count()).toBe(0);
     } finally {
       await context.close();
@@ -1384,7 +1386,7 @@ describe("Nuxt runtime", async () => {
       expect(await page.getByText("Shipped a saved composition through native Nuxt pages.").isVisible()).toBe(true);
       expect(await page.getByRole("link", { name: "Back to editor" }).isVisible()).toBe(true);
 
-      await page.getByRole("link", { name: "Blocks", exact: true }).click();
+      await page.getByRole("link", { name: "CV Blocks", exact: true }).click();
       await page.waitForURL("**/app/blocks");
       const blockSearch = page.getByRole("searchbox", { name: "Search CV Blocks, employers, roles…" });
       await blockSearch.waitFor();

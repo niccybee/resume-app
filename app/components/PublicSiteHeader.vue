@@ -1,27 +1,85 @@
 <template>
-  <header id="public-site-header" class="public-header">
-    <nav aria-label="Public site navigation">
-      <ul class="brand-list">
-        <li><NuxtLink class="brand" to="/">CV / NB</NuxtLink></li>
-      </ul>
-      <ul class="public-links">
-        <li><NuxtLink to="/login">Owner sign in</NuxtLink></li>
-        <li><a href="https://nicbenson.com.au">NicBenson.com.au ↗</a></li>
-      </ul>
-    </nav>
-  </header>
+  <UHeader id="public-site-header" class="public-header" :toggle="false">
+    <template #title>
+      <span class="public-brand">
+        <span>CV / NB</span>
+        <small>Resume Studio</small>
+      </span>
+    </template>
+
+    <template #right>
+      <UButton
+        class="nuxt-ui-button"
+        to="/login"
+        label="Owner sign in"
+        color="neutral"
+        variant="link"
+      />
+      <UButton
+        class="nuxt-ui-button external-link"
+        to="https://nicbenson.com.au"
+        target="_blank"
+        label="NicBenson.com.au"
+        trailing-icon="i-lucide-arrow-up-right"
+        color="neutral"
+        variant="link"
+      />
+    </template>
+  </UHeader>
+
   <header id="print-header">
     <h2>Nicholas Benson CV</h2>
   </header>
 </template>
 
-<style>
-.public-header { border-bottom: 2px solid var(--ink); padding: .85rem 0 .75rem; }
-.public-header nav, .public-header ul { margin: 0; }
-.public-header .brand { color: var(--ink); font-family: var(--font-label); font-size: .82rem; font-weight: 800; letter-spacing: .12em; text-decoration: none; }
-.public-links a { color: var(--ink); font-family: var(--font-label); font-size: .72rem; letter-spacing: .04em; text-decoration: none; text-transform: uppercase; }
-.public-links a:hover { color: var(--marker-dark); }
-@media print { #public-site-header { display: none; } #print-header { display: block; } }
-@media screen { #print-header { display: none; } }
-@media (max-width: 560px) { .public-header nav { align-items: flex-start; } .public-links { align-items: flex-end; flex-direction: column; gap: .2rem; } }
+<style scoped>
+.public-header {
+  border-bottom: 2px solid var(--ink);
+  background: rgb(243 236 223 / 94%);
+  backdrop-filter: blur(8px);
+}
+
+.public-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  color: var(--ink);
+  font-family: var(--font-label);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.public-brand small {
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media print {
+  #public-site-header {
+    display: none;
+  }
+
+  #print-header {
+    display: block;
+  }
+}
+
+@media screen {
+  #print-header {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .external-link {
+    display: none;
+  }
+
+  .public-brand small {
+    display: none;
+  }
+}
 </style>

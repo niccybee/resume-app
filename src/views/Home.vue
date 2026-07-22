@@ -9,8 +9,20 @@
           then compose a focused CV for the role in front of you.
         </p>
         <div class="actions">
-          <NuxtLink class="primary-action" to="/app/blocks">Open the workspace</NuxtLink>
-          <NuxtLink class="text-action" to="/login">Owner sign in <span aria-hidden="true">→</span></NuxtLink>
+          <UButton
+            class="nuxt-ui-button primary-action"
+            to="/app/blocks"
+            label="Open the workspace"
+            trailing-icon="i-lucide-arrow-right"
+          />
+          <UButton
+            class="nuxt-ui-button text-action"
+            to="/login"
+            label="Owner sign in"
+            trailing-icon="i-lucide-arrow-right"
+            color="neutral"
+            variant="link"
+          />
         </div>
       </div>
 
@@ -169,8 +181,6 @@ h1 span::after {
   font-weight: 800;
   letter-spacing: 0.06em;
   padding: 0.9rem 1.15rem;
-  text-decoration: none;
-  text-transform: uppercase;
   transition: box-shadow 120ms ease, transform 120ms ease;
 }
 
@@ -184,12 +194,12 @@ h1 span::after {
   color: var(--ink);
   font-size: 0.95rem;
   font-weight: 700;
+  font-family: var(--font-ui);
+  text-decoration: underline;
   text-decoration-color: var(--marker);
   text-decoration-thickness: 2px;
   text-underline-offset: 0.3rem;
 }
-
-.text-action span { color: var(--marker-dark); }
 
 .document-stack {
   min-height: 540px;

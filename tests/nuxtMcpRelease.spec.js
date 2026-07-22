@@ -4,6 +4,19 @@ import { describe, expect, it } from "vitest";
 const root = new URL("../", import.meta.url);
 
 describe("Nuxt MCP release controls", () => {
+  it("keeps marked secrets out of generated Nuxt build configuration", async () => {
+    const [nuxtConfig, openRouterRoute, mcpHandler] = await Promise.all([
+      readFile(new URL("nuxt.config.ts", root), "utf8"),
+      readFile(new URL("server/api/openrouter.post.js", root), "utf8"),
+      readFile(new URL("server/mcp/index.js", root), "utf8"),
+    ]);
+    expect(nuxtConfig).toMatch(/supabaseServiceRoleKey: ""/);
+    expect(nuxtConfig).toMatch(/mcpGatewayKey: ""/);
+    expect(nuxtConfig).not.toMatch(/process\.env\.(?:SUPABASE_SERVICE_ROLE_KEY|NUXT_MCP_GATEWAY_KEY)/);
+    expect(openRouterRoute).toMatch(/resolveRuntimeSecret\([\s\S]*SUPABASE_SERVICE_ROLE_KEY/);
+    expect(mcpHandler).toMatch(/resolveRuntimeSecret\([\s\S]*NUXT_MCP_GATEWAY_KEY/);
+  });
+
   it("bounds every enumerable MCP read and applies database query limits", async () => {
     const [tools, cvRepository, blockRepository, readService] = await Promise.all([
       Promise.all([
@@ -38,7 +51,7 @@ describe("Nuxt MCP release controls", () => {
       readFile(new URL("server/middleware/00-mcp-body-limit.js", root), "utf8"),
     ]);
     expect(handler).toMatch(/mcpAuthenticationRateLimit/i);
-    expect(handler).toMatch(/gatewayKey: config\.mcpGatewayKey/);
+    expect(handler).toMatch(/gatewayKey: resolveRuntimeSecret\([\s\S]*config\.mcpGatewayKey[\s\S]*NUXT_MCP_GATEWAY_KEY/);
     expect(readTool).toMatch(/runHardenedMcpTool[\s\S]*kind: "read"/i);
     expect(changeTool).toMatch(/runHardenedMcpTool[\s\S]*kind: "mutation"/i);
     expect(`${readTool}\n${changeTool}`).toMatch(/recordMcpAuditEvent|runHardenedMcpTool/i);

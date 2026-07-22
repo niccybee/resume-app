@@ -21,7 +21,9 @@ export default defineNuxtConfig({
     ),
   ],
   runtimeConfig: {
-    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+    // Secrets are resolved from the function environment at request time.
+    // Reading them here would embed their values in Netlify's build output.
+    supabaseServiceRoleKey: "",
     publicationSupabaseUrl:
       process.env.SUPABASE_URL ||
       publicSupabaseUrl,
@@ -34,7 +36,7 @@ export default defineNuxtConfig({
     mcpSupabasePublishableKey:
       process.env.SUPABASE_PUBLISHABLE_KEY ||
       publicSupabasePublishableKey,
-    mcpGatewayKey: process.env.NUXT_MCP_GATEWAY_KEY || "",
+    mcpGatewayKey: "",
     mcpAuthenticationRateLimit: Number(process.env.NUXT_MCP_AUTHENTICATION_RATE_LIMIT) || 120,
     public: {
       supabaseUrl: publicSupabaseUrl,

@@ -1,8 +1,11 @@
 import { createBlockLibrary } from "../domain/blocks/blockLibrary";
 import { createSupabaseBlockRepository } from "../infrastructure/blocks/createSupabaseBlockRepository";
+import { developerWorkspace } from "../development/createDeveloperWorkspace";
+import { isDeveloperAccessEnabled } from "../auth/developerAccess";
+import { createModeAwareService } from "./createModeAwareService";
 import { supabase } from "../supabase";
 
-export const blockLibrary = createBlockLibrary({
+const supabaseBlockLibrary = createBlockLibrary({
   repository: createSupabaseBlockRepository({ client: supabase }),
   generator: {
     name: "reviewable-local-proposal",
@@ -15,4 +18,10 @@ export const blockLibrary = createBlockLibrary({
       return { content, generator: this.name };
     },
   },
+});
+
+export const blockLibrary = createModeAwareService({
+  primary: supabaseBlockLibrary,
+  developer: developerWorkspace.blockLibrary,
+  developerAccessEnabled: isDeveloperAccessEnabled,
 });

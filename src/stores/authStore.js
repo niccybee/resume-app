@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 import { supabase } from "../supabase";
 
+const initializationByStore = new WeakMap();
+
 export const useAuthStore = defineStore("auth", {
   state: () => ({
     user: null,
@@ -12,12 +14,20 @@ export const useAuthStore = defineStore("auth", {
   actions: {
     async initialize() {
       if (this.ready) return;
-      const { data } = await supabase.auth.getSession();
-      this.user = data.session?.user || null;
-      supabase.auth.onAuthStateChange((_event, session) => {
-        this.user = session?.user || null;
-      });
-      this.ready = true;
+      if (!initializationByStore.has(this)) {
+        const initializePromise = (async () => {
+          const { data } = await supabase.auth.getSession();
+          this.user = data.session?.user || null;
+          supabase.auth.onAuthStateChange((_event, session) => {
+            this.user = session?.user || null;
+          });
+          this.ready = true;
+        })().finally(() => {
+          initializationByStore.delete(this);
+        });
+        initializationByStore.set(this, initializePromise);
+      }
+      await initializationByStore.get(this);
     },
     async requestMagicLink(email, redirectTo = `${window.location.origin}/app/cvs`) {
       this.loading = true;

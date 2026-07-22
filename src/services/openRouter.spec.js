@@ -1,61 +1,69 @@
 import { describe, expect, it, vi } from "vitest";
 import { createOpenRouterClient } from "./openRouter";
 
-describe("OpenRouter authenticated client boundary", () => {
+function response(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function createHarness(body, status = 200) {
+  const client = {
+    auth: {
+      getSession: vi.fn().mockResolvedValue({
+        data: { session: { access_token: "user-token" } },
+        error: null,
+      }),
+    },
+  };
+  const fetchImpl = vi.fn().mockResolvedValue(response(body, status));
+  return {
+    client,
+    fetchImpl,
+    openRouter: createOpenRouterClient({ client, fetchImpl }),
+  };
+}
+
+describe("OpenRouter authenticated Nuxt client boundary", () => {
   it("returns only non-sensitive provider status", async () => {
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({
-          data: {
-            configured: true,
-            model: "openai/gpt-4.1-mini",
-            updatedAt: "2026-07-21T01:00:00.000Z",
-            apiKey: "must-never-reach-vue",
-            vaultSecretId: "secret-id",
-          },
-          error: null,
-        }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
+    const { openRouter, fetchImpl } = createHarness({
+      configured: true,
+      model: "openai/gpt-4.1-mini",
+      updatedAt: "2026-07-21T01:00:00.000Z",
+      apiKey: "must-never-reach-vue",
+      vaultSecretId: "secret-id",
+    });
 
     await expect(openRouter.getStatus()).resolves.toEqual({
       configured: true,
       model: "openai/gpt-4.1-mini",
       updatedAt: "2026-07-21T01:00:00.000Z",
     });
-    expect(client.functions.invoke).toHaveBeenCalledWith("openrouter", {
-      body: { action: "status" },
-    });
+    expect(fetchImpl).toHaveBeenCalledWith("/api/openrouter", expect.objectContaining({
+      method: "POST",
+      headers: expect.objectContaining({ Authorization: "Bearer user-token" }),
+      body: JSON.stringify({ action: "status" }),
+    }));
   });
 
   it("submits a replacement key without retaining or returning it", async () => {
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({
-          data: {
-            configured: true,
-            model: "openrouter/auto",
-            updatedAt: "2026-07-21T01:00:00.000Z",
-            apiKey: "sk-or-secret",
-          },
-          error: null,
-        }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
+    const { openRouter, fetchImpl } = createHarness({
+      configured: true,
+      model: "openrouter/auto",
+      updatedAt: "2026-07-21T01:00:00.000Z",
+      apiKey: "sk-or-secret",
+    });
 
     const result = await openRouter.saveKey({
       apiKey: "sk-or-secret",
       model: "openrouter/auto",
     });
 
-    expect(client.functions.invoke).toHaveBeenCalledWith("openrouter", {
-      body: {
-        action: "save",
-        apiKey: "sk-or-secret",
-        model: "openrouter/auto",
-      },
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      action: "save",
+      apiKey: "sk-or-secret",
+      model: "openrouter/auto",
     });
     expect(result).toEqual({
       configured: true,
@@ -65,42 +73,26 @@ describe("OpenRouter authenticated client boundary", () => {
     expect(JSON.stringify(result)).not.toContain("sk-or-secret");
   });
 
-  it("surfaces a safe service error and never echoes the submitted key", async () => {
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({
-          data: null,
-          error: { message: "OpenRouter rejected that API key." },
-        }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
-
-    await expect(openRouter.saveKey({
-      apiKey: "sk-or-rejected",
+  it("verifies and removes the stored configuration through Nuxt", async () => {
+    const { openRouter, fetchImpl } = createHarness({
+      configured: true,
       model: "openrouter/auto",
-    })).rejects.toMatchObject({
-      code: "openrouter-unavailable",
-      message: "OpenRouter rejected that API key.",
     });
+
+    await openRouter.verifyKey();
+    await openRouter.removeKey();
+
+    expect(fetchImpl.mock.calls.map((call) => JSON.parse(call[1].body))).toEqual([
+      { action: "verify" },
+      { action: "delete" },
+    ]);
   });
 
-  it("uses the Edge Function's safe error message for rejected keys", async () => {
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({
-          data: null,
-          error: {
-            message: "Edge Function returned a non-2xx status code",
-            context: new Response(JSON.stringify({
-              code: "openrouter-error",
-              error: "OpenRouter rejected that API key.",
-            }), { status: 400, headers: { "Content-Type": "application/json" } }),
-          },
-        }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
+  it("uses the Nuxt server's safe error and never echoes the submitted key", async () => {
+    const { openRouter } = createHarness({
+      code: "openrouter-error",
+      error: "OpenRouter rejected that API key.",
+    }, 400);
 
     await expect(openRouter.saveKey({ apiKey: "rejected", model: "openrouter/auto" }))
       .rejects.toMatchObject({
@@ -109,20 +101,12 @@ describe("OpenRouter authenticated client boundary", () => {
       });
   });
 
-  it("requests a reviewable summary proposal with the current draft context", async () => {
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({
-          data: {
-            text: "A focused product leader.",
-            model: "openai/gpt-4.1-mini",
-            createdAt: "2026-07-21T01:00:00.000Z",
-          },
-          error: null,
-        }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
+  it("requests a reviewable summary proposal with current CV context", async () => {
+    const { openRouter, fetchImpl } = createHarness({
+      text: "A focused product leader.",
+      model: "openai/gpt-4.1-mini",
+      createdAt: "2026-07-21T01:00:00.000Z",
+    });
     const draft = {
       name: "Product CV",
       summary: "Existing summary",
@@ -139,73 +123,35 @@ describe("OpenRouter authenticated client boundary", () => {
       model: "openai/gpt-4.1-mini",
       createdAt: "2026-07-21T01:00:00.000Z",
     });
-    expect(client.functions.invoke).toHaveBeenCalledWith("openrouter", {
-      body: {
-        action: "generate-summary",
-        draft,
-        instruction: "Focus on cross-functional leadership",
-      },
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      action: "generate-summary",
+      draft,
+      instruction: "Focus on cross-functional leadership",
     });
   });
 
-  it("rejects a malformed summary response", async () => {
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({ data: { text: "" }, error: null }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
-
-    await expect(openRouter.suggestSummary({ draft: {}, instruction: "Improve it" }))
-      .rejects.toMatchObject({
-        code: "malformed-response",
-        message: "OpenRouter returned an invalid summary proposal.",
-      });
-  });
-
-  it("requests versioned create_tasks JSON for a conversational instruction", async () => {
-    const payload = {
-      type: "create_tasks",
-      version: 1,
-      tasks: [{
-        employer: "E2",
-        role: "Growth Lead",
-        occasionId: "e2-growth-lead-2024-02",
-        startDate: "2024-02",
-        endDate: "present",
-        item: "Built a quarterly acquisition roadmap.",
-      }],
-    };
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({ data: payload, error: null }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
-
-    await expect(openRouter.generateTasks({
-      instruction: "At E2 I built a quarterly acquisition roadmap as Growth Lead in 2024.",
-    })).resolves.toMatchObject(payload);
-    expect(client.functions.invoke).toHaveBeenCalledWith("openrouter", {
-      body: {
-        action: "generate-tasks",
-        instruction: "At E2 I built a quarterly acquisition roadmap as Growth Lead in 2024.",
-      },
-    });
-  });
-
-  it("rejects unsupported AI task payloads atomically", async () => {
-    const client = {
-      functions: {
-        invoke: vi.fn().mockResolvedValue({
-          data: { type: "create_tasks", version: 2, tasks: [] },
-          error: null,
-        }),
-      },
-    };
-    const openRouter = createOpenRouterClient({ client });
-
-    await expect(openRouter.generateTasks({ instruction: "Describe my work" }))
+  it("rejects malformed summary and task proposals", async () => {
+    const summary = createHarness({ text: "" }).openRouter;
+    await expect(summary.suggestSummary({ draft: {}, instruction: "Improve it" }))
       .rejects.toMatchObject({ code: "malformed-response" });
+
+    const tasks = createHarness({ type: "create_tasks", version: 2, tasks: [] }).openRouter;
+    await expect(tasks.generateTasks({ instruction: "Describe my work" }))
+      .rejects.toMatchObject({ code: "malformed-response" });
+  });
+
+  it("requires an authenticated session before calling the Nuxt route", async () => {
+    const client = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+      },
+    };
+    const fetchImpl = vi.fn();
+    const openRouter = createOpenRouterClient({ client, fetchImpl });
+
+    await expect(openRouter.getStatus()).rejects.toMatchObject({
+      code: "authentication-required",
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

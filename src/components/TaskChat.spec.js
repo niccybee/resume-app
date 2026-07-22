@@ -129,7 +129,18 @@ describe("task composer", () => {
     );
     const edited = JSON.parse(wrapper.get('[data-testid="task-json"]').text());
     edited.tasks[0].item = "Built a quarterly acquisition roadmap";
+    edited.tasks.push({
+      employer: "E2",
+      role: "Growth Lead",
+      occasionId: "e2-growth-lead-2024-02",
+      startDate: "2024-02",
+      endDate: "present",
+      item: "Introduced quarterly planning reviews",
+    });
     await wrapper.get('[data-testid="edit-task-json"]').setValue(JSON.stringify(edited, null, 2));
+    expect(wrapper.get('[data-testid="create-json-tasks"]').text()).toBe(
+      "Apply Change Proposal",
+    );
     await wrapper.get('[data-testid="create-json-tasks"]').trigger("click");
     await Promise.resolve();
 
@@ -141,6 +152,9 @@ describe("task composer", () => {
         startDate: "2024-02",
         endDate: "present",
         item: "Built a quarterly acquisition roadmap",
+      }),
+      expect.objectContaining({
+        item: "Introduced quarterly planning reviews",
       }),
     ]);
   });
@@ -185,5 +199,43 @@ describe("task composer", () => {
     expect(wrapper.get('[role="alert"]').text()).toContain("Connect OpenRouter");
     expect(wrapper.get('[aria-label="Task instructions"]').element.value).toBe(instruction);
     expect(wrapper.find('[data-testid="task-json"]').exists()).toBe(false);
+  });
+
+  it("retains an existing reviewed Change Proposal when regeneration fails", async () => {
+    const generateTasksHandler = vi.fn()
+      .mockResolvedValueOnce({
+        type: "create_tasks",
+        version: 1,
+        tasks: [{
+          employer: "E2",
+          role: "Growth Lead",
+          occasionId: "e2-growth-lead-2024-02",
+          startDate: "2024-02",
+          endDate: "present",
+          item: "Built an acquisition roadmap",
+        }],
+      })
+      .mockRejectedValueOnce(new Error("OpenRouter is temporarily unavailable."));
+    const wrapper = mount(TaskChat, { props: { generateTasksHandler } });
+    await wrapper.get('[aria-label="Task instructions"]').setValue("Describe my E2 work");
+    await wrapper.get('[data-testid="generate-ai-task-json"]').trigger("click");
+    await Promise.resolve();
+    const reviewed = JSON.parse(wrapper.get('[data-testid="task-json"]').text());
+    reviewed.tasks[0].item = "Reviewed acquisition roadmap";
+    await wrapper.get('[data-testid="edit-task-json"]').setValue(
+      JSON.stringify(reviewed, null, 2),
+    );
+
+    await wrapper.get('[aria-label="Task instructions"]').setValue("Try a different angle");
+    await wrapper.get('[data-testid="generate-ai-task-json"]').trigger("click");
+    await Promise.resolve();
+
+    expect(wrapper.get('[role="alert"]').text()).toContain("temporarily unavailable");
+    expect(wrapper.get('[data-testid="edit-task-json"]').element.value).toContain(
+      "Reviewed acquisition roadmap",
+    );
+    expect(wrapper.get('[aria-label="Task instructions"]').element.value).toBe(
+      "Try a different angle",
+    );
   });
 });

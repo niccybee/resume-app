@@ -1,0 +1,1421 @@
+import { fileURLToPath } from "node:url";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createServer, request as httpRequest } from "node:http";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import {
+  $fetch,
+  getBrowser,
+  setup,
+  url,
+  useTestContext,
+} from "@nuxt/test-utils/e2e";
+import { afterAll, describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+const serverOnlySecret = "server-only-t01-test-secret";
+const mcpGatewayKey = "server-only-mcp-gateway-key-for-runtime-tests";
+const browserAuthStorageKey = "sb-t02-test-auth-token";
+const browserSession = JSON.stringify({
+  access_token: "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ0MDItYnJvd3Nlci1vd25lciIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImV4cCI6MTk5OTk5OTk5OX0.",
+  token_type: "bearer",
+  expires_in: 3600,
+  expires_at: 1999999999,
+  refresh_token: "t02-browser-refresh",
+  user: {
+    id: "t02-browser-owner",
+    aud: "authenticated",
+    role: "authenticated",
+    email: "owner@example.test",
+    app_metadata: {},
+    user_metadata: {},
+    created_at: "2026-01-01T00:00:00.000Z",
+  },
+});
+const projectRoot = fileURLToPath(new URL("..", import.meta.url));
+const staticCvStage = await mkdtemp(join(tmpdir(), "resume-nuxt-static-cv-"));
+const staticCvFixture = resolve(staticCvStage, "cv/t01-static-smoke");
+const withdrawnCvFixture = resolve(staticCvStage, "cv/t06-withdrawn");
+const failedCvFixture = resolve(staticCvStage, "cv/t06-verification-fails");
+const mcpEditingSessionRow = {
+  id: "session-mcp",
+  cv_id: "cv-mcp",
+  owner_id: "mcp-owner",
+  base_revision_id: "revision-mcp",
+  status: "open",
+  optimistic_version: 2,
+  working_name: "Product Manager at Google",
+  working_theme_id: "editorial",
+  working_profile: { basics: { name: "MCP Owner" } },
+  working_summary: "A working summary.",
+  working_summary_provenance: null,
+  finished_revision_id: null,
+  selections: [],
+  created_at: "2026-07-21T01:00:00.000Z",
+  updated_at: "2026-07-21T02:00:00.000Z",
+  finished_at: null,
+};
+const mcpInitialBlockVersion = {
+  id: "version-mcp",
+  block_id: "block-mcp",
+  owner_id: "mcp-owner",
+  version_number: 1,
+  schema_version: "1",
+  content: { text: "Launched a product used by one million people." },
+  source_type: "human",
+  source_metadata: {},
+  based_on_version_id: null,
+  created_at: "2026-07-21T00:00:00.000Z",
+};
+let mcpCurrentBlockVersion = mcpInitialBlockVersion;
+let mcpBlockStatus = "active";
+let mcpCvStatus = "published";
+let mcpPublishedRevisionId = "revision-mcp";
+let mcpContentProposal = null;
+let mcpActiveProposal = null;
+let mcpLifecycleProposalSequence = 0;
+let mcpContentProposalSequence = 0;
+let mcpContentApplyCount = 0;
+let mcpGrantRevoked = false;
+const mcpAuditEvents = [];
+
+const publicationServer = createServer(async (request, response) => {
+  if (request.url === "/auth/v1/user") {
+    response.setHeader("Content-Type", "application/json");
+    if (mcpGrantRevoked) {
+      response.writeHead(401).end(JSON.stringify({ message: "OAuth grant revoked" }));
+      return;
+    }
+    response.end(JSON.stringify({
+      id: "mcp-owner",
+      email: "mcp-owner@example.test",
+      aud: "authenticated",
+      role: "authenticated",
+    }));
+    return;
+  }
+  if (request.url === "/.well-known/oauth-authorization-server/auth/v1") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      issuer: `${publicationServerUrl}/auth/v1`,
+      authorization_endpoint: `${publicationServerUrl}/auth/v1/oauth/authorize`,
+      token_endpoint: `${publicationServerUrl}/auth/v1/oauth/token`,
+      registration_endpoint: `${publicationServerUrl}/auth/v1/oauth/clients/register`,
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      code_challenge_methods_supported: ["S256"],
+    }));
+    return;
+  }
+  if (request.url === "/auth/v1/.well-known/openid-configuration") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({
+      issuer: `${publicationServerUrl}/auth/v1`,
+      authorization_endpoint: `${publicationServerUrl}/auth/v1/oauth/authorize`,
+      token_endpoint: `${publicationServerUrl}/auth/v1/oauth/token`,
+      jwks_uri: `${publicationServerUrl}/auth/v1/.well-known/jwks.json`,
+    }));
+    return;
+  }
+  const requestUrl = new URL(request.url, "http://resume-studio.test");
+  if (requestUrl.pathname.startsWith("/rest/v1/")
+    && request.headers.authorization === `Bearer ${mcpAccessToken}`
+    && request.headers["x-resume-studio-mcp-gateway"] !== mcpGatewayKey) {
+    response.writeHead(403).end(JSON.stringify({ message: "MCP gateway required" }));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_mcp_user_settings") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify([{ enabled: true }]));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_documents") {
+    response.setHeader("Content-Type", "application/json");
+    const rows = requestUrl.searchParams.get("id") === "eq.cv-another-user" ? [] : [{
+      id: "cv-mcp",
+      owner_id: "mcp-owner",
+      name: "Product Manager at Google",
+      slug: "product-manager-google",
+      status: mcpCvStatus,
+      published_at: "2026-07-21T00:00:00.000Z",
+      published_revision_id: mcpPublishedRevisionId,
+    }];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_revisions") {
+    response.setHeader("Content-Type", "application/json");
+    const rows = requestUrl.searchParams.get("cv_id") === "eq.cv-another-user" ? [] : [{
+      id: "revision-mcp",
+      cv_id: "cv-mcp",
+      owner_id: "mcp-owner",
+      revision_number: 1,
+      base_revision_id: null,
+      theme_id: "editorial",
+      profile: { basics: { name: "MCP Owner", label: "Product Manager" } },
+      summary: "A product leader.",
+      summary_provenance: null,
+      created_at: "2026-07-21T00:00:00.000Z",
+    }];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_editing_sessions") {
+    response.setHeader("Content-Type", "application/json");
+    const rows = requestUrl.searchParams.get("cv_id") === "eq.cv-another-user"
+      ? []
+      : [mcpEditingSessionRow];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_blocks") {
+    response.setHeader("Content-Type", "application/json");
+    const rows = requestUrl.searchParams.get("id") === "eq.block-another-user" ? [] : [{
+      id: "block-mcp",
+      owner_id: "mcp-owner",
+      kind: "experience",
+      title: "Product launch",
+      status: mcpBlockStatus,
+      current_version_id: mcpCurrentBlockVersion.id,
+      created_at: "2026-07-21T00:00:00.000Z",
+      updated_at: "2026-07-21T00:00:00.000Z",
+      cv_block_contexts: [],
+      versions: [mcpInitialBlockVersion, ...(mcpCurrentBlockVersion.id === mcpInitialBlockVersion.id ? [] : [mcpCurrentBlockVersion])],
+    }];
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/cv_block_versions") {
+    response.setHeader("Content-Type", "application/json");
+    const requestedIds = requestUrl.searchParams.get("id") || "";
+    const candidates = [mcpInitialBlockVersion, mcpCurrentBlockVersion];
+    const rows = requestedIds.includes("version-another-user")
+      ? []
+      : [...new Map(candidates.map((version) => [version.id, version])).values()]
+          .filter((version) => requestedIds.includes(version.id));
+    response.end(JSON.stringify(rows));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/get_cv_revision_snapshot") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    response.setHeader("Content-Type", "application/json");
+    if (input.p_cv_id !== "cv-mcp" || input.p_revision_id !== "revision-mcp") {
+      response.end("null");
+      return;
+    }
+    response.end(JSON.stringify({
+      id: "revision-mcp",
+      cvId: "cv-mcp",
+      number: 1,
+      baseRevisionId: null,
+      themeId: "editorial",
+      profile: { basics: { name: "MCP Owner", label: "Product Manager" } },
+      summary: "A product leader.",
+      selections: [{
+        blockId: "block-mcp",
+        versionId: "version-mcp",
+        section: "experience",
+        order: 0,
+        content: { text: "Launched a product used by one million people." },
+        block: { kind: "experience", title: "Product launch" },
+        group: {
+          occasionId: "google-product-manager",
+          employer: "Google",
+          role: "Product Manager",
+          startDate: "2020-01",
+        },
+      }],
+    }));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/get_cv_editing_session") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    response.setHeader("Content-Type", "application/json");
+    if (input.p_session_id !== "session-mcp") {
+      response.end("null");
+      return;
+    }
+    response.end(JSON.stringify(mcpEditingSessionRow));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/create_cv_content_change_proposal") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    response.setHeader("Content-Type", "application/json");
+    if (input.p_base_optimistic_version !== mcpEditingSessionRow.optimistic_version) {
+      response.writeHead(409).end(JSON.stringify({
+        code: "40001",
+        message: `stale-proposal: ${JSON.stringify({ target: {
+          id: mcpEditingSessionRow.id,
+          optimisticVersion: mcpEditingSessionRow.optimistic_version,
+        } })}`,
+      }));
+      return;
+    }
+    const append = input.p_normalized_operations.find((operation) => operation.type === "append_block_version");
+    mcpContentProposal = {
+      id: `proposal-mcp-${++mcpContentProposalSequence}`,
+      schema_version: "1",
+      operation_type: "edit_content",
+      target_type: "editing_session",
+      target_id: mcpEditingSessionRow.id,
+      target_cv_id: mcpEditingSessionRow.cv_id,
+      base_optimistic_version: input.p_base_optimistic_version,
+      normalized_operations: input.p_normalized_operations,
+      structured_diff: {
+        blocks: append ? [{
+          blockId: append.blockId,
+          beforeVersionId: append.basedOnVersionId,
+          after: append.content,
+        }] : [],
+      },
+      warnings: [],
+      status: "pending",
+      created_at: "2026-07-21T03:00:00.000Z",
+      expires_at: "2026-07-22T03:00:00.000Z",
+      result: null,
+    };
+    mcpActiveProposal = mcpContentProposal;
+    response.end(JSON.stringify(mcpContentProposal));
+    return;
+  }
+  if (["/rest/v1/rpc/create_cv_lifecycle_proposal", "/rest/v1/rpc/create_cv_publication_proposal"].includes(requestUrl.pathname)) {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    const input = JSON.parse(body);
+    const operation = input.p_operation;
+    const target = operation.target || operation.source;
+    mcpActiveProposal = {
+      id: `proposal-lifecycle-${++mcpLifecycleProposalSequence}`,
+      schema_version: "1",
+      operation_type: operation.type,
+      target_type: target.type,
+      target_id: target.id,
+      target_cv_id: target.type === "cv_block"
+        ? null
+        : target.cvId || (target.type === "cv" ? target.id : "cv-mcp"),
+      base_optimistic_version: operation.baseOptimisticVersion || null,
+      normalized_operations: [operation],
+      structured_diff: { lifecycle: { operation: operation.type, target } },
+      warnings: [], status: "pending",
+      created_at: "2026-07-21T04:00:00.000Z",
+      expires_at: "2026-07-22T04:00:00.000Z", result: null,
+    };
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(mcpActiveProposal));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/get_cv_change_proposal") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(mcpActiveProposal));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/enforce_mcp_rate_limit") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ allowed: true, remaining: 999, retryAfterSeconds: 60 }));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/record_mcp_audit_event") {
+    let body = "";
+    for await (const chunk of request) body += chunk;
+    mcpAuditEvents.push({
+      actorId: "mcp-owner",
+      ...JSON.parse(body),
+      occurredAt: new Date().toISOString(),
+    });
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(`audit-${mcpAuditEvents.length}`));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/apply_cv_content_change_proposal") {
+    response.setHeader("Content-Type", "application/json");
+    if (mcpContentProposal?.status !== "applied") {
+      const append = mcpContentProposal.normalized_operations.find((operation) => operation.type === "append_block_version");
+      mcpCurrentBlockVersion = {
+        id: "version-mcp-2",
+        block_id: append.blockId,
+        owner_id: "mcp-owner",
+        version_number: 2,
+        schema_version: append.schemaVersion,
+        content: append.content,
+        source_type: append.source?.type || "mcp",
+        source_metadata: append.source || {},
+        based_on_version_id: append.basedOnVersionId,
+        created_at: "2026-07-21T03:01:00.000Z",
+      };
+      mcpEditingSessionRow.optimistic_version += 1;
+      mcpContentApplyCount += 1;
+      mcpAuditEvents.push({
+        actorId: "mcp-owner",
+        p_client_id: "chat-client-runtime",
+        p_operation: "apply_change_proposal",
+        p_target_identities: { proposalIds: [mcpContentProposal.id], editingSessionIds: ["session-mcp"] },
+        p_result: "succeeded",
+        occurredAt: new Date().toISOString(),
+      });
+      mcpContentProposal = {
+        ...mcpContentProposal,
+        status: "applied",
+        result: {
+          editingSessionId: mcpEditingSessionRow.id,
+          optimisticVersion: mcpEditingSessionRow.optimistic_version,
+          affectedIdentities: {
+            cvId: mcpEditingSessionRow.cv_id,
+            blockIds: [append.blockId],
+            versionIds: [mcpCurrentBlockVersion.id],
+          },
+        },
+      };
+      mcpActiveProposal = mcpContentProposal;
+    }
+    response.end(JSON.stringify(mcpContentProposal));
+    return;
+  }
+  if (["/rest/v1/rpc/apply_cv_lifecycle_proposal", "/rest/v1/rpc/apply_cv_publication_proposal"].includes(requestUrl.pathname)) {
+    const operation = mcpActiveProposal.normalized_operations[0];
+    let result;
+    if (operation.type === "start_editing_session") {
+      result = { cvId: operation.target.id, editingSessionId: "session-started", optimisticVersion: 1 };
+    } else if (operation.type === "resume_editing_session") {
+      result = { cvId: "cv-mcp", editingSessionId: operation.target.id, optimisticVersion: mcpEditingSessionRow.optimistic_version };
+    } else if (operation.type === "finish_editing_session") {
+      mcpEditingSessionRow.status = "finished";
+      mcpEditingSessionRow.finished_revision_id = "revision-mcp-2";
+      mcpEditingSessionRow.optimistic_version += 1;
+      result = {
+        cvId: "cv-mcp", editingSessionId: operation.target.id,
+        optimisticVersion: mcpEditingSessionRow.optimistic_version,
+        revisionId: "revision-mcp-2", revisionNumber: 2,
+        publishedRevisionId: mcpPublishedRevisionId,
+      };
+    } else if (operation.type.startsWith("copy_")) {
+      result = {
+        cvId: operation.type === "copy_for_new_role" ? "cv-new-role" : "cv-mcp",
+        editingSessionId: `session-${operation.type}`, optimisticVersion: 1,
+      };
+    } else if (operation.type === "archive_editing_session") {
+      mcpEditingSessionRow.status = "archived";
+      mcpEditingSessionRow.optimistic_version += 1;
+      result = { cvId: "cv-mcp", editingSessionId: operation.target.id, optimisticVersion: mcpEditingSessionRow.optimistic_version };
+    } else if (operation.type === "restore_editing_session") {
+      mcpEditingSessionRow.status = "open";
+      mcpEditingSessionRow.optimistic_version += 1;
+      result = { cvId: "cv-mcp", editingSessionId: operation.target.id, optimisticVersion: mcpEditingSessionRow.optimistic_version };
+    } else if (operation.type === "archive_cv") {
+      mcpCvStatus = "archived";
+      result = { cvId: "cv-mcp", status: mcpCvStatus };
+    } else if (operation.type === "restore_cv") {
+      mcpCvStatus = "draft";
+      result = { cvId: "cv-mcp", status: mcpCvStatus };
+    } else if (operation.type === "archive_cv_block") {
+      mcpBlockStatus = "archived";
+      result = { blockId: "block-mcp", versionId: mcpCurrentBlockVersion.id, status: mcpBlockStatus };
+    } else if (operation.type === "restore_cv_block") {
+      mcpBlockStatus = "active";
+      result = { blockId: "block-mcp", versionId: mcpCurrentBlockVersion.id, status: mcpBlockStatus };
+    } else if (operation.type === "publish_revision") {
+      mcpCvStatus = "published";
+      mcpPublishedRevisionId = operation.target.id;
+      result = { cvId: "cv-mcp", revisionId: mcpPublishedRevisionId, slug: operation.slug, status: mcpCvStatus };
+    } else if (operation.type === "withdraw_publication") {
+      mcpCvStatus = "draft";
+      result = { cvId: "cv-mcp", revisionId: mcpPublishedRevisionId, status: mcpCvStatus };
+    }
+    mcpActiveProposal = { ...mcpActiveProposal, status: "applied", result };
+    const targetIdentities = { proposalIds: [mcpActiveProposal.id] };
+    if (mcpActiveProposal.target_cv_id) targetIdentities.cvIds = [mcpActiveProposal.target_cv_id];
+    const targetIdentityKey = {
+      cv: "cvIds",
+      cv_block: "blockIds",
+      cv_revision: "revisionIds",
+      editing_session: "editingSessionIds",
+    }[mcpActiveProposal.target_type];
+    if (targetIdentityKey) targetIdentities[targetIdentityKey] = [mcpActiveProposal.target_id];
+    mcpAuditEvents.push({
+      actorId: "mcp-owner",
+      p_client_id: "chat-client-runtime",
+      p_operation: "apply_change_proposal",
+      p_target_identities: targetIdentities,
+      p_result: "succeeded",
+      occurredAt: new Date().toISOString(),
+    });
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(mcpActiveProposal));
+    return;
+  }
+  if (requestUrl.pathname === "/rest/v1/rpc/discard_cv_change_proposal") {
+    response.setHeader("Content-Type", "application/json");
+    mcpActiveProposal = { ...mcpActiveProposal, status: "discarded" };
+    if (mcpContentProposal?.id === mcpActiveProposal.id) mcpContentProposal = mcpActiveProposal;
+    response.end(JSON.stringify(mcpActiveProposal));
+    return;
+  }
+  if (request.url !== "/rest/v1/rpc/get_published_cv") {
+    response.writeHead(404).end();
+    return;
+  }
+
+  let body = "";
+  for await (const chunk of request) body += chunk;
+  const slug = JSON.parse(body).p_slug;
+  if (slug === "t06-verification-fails") {
+    response.writeHead(500).end("verification unavailable");
+    return;
+  }
+
+  response.setHeader("Content-Type", "application/json");
+  response.end(JSON.stringify(slug === "t01-static-smoke"
+    ? { slug, status: "published", revisionId: "revision-runtime" }
+    : null));
+});
+const startPublicationCheckServer = (port = 0) => new Promise((resolveListen, rejectListen) => {
+  const rejectOnError = (error) => rejectListen(error);
+  publicationServer.once("error", rejectOnError);
+  publicationServer.listen(port, "127.0.0.1", () => {
+    publicationServer.off("error", rejectOnError);
+    resolveListen();
+  });
+});
+const stopPublicationCheckServer = () => new Promise((resolveClose, rejectClose) => {
+  publicationServer.close((error) => {
+    if (error) rejectClose(error);
+    else resolveClose();
+  });
+});
+
+await startPublicationCheckServer();
+const publicationAddress = publicationServer.address();
+const publicationServerUrl = `http://127.0.0.1:${publicationAddress.port}`;
+const encodeJwtPart = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+const mcpAccessToken = `${encodeJwtPart({ alg: "RS256", typ: "JWT" })}.${encodeJwtPart({
+  sub: "mcp-owner",
+  role: "authenticated",
+  aud: "authenticated",
+  iss: `${publicationServerUrl}/auth/v1`,
+  client_id: "chat-client-runtime",
+  exp: 1999999999,
+})}.runtime-signature`;
+await stopPublicationCheckServer();
+
+await Promise.all([
+  staticCvFixture,
+  withdrawnCvFixture,
+  failedCvFixture,
+].map((fixture) => mkdir(fixture, { recursive: true })));
+await Promise.all([
+  writeFile(
+    resolve(staticCvFixture, "index.html"),
+    '<meta name="robots" content="noindex, nofollow, noarchive"><meta name="cv-revision" content="revision-runtime"><p data-static-cv-runtime="true">Static CV from Nuxt output</p>',
+  ),
+  writeFile(resolve(withdrawnCvFixture, "index.html"), "stale withdrawn CV"),
+  writeFile(resolve(failedCvFixture, "index.html"), "unverified CV"),
+]);
+
+afterAll(
+  async () => {
+    await rm(staticCvStage, { recursive: true, force: true });
+    if (publicationServer.listening) {
+      await stopPublicationCheckServer();
+    }
+  },
+  60_000,
+);
+
+describe("Nuxt runtime", async () => {
+  await setup({
+    setupTimeout: 240_000,
+    teardownTimeout: 60_000,
+    rootDir: projectRoot,
+    build: true,
+    browser: true,
+    server: true,
+    nuxtConfig: {
+      runtimeConfig: {
+        supabaseServiceRoleKey: serverOnlySecret,
+        publicationSupabaseUrl: publicationServerUrl,
+        publicationSupabasePublishableKey: "t06-publication-key",
+        mcpSupabaseUrl: publicationServerUrl,
+        mcpSupabasePublishableKey: "t16-mcp-publishable-key",
+        mcpGatewayKey,
+        mcpAuthenticationRateLimit: 1_000,
+        public: {
+          supabaseUrl: "https://t02-test.supabase.co",
+          supabasePublishableKey: "t02-test-publishable-key",
+        },
+      },
+      nitro: {
+        serverAssets: [{
+          baseName: "static-cvs",
+          dir: resolve(staticCvStage, "cv"),
+        }],
+      },
+    },
+  });
+
+  await startPublicationCheckServer(publicationAddress.port);
+
+  it("serves a representative route natively from Nuxt 4", async () => {
+    const html = await $fetch("/runtime");
+
+    expect(html).toContain('data-native-nuxt-runtime="true"');
+    expect(html).toContain("Resume Studio runs on Nuxt 4");
+  });
+
+  it("serves the public homepage natively from Nuxt", async () => {
+    const html = await $fetch("/");
+
+    expect(html).toContain("Write once.");
+    expect(html).toContain("Shape every CV.");
+  });
+
+  it("serves staged static CV snapshots from the production server", async () => {
+    const response = await fetch(url("/cv/t01-static-smoke"));
+    const html = await response.text();
+    const trailingSlashHtml = await $fetch("/cv/t01-static-smoke/");
+
+    expect(html).toContain('data-static-cv-runtime="true"');
+    expect(trailingSlashHtml).toContain('data-static-cv-runtime="true"');
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow, noarchive");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("blocks stale and unverifiable static CV snapshots inside Nuxt", async () => {
+    await expect($fetch("/cv/t06-withdrawn")).rejects.toMatchObject({
+      statusCode: 404,
+      data: "CV is not published.",
+    });
+    await expect($fetch("/cv/t06-verification-fails")).rejects.toMatchObject({
+      statusCode: 503,
+      data: "CV publication status is temporarily unavailable.",
+    });
+  });
+
+  it("keeps server-only credentials out of public build artifacts", async () => {
+    const publicDir = resolve(
+      useTestContext().nuxt.options.nitro.output.dir,
+      "public",
+    );
+    const files = await readdir(publicDir, { recursive: true });
+    const publicOutput = await Promise.all(
+      files.map((file) => readFile(resolve(publicDir, file)).catch(() => Buffer.from(""))),
+    );
+
+    const output = Buffer.concat(publicOutput);
+    for (const sensitive of [serverOnlySecret, mcpGatewayKey, mcpAccessToken, "t02-browser-refresh"]) {
+      expect(output.includes(sensitive)).toBe(false);
+    }
+  });
+
+  it("serves the authenticated OpenRouter boundary from Nuxt", async () => {
+    await expect($fetch("/api/openrouter", {
+      method: "POST",
+      body: { action: "status" },
+    })).rejects.toMatchObject({
+      statusCode: 401,
+      data: {
+        code: "authentication-required",
+        error: "Sign in to manage OpenRouter.",
+      },
+    });
+  });
+
+  it("publishes OAuth discovery and protects the MCP transport", async () => {
+    const [protectedResource, authorizationServer, openId] = await Promise.all([
+      $fetch("/.well-known/oauth-protected-resource/mcp"),
+      $fetch("/.well-known/oauth-authorization-server"),
+      $fetch("/.well-known/openid-configuration"),
+    ]);
+
+    expect(protectedResource).toMatchObject({
+      resource: `${url("/").replace(/\/$/, "")}/mcp`,
+      authorization_servers: [`${publicationServerUrl}/auth/v1`],
+    });
+    expect(authorizationServer).toMatchObject({
+      registration_endpoint: `${publicationServerUrl}/auth/v1/oauth/clients/register`,
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      code_challenge_methods_supported: ["S256"],
+    });
+    expect(openId.issuer).toBe(`${publicationServerUrl}/auth/v1`);
+
+    const rejected = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    expect(rejected.status).toBe(401);
+    expect(rejected.headers.get("www-authenticate")).toContain(
+      '/.well-known/oauth-protected-resource/mcp',
+    );
+
+    const accepted = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "Runtime Chat", version: "1.0.0" },
+        },
+      }),
+    });
+    const acceptedBody = await accepted.text();
+    expect(accepted.status, acceptedBody).toBe(200);
+    expect(acceptedBody).toContain("Resume Studio");
+
+    const identity = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "get_connection_identity", arguments: {} },
+      }),
+    });
+    const identityBody = await identity.text();
+    expect(identity.status, identityBody).toBe(200);
+    expect(identityBody).toContain("mcp-owner");
+    expect(identityBody).toContain("chat-client-runtime");
+  });
+
+  it("rejects direct OAuth bearer access to the Supabase Data API", async () => {
+    const response = await fetch(`${publicationServerUrl}/rest/v1/cv_documents`, {
+      headers: {
+        authorization: `Bearer ${mcpAccessToken}`,
+        apikey: "t16-mcp-publishable-key",
+      },
+    });
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ message: "MCP gateway required" });
+  });
+
+  it("rejects an oversized MCP envelope before protocol dispatch", async () => {
+    const response = await fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: "x".repeat(300_001),
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it("stops buffering a chunked MCP envelope at the raw-body ceiling", async () => {
+    const status = await new Promise((resolveStatus, rejectStatus) => {
+      const endpoint = new URL(url("/mcp"));
+      const request = httpRequest(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${mcpAccessToken}`,
+          "content-type": "application/json",
+          "transfer-encoding": "chunked",
+        },
+      }, (response) => {
+        response.resume();
+        response.on("end", () => resolveStatus(response.statusCode));
+      });
+      request.on("error", rejectStatus);
+      request.write(Buffer.alloc(200_000, "x"));
+      request.end(Buffer.alloc(100_001, "x"));
+    });
+    expect(status).toBe(413);
+  });
+
+  it("prevents subsequent MCP access after OAuth grant revocation", async () => {
+    const initialize = () => fetch(url("/mcp"), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${mcpAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 10,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "Revocation Test Chat", version: "1.0.0" },
+        },
+      }),
+    });
+
+    expect((await initialize()).status).toBe(200);
+    mcpGrantRevoked = true;
+    try {
+      const rejected = await initialize();
+      expect(rejected.status).toBe(401);
+      expect(await rejected.text()).not.toContain(mcpAccessToken);
+    } finally {
+      mcpGrantRevoked = false;
+    }
+  });
+
+  it("serves read-only CV tools and schema resources through a real MCP client contract", async () => {
+    const transport = new StreamableHTTPClientTransport(new URL(url("/mcp")), {
+      requestInit: { headers: { authorization: `Bearer ${mcpAccessToken}` } },
+    });
+    const client = new Client({ name: "Resume Studio contract test", version: "1.0.0" });
+    await client.connect(transport);
+    try {
+      const discovered = await client.listTools();
+      expect(discovered.tools.map((tool) => tool.name)).toContain("list_cvs");
+      const read = await client.callTool({ name: "list_cvs", arguments: {} });
+      expect(read.structuredContent).toMatchObject({
+        schemaVersion: "1",
+        data: [{ id: "cv-mcp" }],
+      });
+    } finally {
+      await client.close();
+    }
+
+    let requestId = 20;
+    const mcp = async (method, params = {}) => {
+      const response = await fetch(url("/mcp"), {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${mcpAccessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
+      });
+      const text = await response.text();
+      expect(response.status, text).toBe(200);
+      return JSON.parse(text);
+    };
+    const call = (name, args = {}) => mcp("tools/call", { name, arguments: args });
+
+    const tools = await mcp("tools/list");
+    const toolNames = tools.result.tools.map((tool) => tool.name);
+    expect(toolNames).toEqual(expect.arrayContaining([
+      "list_cvs",
+      "get_cv_revision",
+      "list_editing_sessions",
+      "list_cv_blocks",
+      "get_block_version",
+      "get_publication_state",
+      "get_supported_schemas",
+      "export_cv_revision",
+      "propose_content_changes",
+      "propose_lifecycle_change",
+      "apply_change_proposal",
+      "discard_change_proposal",
+    ]));
+    expect(toolNames).not.toEqual(expect.arrayContaining([
+      "save_cv",
+      "append_block_version",
+      "delete_cv_block",
+    ]));
+
+    const resources = await mcp("resources/list");
+    expect(resources.result.resources.map((resource) => resource.uri)).toEqual(expect.arrayContaining([
+      "resume-studio://glossary/v1",
+      "resume-studio://schemas/v1",
+      "resume-studio://schemas/block-content/v1",
+      "resume-studio://schemas/composition/v1",
+      "resume-studio://schemas/change-proposal/v1",
+      "resume-studio://schemas/change-proposal-result/v1",
+      "resume-studio://adapters",
+    ]));
+    const glossary = await mcp("resources/read", { uri: "resume-studio://glossary/v1" });
+    expect(JSON.parse(glossary.result.contents[0].text)).toMatchObject({
+      schemaVersion: "1",
+      data: {
+        CV: { preferred: "CV" },
+        CVBlock: { preferred: "CV Block" },
+        BlockVersion: { immutable: true },
+      },
+    });
+    const composition = await mcp("resources/read", {
+      uri: "resume-studio://schemas/composition/v1",
+    });
+    expect(JSON.parse(composition.result.contents[0].text)).toMatchObject({
+      schemaVersion: "1",
+      data: { exactBlockVersions: true, maxVersionsPerBlockIdentity: 1 },
+    });
+    const proposalResult = await mcp("resources/read", {
+      uri: "resume-studio://schemas/change-proposal-result/v1",
+    });
+    expect(JSON.parse(proposalResult.result.contents[0].text)).toMatchObject({
+      schemaVersion: "1",
+      data: {
+        statuses: { pending: { nextActions: ["apply", "discard"] } },
+        operationResults: {
+          finish_editing_session: {
+            required: expect.arrayContaining(["optimisticVersion", "revisionId", "revisionNumber", "publishedRevisionId"]),
+          },
+        },
+      },
+    });
+
+    const prompts = await mcp("prompts/list");
+    expect(prompts.result.prompts.map((prompt) => prompt.name)).toEqual(expect.arrayContaining([
+      "workshop_role_focused_cv", "revise_cv_block", "copy_for_new_role",
+      "copy_to_new_version", "review_change_proposal", "complete_editing_session",
+    ]));
+    const promptArguments = {
+      workshop_role_focused_cv: { targetRole: "Product Lead" },
+      revise_cv_block: { instruction: "Emphasise stakeholder leadership" },
+      copy_for_new_role: { newRoleName: "Head of Marketing" },
+      copy_to_new_version: {},
+      review_change_proposal: {},
+      complete_editing_session: {},
+    };
+    for (const [name, arguments_] of Object.entries(promptArguments)) {
+      const output = await mcp("prompts/get", { name, arguments: arguments_ });
+      const text = output.result.messages[0].content.text;
+      expect(text).toMatch(/propose_(content_changes|lifecycle_change)/);
+      expect(text).toContain("apply_change_proposal");
+      expect(text).toMatch(/explicit confirmation|explicitly confirms/i);
+      expect(text).not.toMatch(/service.?role|bearer|jwt|api[_ -]?key|secret/i);
+    }
+
+    const cvs = await call("list_cvs");
+    expect(cvs.result.structuredContent).toMatchObject({
+      schemaVersion: "1",
+      data: [{ id: "cv-mcp", name: "Product Manager at Google" }],
+    });
+    const revision = await call("get_cv_revision", {
+      cvId: "cv-mcp",
+      revisionId: "revision-mcp",
+    });
+    expect(revision.result.structuredContent.data.selections[0]).toMatchObject({
+      blockId: "block-mcp",
+      versionId: "version-mcp",
+    });
+    const sessions = await call("list_editing_sessions", { cvId: "cv-mcp" });
+    expect(sessions.result.structuredContent.data[0]).toMatchObject({
+      id: "session-mcp",
+      cvId: "cv-mcp",
+      optimisticVersion: 2,
+    });
+    const blocks = await call("list_cv_blocks");
+    expect(blocks.result.structuredContent.data[0]).toMatchObject({
+      id: "block-mcp",
+      currentVersion: { id: "version-mcp" },
+    });
+    const blockVersion = await call("get_block_version", { versionId: "version-mcp" });
+    expect(blockVersion.result.structuredContent.data).toMatchObject({
+      id: "version-mcp",
+      blockId: "block-mcp",
+      schemaVersion: "1",
+    });
+    const publication = await call("get_publication_state", { cvId: "cv-mcp" });
+    expect(publication.result.structuredContent.data).toMatchObject({
+      status: "published",
+      publishedRevisionId: "revision-mcp",
+    });
+    const schemas = await call("get_supported_schemas");
+    expect(schemas.result.structuredContent.data.blockContent.currentVersion).toBe("1");
+    const exported = await call("export_cv_revision", {
+      cvId: "cv-mcp",
+      revisionId: "revision-mcp",
+    });
+    expect(exported.result.structuredContent).toMatchObject({
+      schemaVersion: "1",
+      data: {
+        adapter: "json-resume",
+        adapterVersion: "1",
+        payload: { work: [{ name: "Google", highlights: ["Launched a product used by one million people."] }] },
+      },
+    });
+
+    const otherUserCv = await call("get_cv", { cvId: "cv-another-user" });
+    expect(otherUserCv.result).toMatchObject({ isError: true });
+    expect(otherUserCv.result.content[0].text).toContain('"code": "not-found"');
+    const otherUserRevision = await call("get_cv_revision", {
+      cvId: "cv-another-user",
+      revisionId: "revision-another-user",
+    });
+    expect(otherUserRevision.result).toMatchObject({ isError: true });
+    const otherUserVersion = await call("get_block_version", {
+      versionId: "version-another-user",
+    });
+    expect(otherUserVersion.result).toMatchObject({ isError: true });
+
+    const invalid = await call("get_cv", {});
+    expect(invalid.result).toMatchObject({ isError: true });
+    expect(invalid.result.content[0].text).toMatch(/validation|invalid/i);
+
+    const applyCountBefore = mcpContentApplyCount;
+    const proposed = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 2,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp",
+        schemaVersion: "1",
+        content: { text: "Launched the product to two million people." },
+        source: { type: "mcp", clientId: "chat-client-runtime" },
+      }],
+    });
+    expect(proposed.result.structuredContent.data).toMatchObject({
+      operationType: "edit_content",
+      status: "pending",
+      target: { type: "editing_session", id: "session-mcp", cvId: "cv-mcp" },
+      baseOptimisticVersion: 2,
+      diff: { blocks: [{ blockId: "block-mcp", beforeVersionId: "version-mcp" }] },
+      warnings: [],
+      expiresAt: expect.any(String),
+      nextActions: ["apply", "discard"],
+    });
+    expect(proposed.result.structuredContent.data).not.toHaveProperty("operations");
+    expect(mcpCurrentBlockVersion.id).toBe("version-mcp");
+    expect(mcpEditingSessionRow.optimistic_version).toBe(2);
+
+    const proposalId = proposed.result.structuredContent.data.id;
+    const applied = await call("apply_change_proposal", { proposalId });
+    const retried = await call("apply_change_proposal", { proposalId });
+    expect(applied.result.structuredContent.data).toMatchObject({
+      status: "applied",
+      result: {
+        editingSessionId: "session-mcp",
+        optimisticVersion: 3,
+        affectedIdentities: {
+          cvId: "cv-mcp",
+          blockIds: ["block-mcp"],
+          versionIds: ["version-mcp-2"],
+        },
+      },
+    });
+    expect(retried.result.structuredContent).toEqual(applied.result.structuredContent);
+    expect(mcpContentApplyCount).toBe(applyCountBefore + 1);
+    const appended = await call("get_block_version", { versionId: "version-mcp-2" });
+    expect(appended.result.structuredContent.data).toMatchObject({
+      blockId: "block-mcp",
+      basedOnVersionId: "version-mcp",
+      content: { text: "Launched the product to two million people." },
+    });
+
+    const staleComposition = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 2,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp-2",
+        schemaVersion: "1",
+        content: { text: "This proposal started from a stale Working Composition." },
+      }],
+    });
+    expect(staleComposition.result).toMatchObject({ isError: true });
+    expect(staleComposition.result.content[0].text).toContain('"code": "stale-proposal"');
+
+    const staleBlockVersion = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 3,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp",
+        schemaVersion: "1",
+        content: { text: "This proposal uses a stale Block Version." },
+      }],
+    });
+    expect(staleBlockVersion.result).toMatchObject({ isError: true });
+    expect(staleBlockVersion.result.content[0].text).toContain('"code": "stale-block-version"');
+
+    const invalidContent = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 3,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp-2",
+        schemaVersion: "1",
+        content: {},
+      }],
+    });
+    expect(invalidContent.result).toMatchObject({ isError: true });
+    expect(invalidContent.result.content[0].text).toContain("MCP error -32602");
+    expect(invalidContent.result.content[0].text).toContain("Input validation error");
+
+    const discardable = await call("propose_content_changes", {
+      schemaVersion: "1",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseVersion: 3,
+      operations: [{
+        type: "append_block_version",
+        blockId: "block-mcp",
+        basedOnVersionId: "version-mcp-2",
+        schemaVersion: "1",
+        content: { text: "A discarded idea." },
+      }],
+    });
+    const discarded = await call("discard_change_proposal", {
+      proposalId: discardable.result.structuredContent.data.id,
+    });
+    expect(discarded.result.structuredContent.data).toMatchObject({
+      status: "discarded",
+      nextActions: [],
+    });
+    expect(mcpCurrentBlockVersion.id).toBe("version-mcp-2");
+    expect(mcpEditingSessionRow.optimistic_version).toBe(3);
+
+    const proposeAndApplyLifecycle = async (operation) => {
+      const lifecycleProposal = await call("propose_lifecycle_change", { operation });
+      expect(lifecycleProposal.result.structuredContent.data).toMatchObject({
+        operationType: operation.type,
+        status: "pending",
+        nextActions: ["apply", "discard"],
+      });
+      const lifecycleApplied = await call("apply_change_proposal", {
+        proposalId: lifecycleProposal.result.structuredContent.data.id,
+      });
+      expect(lifecycleApplied.result.structuredContent.data).toMatchObject({
+        operationType: operation.type,
+        status: "applied",
+      });
+      return lifecycleApplied.result.structuredContent.data;
+    };
+
+    const started = await proposeAndApplyLifecycle({
+      type: "start_editing_session",
+      target: { type: "cv", id: "cv-mcp" },
+      baseRevisionId: "revision-mcp",
+    });
+    expect(started.result).toMatchObject({ editingSessionId: "session-started", optimisticVersion: 1 });
+
+    const resumed = await proposeAndApplyLifecycle({
+      type: "resume_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+    });
+    expect(resumed.result).toMatchObject({ editingSessionId: "session-mcp", optimisticVersion: 3 });
+
+    for (const operation of [{
+      type: "copy_to_new_version",
+      source: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+    }, {
+      type: "copy_for_new_role",
+      source: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+      name: "Head of Marketing at Facebook",
+    }]) {
+      await proposeAndApplyLifecycle(operation);
+      expect(mcpEditingSessionRow.status).toBe("open");
+      expect(mcpEditingSessionRow.optimistic_version).toBe(3);
+    }
+
+    await proposeAndApplyLifecycle({
+      type: "archive_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 3,
+    });
+    expect(mcpEditingSessionRow.status).toBe("archived");
+    await proposeAndApplyLifecycle({
+      type: "restore_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 4,
+    });
+    expect(mcpEditingSessionRow.status).toBe("open");
+
+    await proposeAndApplyLifecycle({ type: "archive_cv", target: { type: "cv", id: "cv-mcp" } });
+    expect(mcpCvStatus).toBe("archived");
+    await proposeAndApplyLifecycle({ type: "restore_cv", target: { type: "cv", id: "cv-mcp" } });
+    expect(mcpCvStatus).toBe("draft");
+
+    await proposeAndApplyLifecycle({
+      type: "archive_cv_block", target: { type: "cv_block", id: "block-mcp" },
+      baseVersionId: "version-mcp-2",
+    });
+    expect(mcpBlockStatus).toBe("archived");
+    expect(mcpAuditEvents.at(-1)?.p_target_identities).toEqual({
+      proposalIds: [expect.any(String)],
+      blockIds: ["block-mcp"],
+    });
+    await proposeAndApplyLifecycle({
+      type: "restore_cv_block", target: { type: "cv_block", id: "block-mcp" },
+      baseVersionId: "version-mcp-2",
+    });
+    expect(mcpBlockStatus).toBe("active");
+
+    const finished = await proposeAndApplyLifecycle({
+      type: "finish_editing_session",
+      target: { type: "editing_session", id: "session-mcp" },
+      baseOptimisticVersion: 5,
+    });
+    expect(finished.result).toMatchObject({
+      revisionId: "revision-mcp-2", revisionNumber: 2, publishedRevisionId: "revision-mcp",
+    });
+    expect(mcpCvStatus).toBe("draft");
+    expect(mcpPublishedRevisionId).toBe("revision-mcp");
+
+    await proposeAndApplyLifecycle({
+      type: "publish_revision",
+      target: { type: "cv_revision", id: "revision-mcp-2", cvId: "cv-mcp" },
+      slug: "product-manager-google",
+    });
+    expect(mcpPublishedRevisionId).toBe("revision-mcp-2");
+    await proposeAndApplyLifecycle({
+      type: "publish_revision",
+      target: { type: "cv_revision", id: "revision-mcp", cvId: "cv-mcp" },
+      slug: "product-manager-google",
+    });
+    expect(mcpPublishedRevisionId).toBe("revision-mcp");
+    await proposeAndApplyLifecycle({
+      type: "withdraw_publication", target: { type: "cv", id: "cv-mcp" },
+    });
+    expect(mcpCvStatus).toBe("draft");
+
+    const connectExternalChatClient = async (name) => {
+      const transport = new StreamableHTTPClientTransport(new URL(url("/mcp")), {
+        requestInit: { headers: { authorization: `Bearer ${mcpAccessToken}` } },
+      });
+      const externalClient = new Client({ name, version: "1.0.0" });
+      await externalClient.connect(transport);
+      return externalClient;
+    };
+    const externalClient = await connectExternalChatClient("External Chat Release Verification");
+    const externalRead = await externalClient.callTool({ name: "list_cvs", arguments: { limit: 10 } });
+    expect(externalRead.structuredContent.data[0]).toMatchObject({ id: "cv-mcp", status: "draft" });
+    const externalProposal = await externalClient.callTool({
+      name: "propose_lifecycle_change",
+      arguments: { operation: { type: "archive_cv", target: { type: "cv", id: "cv-mcp" } } },
+    });
+    expect(externalProposal.structuredContent.data).toMatchObject({ status: "pending" });
+    await externalClient.callTool({
+      name: "apply_change_proposal",
+      arguments: { proposalId: externalProposal.structuredContent.data.id },
+    });
+    await externalClient.close();
+
+    const reconnectedClient = await connectExternalChatClient("External Chat Release Verification Reconnect");
+    try {
+      const persisted = await reconnectedClient.callTool({ name: "list_cvs", arguments: { limit: 10 } });
+      expect(persisted.structuredContent.data[0]).toMatchObject({ id: "cv-mcp", status: "archived" });
+    } finally {
+      await reconnectedClient.close();
+    }
+
+    expect(mcpAuditEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actorId: "mcp-owner",
+        p_client_id: "chat-client-runtime",
+        p_operation: "apply_change_proposal",
+        p_result: "succeeded",
+        occurredAt: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(mcpAuditEvents)).not.toMatch(
+      /Launched the product|A discarded idea|runtime-signature|normalized_operations|working_summary/i,
+    );
+  });
+
+  it("returns a signed-out user to the exact OAuth consent request", async () => {
+    const context = await (await getBrowser()).newContext();
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/oauth/consent?authorization_id=authorization-1"));
+      await page.waitForURL("**/login?redirect=**");
+      expect(new URL(page.url()).searchParams.get("redirect")).toBe(
+        "/oauth/consent?authorization_id=authorization-1",
+      );
+    } finally {
+      await context.close();
+    }
+  }, 20_000);
+
+  it("shows client details and submits explicit OAuth consent", async () => {
+    const context = await (await getBrowser()).newContext();
+    await context.addInitScript(
+      ({ key, session }) => localStorage.setItem(key, session),
+      { key: browserAuthStorageKey, session: browserSession },
+    );
+    await context.route("**/auth/v1/oauth/authorizations/authorization-1", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        authorization_id: "authorization-1",
+        redirect_uri: "https://chat.example/callback",
+        client: {
+          id: "chat-client-runtime",
+          name: "Runtime Chat Client",
+          uri: "https://chat.example",
+          logo_uri: "",
+        },
+        user: { id: "t02-browser-owner", email: "owner@example.test" },
+        scope: "openid email profile",
+      }),
+    }));
+    await context.route("**/auth/v1/oauth/authorizations/authorization-1/consent", async (route) => {
+      expect(route.request().postDataJSON()).toEqual({ action: "approve" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ redirect_url: url("/runtime?approved=1") }),
+      });
+    });
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/oauth/consent?authorization_id=authorization-1"));
+      await page.getByRole("heading", { name: "Runtime Chat Client" }).waitFor();
+      expect(await page.getByText("openid, email, profile").isVisible()).toBe(true);
+      await page.getByRole("button", { name: "Approve" }).click();
+      await page.waitForURL("**/runtime?approved=1");
+    } finally {
+      await context.close();
+    }
+  }, 20_000);
+
+  it("redirects a signed-out browser without rendering the protected shell", async () => {
+    const context = await (await getBrowser()).newContext();
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/app/settings/ai?tab=model"));
+      await page.waitForURL("**/login?redirect=**");
+
+      expect(new URL(page.url()).searchParams.get("redirect")).toBe(
+        "/app/settings/ai?tab=model",
+      );
+      const loginHeading = page.getByRole("heading", { name: "Sign in to manage CVs" });
+      await loginHeading.waitFor();
+      expect(await loginHeading.isVisible()).toBe(true);
+      expect(await page.locator("[data-workspace-navigation]").count()).toBe(0);
+    } finally {
+      await context.close();
+    }
+  }, 20_000);
+
+  it("restores an authenticated browser into native workspace journeys", async () => {
+    const context = await (await getBrowser()).newContext();
+    await context.addInitScript(
+      ({ key, session }) => localStorage.setItem(key, session),
+      { key: browserAuthStorageKey, session: browserSession },
+    );
+    await context.route("**/auth/v1/logout**", (route) => route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "{}",
+    }));
+    await context.route("**/rest/v1/**", (route) => {
+      const requestUrl = new URL(route.request().url());
+      const resource = requestUrl.pathname.split("/").at(-1);
+      let body = [];
+
+      if (resource === "cv_documents" && requestUrl.searchParams.get("id") === "eq.cv-native") {
+        body = {
+          id: "cv-native",
+          owner_id: "t02-browser-owner",
+          name: "Native private CV",
+          status: "draft",
+          theme_id: null,
+          profile: {},
+          summary: null,
+          summary_provenance: null,
+          slug: null,
+          published_at: null,
+        };
+      } else if (resource === "cv_revisions") {
+        body = [{
+          id: "revision-native", cv_id: "cv-native", revision_number: 1, base_revision_id: null,
+          theme_id: "editorial", profile: { basics: { name: "Nic", label: "Product Manager" } },
+          summary: "A saved private CV rendered through Nuxt.", summary_provenance: null,
+          created_at: "2026-07-21T00:00:00.000Z",
+        }];
+      } else if (resource === "get_cv_revision_snapshot") {
+        body = {
+          id: "revision-native", cvId: "cv-native", number: 1, baseRevisionId: null,
+          themeId: "editorial", profile: { basics: { name: "Nic", label: "Product Manager" } },
+          summary: "A saved private CV rendered through Nuxt.", summaryProvenance: null,
+          selections: [{
+            blockId: "block-native", versionId: "version-native", section: "experience", order: 0,
+            content: { text: "Shipped a saved composition through native Nuxt pages." },
+            block: { title: "Native product launch", kind: "experience" },
+          }],
+        };
+      }
+
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+      });
+    });
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/login?redirect=/app/missing"));
+      await page.waitForURL("**/app/missing");
+      const notFoundMessage = page.getByText("The requested workspace page does not exist.");
+      await notFoundMessage.waitFor();
+      expect(await notFoundMessage.isVisible()).toBe(true);
+      expect(await page.getByText("Resume Studio", { exact: true }).isVisible()).toBe(true);
+
+      await page.reload();
+      const workspaceNavigation = page.locator("[data-workspace-navigation]");
+      await workspaceNavigation.waitFor();
+      expect(await workspaceNavigation.isVisible()).toBe(true);
+      expect(page.url()).toContain("/app/missing");
+
+      await page.getByRole("link", { name: "Saved CVs", exact: true }).click();
+      await page.waitForURL("**/app/cvs");
+      await page.getByRole("heading", { name: "No saved CVs yet" }).waitFor();
+      await page.getByRole("button", { name: "Create the first CV" }).click();
+      await page.waitForURL("**/app/cvs/new");
+      const cvName = page.getByLabel("CV name");
+      await cvName.waitFor();
+      expect(await cvName.isVisible()).toBe(true);
+      const cvBlockLibrary = page.getByRole("heading", { name: "CV Block Library" });
+      await cvBlockLibrary.waitFor();
+      expect(await cvBlockLibrary.isVisible()).toBe(true);
+
+      await page.goto(url("/app/cvs/cv-native/preview"));
+      await page.getByText("A saved private CV rendered through Nuxt.").waitFor();
+      expect(await page.getByText("Shipped a saved composition through native Nuxt pages.").isVisible()).toBe(true);
+      expect(await page.getByRole("link", { name: "Back to editor" }).isVisible()).toBe(true);
+
+      await page.getByRole("link", { name: "CV Blocks", exact: true }).click();
+      await page.waitForURL("**/app/blocks");
+      const blockSearch = page.getByRole("searchbox", { name: "Search CV Blocks, employers, roles…" });
+      await blockSearch.waitFor();
+      expect(await blockSearch.isVisible()).toBe(true);
+
+      await page.getByRole("link", { name: "AI settings", exact: true }).click();
+      await page.waitForURL("**/app/settings/ai");
+      await page.getByRole("heading", { name: "AI settings" }).waitFor();
+      const openRouterStatus = page.getByText("OpenRouter is not connected");
+      await openRouterStatus.waitFor();
+      expect(await openRouterStatus.isVisible()).toBe(true);
+
+      await page.getByRole("button", { name: "Sign out" }).click();
+      await page.waitForURL("**/login");
+      const loginHeading = page.getByRole("heading", { name: "Sign in to manage CVs" });
+      await loginHeading.waitFor();
+      expect(await loginHeading.isVisible()).toBe(true);
+    } finally {
+      await context.close();
+    }
+  }, 40_000);
+});

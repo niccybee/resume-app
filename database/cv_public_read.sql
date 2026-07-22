@@ -1,5 +1,5 @@
 -- Curated, unlisted public CV reads.
--- Apply after cv_documents.sql and cv_block_library.sql.
+-- Apply after cv_documents.sql, cv_block_library.sql, and cv_revisions.sql.
 
 create schema if not exists private;
 
@@ -18,18 +18,20 @@ as $$
     'name', document.name,
     'slug', document.slug,
     'status', document.status,
-    'themeId', document.theme_id,
+    'revisionId', revision.id,
+    'revisionNumber', revision.revision_number,
+    'themeId', revision.theme_id,
     'profile', jsonb_build_object(
       'basics', jsonb_strip_nulls(jsonb_build_object(
-        'name', document.profile #>> '{basics,name}',
-        'label', document.profile #>> '{basics,label}',
-        'email', document.profile #>> '{basics,email}',
-        'phone', document.profile #>> '{basics,phone}',
-        'url', document.profile #>> '{basics,url}',
-        'summary', document.profile #>> '{basics,summary}'
+        'name', revision.profile #>> '{basics,name}',
+        'label', revision.profile #>> '{basics,label}',
+        'email', revision.profile #>> '{basics,email}',
+        'phone', revision.profile #>> '{basics,phone}',
+        'url', revision.profile #>> '{basics,url}',
+        'summary', revision.profile #>> '{basics,summary}'
       ))
     ),
-    'summary', document.summary,
+    'summary', revision.summary,
     'publishedAt', document.published_at,
     'selections', coalesce((
       select jsonb_agg(
@@ -69,13 +71,16 @@ as $$
         )
         order by composition.section, composition.position
       )
-      from public.cv_compositions as composition
+      from public.cv_revision_compositions as composition
       join public.cv_block_versions as version
         on version.id = composition.version_id
-      where composition.cv_id = document.id
+      where composition.revision_id = revision.id
     ), '[]'::jsonb)
   )
   from public.cv_documents as document
+  join public.cv_revisions as revision
+    on revision.id = document.published_revision_id
+    and revision.cv_id = document.id
   where document.slug = p_slug
     and document.status = 'published'
   limit 1;

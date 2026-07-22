@@ -13,6 +13,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.nuxt
+.output
+.generated
 *.local
 
 # Editor directories and files
@@ -28,4 +31,3 @@ dist-ssr
 
 # Local Netlify folder
 .netlify
-deno.lock

@@ -17,32 +17,41 @@ function safeStatus(data = {}) {
   };
 }
 
-async function mapError(error) {
-  if (!error) return;
-  if (error.context?.json) {
-    try {
-      const payload = await error.context.clone().json();
-      if (typeof payload?.error === "string") {
-        throw new OpenRouterClientError(
-          typeof payload.code === "string" ? payload.code : "openrouter-unavailable",
-          payload.error,
-        );
-      }
-    } catch (reason) {
-      if (reason instanceof OpenRouterClientError) throw reason;
-    }
-  }
-  throw new OpenRouterClientError(
-    "openrouter-unavailable",
-    error.message || "The OpenRouter service is temporarily unavailable.",
-  );
-}
-
-export function createOpenRouterClient({ client }) {
+export function createOpenRouterClient({ client, fetchImpl = globalThis.fetch }) {
   async function invoke(body) {
-    const { data, error } = await client.functions.invoke("openrouter", { body });
-    await mapError(error);
-    return data;
+    const { data, error } = await client.auth.getSession();
+    if (error || !data?.session?.access_token) {
+      throw new OpenRouterClientError(
+        "authentication-required",
+        "Sign in to manage OpenRouter.",
+      );
+    }
+    let response;
+    try {
+      response = await fetchImpl("/api/openrouter", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${data.session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new OpenRouterClientError(
+        "openrouter-unavailable",
+        "The OpenRouter service is temporarily unavailable.",
+      );
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new OpenRouterClientError(
+        typeof payload.code === "string" ? payload.code : "openrouter-unavailable",
+        typeof payload.error === "string"
+          ? payload.error
+          : "The OpenRouter service is temporarily unavailable.",
+      );
+    }
+    return payload;
   }
 
   return {
@@ -52,6 +61,10 @@ export function createOpenRouterClient({ client }) {
 
     async saveKey({ apiKey, model = "openrouter/auto" }) {
       return safeStatus(await invoke({ action: "save", apiKey, model }));
+    },
+
+    async verifyKey() {
+      return safeStatus(await invoke({ action: "verify" }));
     },
 
     async removeKey() {

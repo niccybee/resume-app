@@ -33,7 +33,7 @@ create table public.cv_compositions (
   display jsonb not null default '{}'::jsonb check (jsonb_typeof(display) = 'object'),
   position integer not null default 0 check (position >= 0),
   created_at timestamptz not null default now(),
-  unique (cv_id, version_id),
+  unique (cv_id, block_id),
   unique (cv_id, section, position)
 );
 

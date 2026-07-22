@@ -20,6 +20,7 @@ describe("published CV static generation", () => {
       name: "Product <Lead>",
       slug: "product-lead",
       status: "published",
+      revisionId: "revision-2",
       profile: {
         basics: {
           name: "Nic & Co",
@@ -62,6 +63,7 @@ describe("published CV static generation", () => {
     expect(result).toEqual({ generated: ["product-lead"] });
     const html = await readFile(join(outDir, "cv", "product-lead", "index.html"), "utf8");
     expect(html).toContain('<meta name="robots" content="noindex, nofollow, noarchive">');
+    expect(html).toContain('<meta name="cv-revision" content="revision-2">');
     expect(html).toContain("Nic &amp; Co");
     expect(html).toContain("Builds &lt;trusted&gt; products.");
     expect(html).toContain("Shipped &amp; scaled the platform.");
@@ -80,6 +82,7 @@ describe("published CV static generation", () => {
         name: "Withdraw me",
         slug: "withdraw-me",
         status: "published",
+        revisionId: "revision-1",
         profile: { basics: {} },
         selections: [],
       }), { status: 200 });

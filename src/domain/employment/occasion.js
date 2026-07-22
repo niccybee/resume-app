@@ -76,6 +76,8 @@ export function formatEmploymentPeriod(startDate, endDate) {
 
 export function createEmploymentContext(input = {}, additionalMetadata = {}) {
   const employment = normalizeEmploymentGroup(input);
+  const { endDate, ...employmentMetadata } = employment;
+  const ongoing = !endDate || endDate.toLowerCase() === "present";
   return {
     type: "employment",
     key: employment.occasionId,
@@ -84,7 +86,8 @@ export function createEmploymentContext(input = {}, additionalMetadata = {}) {
       ...additionalMetadata,
       company: employment.employer,
       companyId: employment.employerId,
-      ...employment,
+      ...employmentMetadata,
+      ...(ongoing ? {} : { endDate }),
     },
   };
 }

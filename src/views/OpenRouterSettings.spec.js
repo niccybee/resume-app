@@ -9,6 +9,7 @@ vi.mock("../services/openRouter", () => ({
   openRouter: {
     getStatus: vi.fn(),
     saveKey: vi.fn(),
+    verifyKey: vi.fn(),
     removeKey: vi.fn(),
   },
 }));
@@ -68,6 +69,38 @@ describe("OpenRouter settings", () => {
     await flushPromises();
 
     expect(wrapper.get('[role="alert"]').text()).toBe("OpenRouter rejected that API key.");
+    expect(wrapper.text()).toContain("OpenRouter is not connected");
+  });
+
+  it("verifies and removes an existing Vault-backed configuration", async () => {
+    openRouter.getStatus.mockResolvedValue({
+      configured: true,
+      model: "openai/gpt-4.1-mini",
+      updatedAt: "2026-07-21T01:00:00.000Z",
+    });
+    openRouter.verifyKey.mockResolvedValue({
+      configured: true,
+      model: "openai/gpt-4.1-mini",
+      updatedAt: "2026-07-21T01:00:00.000Z",
+    });
+    openRouter.removeKey.mockResolvedValue({
+      configured: false,
+      model: "openrouter/auto",
+      updatedAt: null,
+    });
+    const wrapper = mount(OpenRouterSettings);
+    await flushPromises();
+
+    await wrapper.findAll("button").find((item) =>
+      item.text() === "Verify connection").trigger("click");
+    await flushPromises();
+    expect(openRouter.verifyKey).toHaveBeenCalledOnce();
+    expect(wrapper.get('[role="status"]').text()).toContain("verified");
+
+    await wrapper.findAll("button").find((item) =>
+      item.text() === "Remove OpenRouter").trigger("click");
+    await flushPromises();
+    expect(openRouter.removeKey).toHaveBeenCalledOnce();
     expect(wrapper.text()).toContain("OpenRouter is not connected");
   });
 });

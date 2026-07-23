@@ -16,7 +16,7 @@ const route = useRoute();
 const auth = useAuthStore();
 const destination = computed(() => loginDestination(route.query.redirect));
 const emailMethods = computed(() => [
-  { label: "Email link", value: "magic-link", slot: "magic-link", disabled: auth.loading },
+  { label: "Magic link", value: "magic-link", slot: "magic-link", disabled: auth.loading },
   { label: "Password", value: "password", slot: "password", disabled: auth.loading },
 ]);
 const googleButtonLabel = computed(() => {
@@ -59,7 +59,8 @@ async function signInWithPassword() {
 async function signInWithGoogle() {
   const redirectTo = new URL("/login", window.location.origin);
   redirectTo.searchParams.set("redirect", destination.value);
-  await auth.signInWithGoogle(redirectTo.href);
+  const oauthUrl = await auth.signInWithGoogle(redirectTo.href);
+  if (oauthUrl) window.location.assign(oauthUrl);
 }
 
 async function continueWithDeveloperAccess() {

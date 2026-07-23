@@ -22,22 +22,38 @@ describe("auth store sign-in methods", () => {
     vi.clearAllMocks();
   });
 
-  it("starts Google OAuth with the preserved login redirect", async () => {
+  it("returns the Google OAuth URL for explicit browser navigation", async () => {
     authClient.signInWithOAuth.mockResolvedValue({ data: { url: "https://google.test" }, error: null });
     const store = useAuthStore();
 
     await expect(store.signInWithGoogle("https://cv.example/login?redirect=%2Fapp%2Fcvs"))
-      .resolves.toBe(true);
+      .resolves.toBe("https://google.test");
 
     expect(authClient.signInWithOAuth).toHaveBeenCalledWith({
       provider: "google",
-      options: { redirectTo: "https://cv.example/login?redirect=%2Fapp%2Fcvs" },
+      options: {
+        redirectTo: "https://cv.example/login?redirect=%2Fapp%2Fcvs",
+        skipBrowserRedirect: true,
+      },
     });
     expect(store).toMatchObject({
       loading: false,
       pendingAction: "",
       feedbackAction: "google",
       error: "",
+    });
+  });
+
+  it("shows a retryable error when Supabase does not return an OAuth URL", async () => {
+    authClient.signInWithOAuth.mockResolvedValue({ data: { url: null }, error: null });
+    const store = useAuthStore();
+
+    await expect(store.signInWithGoogle("https://cv.example/login"))
+      .resolves.toBe("");
+    expect(store).toMatchObject({
+      loading: false,
+      feedbackAction: "google",
+      error: "Google sign-in did not return a secure redirect.",
     });
   });
 

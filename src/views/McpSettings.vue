@@ -92,7 +92,7 @@ async function setEnabled(enabled) {
         />
         <UButton
           class="nuxt-ui-button"
-          to="/docs"
+          to="/docs/mcp"
           label="Read the setup guide"
           color="neutral"
           variant="link"

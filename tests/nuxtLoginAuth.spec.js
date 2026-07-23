@@ -10,7 +10,7 @@ describe("Nuxt login choices", () => {
 
     expect(googlePosition).toBeGreaterThan(-1);
     expect(tabsPosition).toBeGreaterThan(googlePosition);
-    expect(loginPage).toContain('{ label: "Email link", value: "magic-link"');
+    expect(loginPage).toContain('{ label: "Magic link", value: "magic-link"');
     expect(loginPage).toContain('{ label: "Password", value: "password"');
     expect(loginPage).toContain('autocomplete="current-password"');
   });
@@ -23,5 +23,10 @@ describe("Nuxt login choices", () => {
     expect(loginPage).toContain("Try sending the link again");
     expect(loginPage).toContain("Signing in…");
     expect(loginPage).toContain("Try password sign-in again");
+  });
+
+  it("explicitly opens the OAuth URL returned by Supabase", () => {
+    expect(loginPage).toContain("const oauthUrl = await auth.signInWithGoogle(redirectTo.href)");
+    expect(loginPage).toContain("if (oauthUrl) window.location.assign(oauthUrl)");
   });
 });

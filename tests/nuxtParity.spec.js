@@ -11,6 +11,7 @@ describe("completed Nuxt migration", () => {
     const nativeRoutes = [
       "app/pages/index.vue",
       "app/pages/docs/index.vue",
+      "app/pages/docs/mcp.vue",
       "app/pages/login.vue",
       "app/pages/[...path].vue",
       "app/pages/build.vue",

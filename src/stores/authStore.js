@@ -94,21 +94,30 @@ export const useAuthStore = defineStore("auth", {
     async signInWithGoogle(redirectTo = `${window.location.origin}/app/cvs`) {
       this.startAction("google");
       try {
-        const { error } = await supabase.auth.signInWithOAuth({
+        const { data, error } = await supabase.auth.signInWithOAuth({
           provider: "google",
-          options: { redirectTo },
+          options: {
+            redirectTo,
+            skipBrowserRedirect: true,
+          },
         });
         if (error) {
           this.finishAction("google", { error: error.message });
-          return false;
+          return "";
+        }
+        if (!data?.url) {
+          this.finishAction("google", {
+            error: "Google sign-in did not return a secure redirect.",
+          });
+          return "";
         }
         this.finishAction("google");
-        return true;
+        return data.url;
       } catch (cause) {
         this.finishAction("google", {
           error: cause?.message || "Google sign-in could not be started.",
         });
-        return false;
+        return "";
       }
     },
     async signOut() {

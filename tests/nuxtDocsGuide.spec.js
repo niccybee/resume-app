@@ -8,7 +8,7 @@ const fromRoot = (path) => resolve(root, path);
 
 describe("public MCP setup guide", () => {
   it("explains the connection and review gate in plain language", async () => {
-    const guide = await readFile(fromRoot("app/pages/docs/index.vue"), "utf8");
+    const guide = await readFile(fromRoot("app/pages/docs/mcp.vue"), "utf8");
     const plainText = guide.replace(/\s+/g, " ");
 
     expect(plainText).toContain("MCP is a secure connection between Resume Studio and an AI chat app");
@@ -18,7 +18,7 @@ describe("public MCP setup guide", () => {
   });
 
   it("covers ChatGPT and OpenCode without leading with configuration", async () => {
-    const guide = await readFile(fromRoot("app/pages/docs/index.vue"), "utf8");
+    const guide = await readFile(fromRoot("app/pages/docs/mcp.vue"), "utf8");
 
     expect(guide).toContain('id="chatgpt"');
     expect(guide).toContain('id="opencode"');
@@ -30,14 +30,19 @@ describe("public MCP setup guide", () => {
   });
 
   it("is discoverable from the public header and authenticated MCP settings", async () => {
-    const [header, settings] = await Promise.all([
+    const [docsIndex, header, settings] = await Promise.all([
+      readFile(fromRoot("app/pages/docs/index.vue"), "utf8"),
       readFile(fromRoot("app/components/PublicSiteHeader.vue"), "utf8"),
       readFile(fromRoot("src/views/McpSettings.vue"), "utf8"),
     ]);
 
+    expect(docsIndex).toContain('to="/docs/mcp"');
+    expect(docsIndex).toContain('label="Open the MCP guide"');
     expect(header).toContain('to="/docs"');
-    expect(header).toContain('label="MCP guide"');
-    expect(settings).toContain('to="/docs"');
+    expect(header).toContain('label="Docs"');
+    expect(header).toContain("CV / OBAIR");
+    expect(header).not.toContain("NicBenson.com.au");
+    expect(settings).toContain('to="/docs/mcp"');
     expect(settings).toContain('label="Read the setup guide"');
   });
 });

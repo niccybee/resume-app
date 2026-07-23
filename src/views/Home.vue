@@ -1,3 +1,18 @@
+<script setup>
+import { ref } from "vue";
+
+const evidenceItems = [
+  "Turned complex product work into clear, measurable customer outcomes.",
+  "Built reusable content systems that make focused applications faster.",
+  "Connected strategy, design and delivery across multidisciplinary teams.",
+];
+const highlightedEvidence = ref(1);
+
+function highlightEvidence(index) {
+  highlightedEvidence.value = index;
+}
+</script>
+
 <template>
   <div class="project-home">
     <section class="hero" aria-labelledby="home-heading">
@@ -26,7 +41,11 @@
         </div>
       </div>
 
-      <div class="document-stack" aria-label="A tailored CV assembled from reusable blocks">
+      <div
+        class="document-stack"
+        aria-label="A tailored CV assembled from reusable blocks"
+        tabindex="0"
+      >
         <div class="document document-back" aria-hidden="true"></div>
         <div class="document document-middle" aria-hidden="true"></div>
         <article class="document document-front">
@@ -40,18 +59,20 @@
           <div class="document-rule"></div>
           <section class="document-section">
             <p class="document-label">Selected evidence</p>
-            <div class="evidence-row">
-              <span>01</span>
-              <p>Turned complex product work into clear, measurable customer outcomes.</p>
-            </div>
-            <div class="evidence-row active">
-              <span>02</span>
-              <p>Built reusable content systems that make focused applications faster.</p>
-            </div>
-            <div class="evidence-row">
-              <span>03</span>
-              <p>Connected strategy, design and delivery across multidisciplinary teams.</p>
-            </div>
+            <button
+              v-for="(evidence, index) in evidenceItems"
+              :key="evidence"
+              class="evidence-row"
+              :class="{ active: highlightedEvidence === index }"
+              type="button"
+              :aria-pressed="highlightedEvidence === index"
+              @mouseenter="highlightEvidence(index)"
+              @focus="highlightEvidence(index)"
+              @click="highlightEvidence(index)"
+            >
+              <span>{{ String(index + 1).padStart(2, "0") }}</span>
+              <p>{{ evidence }}</p>
+            </button>
           </section>
           <footer class="document-footer">
             <span>Role-specific draft</span>
@@ -203,6 +224,7 @@ h1 span::after {
 
 .document-stack {
   min-height: 540px;
+  outline: none;
   position: relative;
 }
 
@@ -210,6 +232,10 @@ h1 span::after {
   border: 2px solid var(--ink);
   height: 500px;
   position: absolute;
+  transform-origin: center;
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1);
   width: min(100%, 390px);
 }
 
@@ -218,6 +244,7 @@ h1 span::after {
   right: -1rem;
   top: 2rem;
   transform: rotate(7deg);
+  z-index: 1;
 }
 
 .document-middle {
@@ -225,6 +252,7 @@ h1 span::after {
   right: 0.5rem;
   top: 1rem;
   transform: rotate(2.5deg);
+  z-index: 2;
 }
 
 .document-front {
@@ -237,6 +265,7 @@ h1 span::after {
   right: 1.2rem;
   top: 0;
   transform: rotate(-1.5deg);
+  z-index: 3;
 }
 
 .document-header { align-items: flex-start; background: transparent; display: flex; justify-content: space-between; margin: 0; padding: 0; }
@@ -245,12 +274,41 @@ h1 span::after {
 .document-mark { border: 2px solid var(--ink); font-family: var(--font-label); font-size: 0.7rem; font-weight: 800; padding: 0.35rem; }
 .document-rule { background: var(--ink); height: 2px; margin: 1.4rem 0; }
 .document-label { font-family: var(--font-label); font-size: 0.64rem; font-weight: 800; letter-spacing: 0.1em; margin-bottom: 0.8rem; text-transform: uppercase; }
-.evidence-row { border-top: 1px solid var(--paper-deep); display: grid; gap: 0.8rem; grid-template-columns: 1.5rem 1fr; padding: 0.8rem 0; }
+.evidence-row { appearance: none; border: 0; border-top: 1px solid var(--paper-deep); border-radius: 0; color: var(--ink); cursor: pointer; display: grid; font: inherit; gap: 0.8rem; grid-template-columns: 1.5rem 1fr; margin-inline: -0.7rem; padding: 0.8rem 0.7rem; text-align: left; transition: background-color 150ms ease-out, color 150ms ease-out; width: calc(100% + 1.4rem); }
 .evidence-row span { color: var(--muted); font-family: var(--font-label); font-size: 0.62rem; }
 .evidence-row p { font-family: var(--font-editorial); font-size: 0.86rem; line-height: 1.4; margin: 0; }
-.evidence-row.active { background: var(--marker-soft); margin-inline: -0.7rem; padding-inline: 0.7rem; }
+.evidence-row.active { background: var(--marker-soft); }
+.evidence-row:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; position: relative; z-index: 1; }
 .document-footer { background: transparent; border-top: 2px solid var(--ink); display: flex; font-family: var(--font-label); font-size: 0.56rem; justify-content: space-between; margin: auto 0 0; padding: 0.8rem 0 0; text-transform: uppercase; }
 .document-footer strong { color: var(--marker-dark); }
+
+@media (hover: hover) and (pointer: fine) {
+  .document-stack:hover .document-front {
+    box-shadow: 18px 24px 0 rgb(25 23 19 / 12%);
+    transform: translate3d(-10px, -16px, 0) rotate(-2.25deg);
+  }
+
+  .document-stack:hover .document-middle {
+    transform: translate3d(8px, 12px, 0) rotate(4.5deg);
+  }
+
+  .document-stack:hover .document-back {
+    transform: translate3d(18px, 24px, 0) rotate(9.5deg);
+  }
+}
+
+.document-stack:focus-visible .document-front {
+  box-shadow: 0 0 0 3px var(--marker), 18px 24px 0 rgb(25 23 19 / 12%);
+  transform: translate3d(-10px, -16px, 0) rotate(-2.25deg);
+}
+
+.document-stack:focus-visible .document-middle {
+  transform: translate3d(8px, 12px, 0) rotate(4.5deg);
+}
+
+.document-stack:focus-visible .document-back {
+  transform: translate3d(18px, 24px, 0) rotate(9.5deg);
+}
 
 .workflow {
   border-top: 2px solid var(--ink);
@@ -289,5 +347,27 @@ h1 span::after {
   .evidence-row { padding-block: 0.6rem; }
   .workflow-list li { grid-template-columns: 1.5rem 1fr; }
   .status { grid-column: 2; justify-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .document {
+    transition: none;
+  }
+
+  .document-stack:hover .document-front,
+  .document-stack:focus-visible .document-front {
+    box-shadow: 12px 15px 0 rgb(25 23 19 / 10%);
+    transform: rotate(-1.5deg);
+  }
+
+  .document-stack:hover .document-middle,
+  .document-stack:focus-visible .document-middle {
+    transform: rotate(2.5deg);
+  }
+
+  .document-stack:hover .document-back,
+  .document-stack:focus-visible .document-back {
+    transform: rotate(7deg);
+  }
 }
 </style>

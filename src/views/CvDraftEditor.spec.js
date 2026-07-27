@@ -60,6 +60,11 @@ async function mountEditor({ taskChatStub = true, cvId = "cv-1" } = {}) {
           props: ["loading", "disabled"],
           template: '<button :disabled="disabled || loading" :aria-busy="loading ? \'true\' : undefined"><slot /></button>',
         },
+        USelectMenu: {
+          props: ["modelValue", "items", "multiple"],
+          emits: ["update:modelValue"],
+          template: '<select :multiple="multiple" @change="$emit(\'update:modelValue\', Array.from($event.target.selectedOptions).map((option) => option.value))"><option v-for="item in items" :key="item.value" :value="item.value" :selected="modelValue.includes(item.value)">{{ item.label }}</option></select>',
+        },
       },
     },
   });
@@ -819,6 +824,7 @@ describe("CV summary proposals", () => {
             company: "Google",
             role: "Product Manager",
             startDate: "2024-01",
+            occasionId: "google-product-manager-2024",
           },
         }],
         currentVersion: {
@@ -831,6 +837,32 @@ describe("CV summary proposals", () => {
           id: "version-experience-1",
           number: 1,
           content: { text: "Improved activation." },
+          source: { type: "human" },
+        }],
+      }, {
+        id: "block-experience-atlassian",
+        kind: "experience",
+        title: "Aligned product teams",
+        contexts: [{
+          type: "employment",
+          metadata: {
+            company: "Atlassian",
+            role: "Senior Product Manager",
+            startDate: "2022-02",
+            endDate: "2023-12",
+            occasionId: "atlassian-senior-product-manager-2022",
+          },
+        }],
+        currentVersion: {
+          id: "version-experience-atlassian-1",
+          number: 1,
+          content: { text: "Aligned product teams." },
+          source: { type: "human" },
+        },
+        versions: [{
+          id: "version-experience-atlassian-1",
+          number: 1,
+          content: { text: "Aligned product teams." },
           source: { type: "human" },
         }],
       }, {
@@ -857,13 +889,25 @@ describe("CV summary proposals", () => {
 
     const wrapper = await mountEditor();
 
-    expect(wrapper.findAll(".library-row")).toHaveLength(2);
+    expect(wrapper.findAll(".library-row")).toHaveLength(3);
     expect(wrapper.findAll(".library-row")[0].text()).toContain("Product Manager at Google");
-    expect(wrapper.findAll(".library-row-footer")).toHaveLength(2);
-    expect(wrapper.findAll(".library-row-footer select")).toHaveLength(2);
-    expect(wrapper.findAll(".library-row-footer button")).toHaveLength(2);
+    expect(wrapper.findAll(".library-row-footer")).toHaveLength(3);
+    expect(wrapper.findAll(".library-row-footer select")).toHaveLength(3);
+    expect(wrapper.findAll(".library-row-footer button")).toHaveLength(3);
+
+    const jobFilter = wrapper.get('select[multiple]');
+    expect(jobFilter.findAll("option")).toHaveLength(2);
+    expect(jobFilter.text()).toContain("Product Manager at Google · Jan 2024 – Present");
+    await jobFilter.setValue(["google-product-manager-2024"]);
+
+    expect(wrapper.findAll(".library-row")).toHaveLength(1);
+    expect(wrapper.get(".library-row").text()).toContain("Improved activation");
 
     await button(wrapper, "Skill").trigger("click");
+
+    expect(wrapper.findAll(".library-row")).toHaveLength(0);
+    expect(wrapper.text()).toContain("No CV Blocks match the selected filters.");
+    await button(wrapper, "Clear").trigger("click");
 
     expect(wrapper.findAll(".library-row")).toHaveLength(1);
     expect(wrapper.get(".library-row").text()).toContain("Product strategy");

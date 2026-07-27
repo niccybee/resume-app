@@ -22,6 +22,7 @@ const sessionChangeProposal = ref(null);
 const proposingChange = ref(false);
 const copyRoleName = ref("");
 const blockKindFilter = ref("all");
+const selectedJobIds = ref([]);
 const pendingRequest = ref("");
 const selectedVersions = reactive({});
 function normalizeEditorDraft(input) {
@@ -52,9 +53,26 @@ const blockKindItems = computed(() => [
     value: kind,
   })),
 ]);
-const filteredBlocks = computed(() => blockKindFilter.value === "all"
-  ? blocks.value
-  : blocks.value.filter((block) => block.kind === blockKindFilter.value));
+const jobFilterItems = computed(() => {
+  const jobs = new Map();
+  for (const block of blocks.value) {
+    if (block.kind !== "experience") continue;
+    const employment = employmentForBlock(block);
+    if (!jobs.has(employment.occasionId)) {
+      jobs.set(employment.occasionId, {
+        label: `${employment.role} at ${employment.employer} · ${formatEmploymentPeriod(employment.startDate, employment.endDate)}`,
+        value: employment.occasionId,
+      });
+    }
+  }
+  return [...jobs.values()].sort((left, right) => left.label.localeCompare(right.label));
+});
+const filteredBlocks = computed(() => blocks.value.filter((block) => {
+  if (blockKindFilter.value !== "all" && block.kind !== blockKindFilter.value) return false;
+  if (!selectedJobIds.value.length) return true;
+  if (block.kind !== "experience") return false;
+  return selectedJobIds.value.includes(employmentForBlock(block).occasionId);
+}));
 const selectedTheme = computed({
   get: () => draft.themeId || defaultThemeValue,
   set: (value) => { draft.themeId = value === defaultThemeValue ? null : value; },
@@ -69,10 +87,13 @@ function blockVersionItems(block) {
     value: version.id,
   }));
 }
+function employmentForBlock(block) {
+  const employmentContext = block.contexts?.find((context) => context.type === "employment");
+  return normalizeEmploymentGroup(employmentContext?.metadata);
+}
 function experienceParentJob(block) {
   if (block.kind !== "experience") return "";
-  const employmentContext = block.contexts?.find((context) => context.type === "employment");
-  const employment = normalizeEmploymentGroup(employmentContext?.metadata);
+  const employment = employmentForBlock(block);
   return `${employment.role} at ${employment.employer}`;
 }
 function requestIs(key) {
@@ -526,27 +547,57 @@ function generateTaskProposal(instruction) {
 
       <h2>CV Block Library</h2>
       <p v-if="!blocks.length">No CV Blocks available. <NuxtLink to="/app/blocks">Create CV Blocks first.</NuxtLink></p>
-      <div
-        v-if="blocks.length"
-        class="block-kind-tabs"
-        role="tablist"
-        aria-label="Filter CV Blocks by type"
-      >
-        <UButton
-          v-for="item in blockKindItems"
-          :key="item.value"
-          class="block-kind-tab"
-          :class="{ 'block-kind-tab--active': blockKindFilter === item.value }"
-          role="tab"
-          size="xs"
-          :aria-selected="blockKindFilter === item.value"
-          @click="blockKindFilter = item.value"
+      <div v-if="blocks.length" class="library-filters">
+        <div
+          class="block-kind-tabs"
+          role="tablist"
+          aria-label="Filter CV Blocks by type"
         >
-          {{ item.label }}
-        </UButton>
+          <UButton
+            v-for="item in blockKindItems"
+            :key="item.value"
+            class="block-kind-tab"
+            :class="{ 'block-kind-tab--active': blockKindFilter === item.value }"
+            role="tab"
+            size="xs"
+            :aria-selected="blockKindFilter === item.value"
+            @click="blockKindFilter = item.value"
+          >
+            {{ item.label }}
+          </UButton>
+        </div>
+        <div v-if="jobFilterItems.length" class="job-filter">
+          <span>Jobs</span>
+          <USelectMenu
+            v-model="selectedJobIds"
+            :items="jobFilterItems"
+            value-key="value"
+            label-key="label"
+            multiple
+            searchable
+            size="sm"
+            class="job-filter-select"
+            icon="i-lucide-briefcase-business"
+            placeholder="All jobs"
+            aria-label="Filter CV Blocks by jobs"
+          >
+            <template #default="{ modelValue }">
+              <span>{{ modelValue.length ? `${modelValue.length} job${modelValue.length === 1 ? "" : "s"} selected` : "All jobs" }}</span>
+            </template>
+          </USelectMenu>
+          <UButton
+            v-if="selectedJobIds.length"
+            class="secondary control-compact job-filter-clear"
+            size="xs"
+            aria-label="Clear job filter"
+            @click="selectedJobIds = []"
+          >
+            Clear
+          </UButton>
+        </div>
       </div>
       <p v-if="blocks.length && !filteredBlocks.length" class="empty-library-filter">
-        No {{ blockKindFilter }} CV Blocks available.
+        No CV Blocks match the selected filters.
       </p>
       <article v-for="block in filteredBlocks" :key="block.id" class="library-row">
         <div class="library-row-body">
@@ -785,9 +836,14 @@ function generateTaskProposal(instruction) {
 .library-row-context { display: block; margin-top: .25rem; color: var(--muted); font-size: .8rem; }
 .library-row-footer { display: flex; align-items: center; justify-content: space-between; gap: .65rem; padding-top: .65rem; border-top: 1px solid var(--paper-deep); }
 .library-version-select { width: auto; min-width: 10rem; max-width: 14rem; }
-.block-kind-tabs { display: flex; flex-wrap: wrap; gap: .35rem; margin: 1rem 0; padding: .35rem; background: var(--ink); }
-.block-kind-tabs .block-kind-tab { flex: 1 0 auto; margin: 0; border-color: var(--paper-light); background: transparent; color: var(--paper-light); box-shadow: none; }
+.library-filters { display: grid; gap: .65rem; margin: 1rem 0; }
+.block-kind-tabs { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem; padding: .35rem; background: var(--ink); }
+.block-kind-tabs .block-kind-tab { width: 100%; min-width: 0; margin: 0; border-color: var(--paper-light); background: transparent; color: var(--paper-light); box-shadow: none; }
 .block-kind-tabs .block-kind-tab--active { background: var(--marker) !important; color: var(--ink) !important; }
+.job-filter { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; }
+.job-filter > span { font-family: var(--font-label); font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.job-filter-select { flex: 1 1 auto; width: 0; min-width: 0; }
+.job-filter-clear { width: auto; margin: 0; }
 .empty-library-filter { margin: 1rem 0; color: var(--muted); }
 .selection button { width: auto; margin: 0 .15rem; }
 .selection .selection-section { display: inline-flex; width: auto; min-width: 9rem; margin: 0 .3rem; }
@@ -799,6 +855,7 @@ function generateTaskProposal(instruction) {
 .proposal-review { margin: 1.5rem 0 !important; border: 2px solid var(--ink) !important; box-shadow: 6px 6px 0 var(--marker) !important; }
 .proposal-review pre { max-height: 22rem; overflow: auto; padding: 1rem; background: var(--ink); color: var(--paper-light); font-family: var(--font-label); font-size: .7rem; }
 @media (max-width: 1180px) { .editor-layout { grid-template-columns: 1fr; } .live-preview { position: static; } }
-@media (max-width: 650px) { .selection, .session-row { align-items: stretch; flex-direction: column; } .library-row-footer { align-items: stretch; flex-direction: column; } .library-version-select { width: 100%; max-width: none; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
+@media (max-width: 650px) { .selection, .session-row { align-items: stretch; flex-direction: column; } .library-row-footer, .job-filter { align-items: stretch; flex-direction: column; } .library-version-select, .job-filter-select { width: 100%; max-width: none; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
+@media (min-width: 1500px) { .block-kind-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media print { .editor-controls { display: none; } .editor-layout { display: block; } }
 </style>

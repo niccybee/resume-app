@@ -1245,6 +1245,74 @@ describe("Nuxt runtime", async () => {
     }
   }, 20_000);
 
+  it("resumes OAuth consent after a stable external sign-in callback", async () => {
+    const consentRequest = "/oauth/consent?authorization_id=authorization-1";
+    const callback = url("/runtime?chatgpt=connected&state=state-1");
+    const context = await (await getBrowser()).newContext();
+    await context.addInitScript(
+      ({ authKey, pendingKey, session, destination }) => {
+        localStorage.setItem(authKey, session);
+        localStorage.setItem(pendingKey, destination);
+      },
+      {
+        authKey: browserAuthStorageKey,
+        pendingKey: "resume-studio:pending-auth-destination",
+        session: browserSession,
+        destination: consentRequest,
+      },
+    );
+    await context.route(
+      "**/auth/v1/oauth/authorizations/authorization-1",
+      (route) => route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ redirect_url: callback }),
+      }),
+    );
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/login"));
+      await page.waitForURL("**/runtime?chatgpt=connected&state=state-1");
+      expect(page.url()).toBe(callback);
+    } finally {
+      await context.close();
+    }
+  }, 20_000);
+
+  it("resumes OAuth consent when authentication completes after login has mounted", async () => {
+    const callback = url("/runtime?chatgpt=connected&state=state-2");
+    const context = await (await getBrowser()).newContext();
+    await context.route(
+      "**/auth/v1/oauth/authorizations/authorization-1",
+      (route) => route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ redirect_url: callback }),
+      }),
+    );
+    const page = await context.newPage();
+
+    try {
+      await page.goto(url("/oauth/consent?authorization_id=authorization-1"));
+      await page.waitForURL("**/login?redirect=**");
+      await page.evaluate(
+        async ({ key, session }) => {
+          localStorage.setItem(key, session);
+          const channel = new BroadcastChannel(key);
+          channel.postMessage({ event: "SIGNED_IN", session: JSON.parse(session) });
+          await new Promise((resolveMessage) => setTimeout(resolveMessage, 0));
+          channel.close();
+        },
+        { key: browserAuthStorageKey, session: browserSession },
+      );
+      await page.waitForURL("**/runtime?chatgpt=connected&state=state-2");
+      expect(page.url()).toBe(callback);
+    } finally {
+      await context.close();
+    }
+  }, 20_000);
+
   it("shows client details and submits explicit OAuth consent", async () => {
     const context = await (await getBrowser()).newContext();
     await context.addInitScript(

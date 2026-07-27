@@ -14,6 +14,13 @@ repository-to-project association remains in Netlify. The ignored local
 `.netlify/state.json` should point to `cv-obair` so preview and diagnostic CLI
 commands cannot accidentally target the retired preview project.
 
+In Supabase Authentication, keep the Site URL at `https://cv.obair.tech`, the
+OAuth Server Authorization Path at `/oauth/consent`, and the exact allowed
+external-auth redirect URL at `https://cv.obair.tech/login`. Google and magic-link
+sign-in return to that stable URL; Resume Studio restores the validated
+authorization request itself. A callback that lands on `/` indicates Supabase
+fell back to the Site URL and must fail the release check.
+
 Apply the `enable_user_mcp_settings` migration so each authenticated owner can
 enable or disable MCP for their own account. A missing or disabled setting fails
 closed at `/mcp`. Generate a separate random `NUXT_MCP_GATEWAY_KEY` of at least 32 characters,

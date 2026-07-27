@@ -1,6 +1,7 @@
 import { isOAuthAuthorizationId } from "./oauthAuthorizationId";
 
 const defaultWorkspaceDestination = "/app/cvs";
+const pendingExternalAuthDestinationKey = "resume-studio:pending-auth-destination";
 
 export function loginDestination(value) {
   if (typeof value !== "string") return defaultWorkspaceDestination;
@@ -25,6 +26,37 @@ export function loginDestination(value) {
     return defaultWorkspaceDestination;
   }
   return `${destination.pathname}${destination.search}${destination.hash}`;
+}
+
+export function externalAuthCallbackUrl(origin) {
+  return new URL("/login", origin).href;
+}
+
+export function rememberExternalAuthDestination(storage, value) {
+  const destination = loginDestination(value);
+  try {
+    storage?.setItem?.(pendingExternalAuthDestinationKey, destination);
+  } catch {
+    // Browser privacy settings can disable storage. The login page still
+    // falls back to the default workspace destination in that case.
+  }
+  return destination;
+}
+
+export function pendingExternalAuthDestination(storage) {
+  try {
+    return loginDestination(storage?.getItem?.(pendingExternalAuthDestinationKey));
+  } catch {
+    return defaultWorkspaceDestination;
+  }
+}
+
+export function clearPendingExternalAuthDestination(storage) {
+  try {
+    storage?.removeItem?.(pendingExternalAuthDestinationKey);
+  } catch {
+    // A completed sign-in must not fail because storage cleanup is blocked.
+  }
 }
 
 export function workspaceAccessResult({ user, fullPath, developerAccess = false }) {

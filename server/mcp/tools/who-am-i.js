@@ -2,6 +2,7 @@ import { defineMcpTool } from "@nuxtjs/mcp-toolkit/server";
 import { useEvent } from "nitropack/runtime";
 import { z } from "zod";
 import { runHardenedMcpTool } from "../../utils/mcpToolHardening";
+import { mcpOAuthMeta } from "../../utils/mcpToolMetadata";
 
 export default defineMcpTool({
   name: "get_connection_identity",
@@ -12,7 +13,12 @@ export default defineMcpTool({
     email: z.string().nullable(),
     oauthClientId: z.string(),
   },
-  annotations: { readOnlyHint: true },
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  _meta: mcpOAuthMeta(),
   handler: async () => runHardenedMcpTool({
     kind: "read",
     operation: "get_connection_identity",

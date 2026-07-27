@@ -823,6 +823,23 @@ describe("Nuxt runtime", async () => {
       "apply_change_proposal",
       "discard_change_proposal",
     ]));
+    for (const tool of tools.result.tools) {
+      expect(tool.outputSchema, `${tool.name} output schema`).toMatchObject({
+        type: "object",
+      });
+      expect(
+        tool._meta?.securitySchemes,
+        `${tool.name} OAuth metadata`,
+      ).toEqual([{
+        type: "oauth2",
+        scopes: ["openid", "email", "profile"],
+      }]);
+      expect(tool.annotations, `${tool.name} annotations`).toMatchObject({
+        readOnlyHint: expect.any(Boolean),
+        destructiveHint: expect.any(Boolean),
+        openWorldHint: false,
+      });
+    }
     expect(toolNames).not.toEqual(expect.arrayContaining([
       "save_cv",
       "append_block_version",

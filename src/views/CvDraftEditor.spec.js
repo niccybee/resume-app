@@ -56,6 +56,10 @@ async function mountEditor({ taskChatStub = true, cvId = "cv-1" } = {}) {
       stubs: {
         NuxtLink: { template: "<a><slot /></a>" },
         TaskChat: taskChatStub,
+        UButton: {
+          props: ["loading", "disabled"],
+          template: '<button :disabled="disabled || loading" :aria-busy="loading ? \'true\' : undefined"><slot /></button>',
+        },
       },
     },
   });
@@ -801,6 +805,69 @@ describe("CV summary proposals", () => {
     }));
     expect(button(wrapper, "Save Editing Session")).toBeDefined();
     expect(wrapper.get('[role="status"]').text()).toContain("initial Editing Session created");
+  });
+
+  it("filters the CV Block Library by type and shows an experience block's parent job", async () => {
+    blockLibrary.browse.mockResolvedValue({
+      blocks: [{
+        id: "block-experience",
+        kind: "experience",
+        title: "Improved activation",
+        contexts: [{
+          type: "employment",
+          metadata: {
+            company: "Google",
+            role: "Product Manager",
+            startDate: "2024-01",
+          },
+        }],
+        currentVersion: {
+          id: "version-experience-1",
+          number: 1,
+          content: { text: "Improved activation." },
+          source: { type: "human" },
+        },
+        versions: [{
+          id: "version-experience-1",
+          number: 1,
+          content: { text: "Improved activation." },
+          source: { type: "human" },
+        }],
+      }, {
+        id: "block-skill",
+        kind: "skill",
+        title: "Product strategy",
+        contexts: [],
+        currentVersion: {
+          id: "version-skill-1",
+          number: 1,
+          content: { name: "Product strategy" },
+          source: { type: "human" },
+        },
+        versions: [{
+          id: "version-skill-1",
+          number: 1,
+          content: { name: "Product strategy" },
+          source: { type: "human" },
+        }],
+      }],
+      experience: [],
+      sidebar: {},
+    });
+
+    const wrapper = await mountEditor();
+
+    expect(wrapper.findAll(".library-row")).toHaveLength(2);
+    expect(wrapper.findAll(".library-row")[0].text()).toContain("Product Manager at Google");
+    expect(wrapper.findAll(".library-row-footer")).toHaveLength(2);
+    expect(wrapper.findAll(".library-row-footer select")).toHaveLength(2);
+    expect(wrapper.findAll(".library-row-footer button")).toHaveLength(2);
+
+    await button(wrapper, "Skill").trigger("click");
+
+    expect(wrapper.findAll(".library-row")).toHaveLength(1);
+    expect(wrapper.get(".library-row").text()).toContain("Product strategy");
+    expect(wrapper.get(".library-row").text()).not.toContain("Improved activation");
   });
 
   it("shows and explicitly replaces an older pinned Block Version", async () => {

@@ -107,11 +107,15 @@ available at `/.well-known/oauth-protected-resource` and the `/mcp`-specific for
 
 Before deploying, enable the OAuth server and dynamic client registration in the
 Supabase dashboard, set the authorization path to `/oauth/consent`, and configure
-the production Site URL and allowed redirect URLs. Disable new-user signups so
-only existing Resume Studio accounts can authorize clients. Use asymmetric JWT
-signing so clients can consume OpenID discovery. Account creation remains
-disabled in the application's magic-link flow; each existing user must also
-enable MCP in settings.
+the production Site URL as `https://cv.obair.tech`. Add the exact external-auth
+callback `https://cv.obair.tech/login` to the allowed redirect URLs. The app
+retains the validated workspace or OAuth-consent destination locally and resumes
+it after Google or magic-link sign-in, so the Supabase callback never needs a
+dynamic query-string allow-list. Disable new-user signups so only existing
+Resume Studio accounts can authorize clients. Use asymmetric JWT signing so
+clients can consume OpenID discovery. Account creation remains disabled in the
+application's magic-link flow; each existing user must also enable MCP in
+settings.
 
 Every MCP request must carry the Supabase user access token issued to the OAuth
 client. The server validates it with Supabase Auth, requires its OAuth `client_id`,

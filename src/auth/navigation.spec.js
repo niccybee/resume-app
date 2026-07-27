@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  externalAuthCallbackUrl,
   loginDestination,
+  pendingExternalAuthDestination,
+  rememberExternalAuthDestination,
   workspaceAccessResult,
 } from "./navigation";
 
@@ -15,6 +18,22 @@ describe("workspace authentication navigation", () => {
     expect(loginDestination("/oauth/consent?authorization_id=authorization-1")).toBe(
       "/oauth/consent?authorization_id=authorization-1",
     );
+  });
+
+  it("resumes an OAuth consent request after an external identity-provider callback", () => {
+    const values = new Map();
+    const storage = {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+    };
+    const consentRequest = "/oauth/consent?authorization_id=authorization-1";
+
+    rememberExternalAuthDestination(storage, consentRequest);
+
+    expect(externalAuthCallbackUrl("https://cv.obair.tech")).toBe(
+      "https://cv.obair.tech/login",
+    );
+    expect(pendingExternalAuthDestination(storage)).toBe(consentRequest);
   });
 
   it.each([

@@ -1,5 +1,11 @@
 <script setup>
-import { loginDestination } from "../../src/auth/navigation";
+import {
+  clearPendingExternalAuthDestination,
+  externalAuthCallbackUrl,
+  loginDestination,
+  pendingExternalAuthDestination,
+  rememberExternalAuthDestination,
+} from "../../src/auth/navigation";
 import {
   enableDeveloperAccess,
   isDeveloperAccessAvailable,
@@ -14,7 +20,13 @@ const credentials = reactive({ email: "", password: "" });
 const activeEmailMethod = ref("magic-link");
 const route = useRoute();
 const auth = useAuthStore();
-const destination = computed(() => loginDestination(route.query.redirect));
+const pendingDestination = ref(pendingExternalAuthDestination(window.localStorage));
+const destination = computed(() => loginDestination(
+  typeof route.query.redirect === "string"
+    ? route.query.redirect
+    : pendingDestination.value,
+));
+const resuming = ref(false);
 const emailMethods = computed(() => [
   { label: "Magic link", value: "magic-link", slot: "magic-link", disabled: auth.loading },
   { label: "Password", value: "password", slot: "password", disabled: auth.loading },
@@ -41,25 +53,45 @@ const developerAccessAvailable = computed(() => (
 ));
 
 await auth.initialize();
-if (auth.user || (developerAccessAvailable.value && isDeveloperAccessEnabled())) {
+
+async function resumeAuthenticatedDestination(user) {
+  if (!user || resuming.value) return;
+  resuming.value = true;
+  const target = destination.value;
+  try {
+    await navigateTo(target, { replace: true });
+    clearPendingExternalAuthDestination(window.localStorage);
+  } finally {
+    resuming.value = false;
+  }
+}
+
+if (auth.user) {
+  await resumeAuthenticatedDestination(auth.user);
+} else if (developerAccessAvailable.value && isDeveloperAccessEnabled()) {
   await navigateTo(destination.value, { replace: true });
 }
 
 async function requestMagicLink() {
-  const redirectTo = new URL("/login", window.location.origin);
-  redirectTo.searchParams.set("redirect", destination.value);
-  await auth.requestMagicLink(credentials.email, redirectTo.href);
+  rememberExternalAuthDestination(window.localStorage, destination.value);
+  pendingDestination.value = destination.value;
+  await auth.requestMagicLink(
+    credentials.email,
+    externalAuthCallbackUrl(window.location.origin),
+  );
 }
 
 async function signInWithPassword() {
   const signedIn = await auth.signInWithPassword(credentials.email, credentials.password);
-  if (signedIn) await navigateTo(destination.value, { replace: true });
+  if (signedIn) await resumeAuthenticatedDestination(auth.user);
 }
 
 async function signInWithGoogle() {
-  const redirectTo = new URL("/login", window.location.origin);
-  redirectTo.searchParams.set("redirect", destination.value);
-  const oauthUrl = await auth.signInWithGoogle(redirectTo.href);
+  rememberExternalAuthDestination(window.localStorage, destination.value);
+  pendingDestination.value = destination.value;
+  const oauthUrl = await auth.signInWithGoogle(
+    externalAuthCallbackUrl(window.location.origin),
+  );
   if (oauthUrl) window.location.assign(oauthUrl);
 }
 
@@ -69,6 +101,9 @@ async function continueWithDeveloperAccess() {
 }
 
 watch(activeEmailMethod, () => auth.clearFeedback());
+watch(() => auth.user, (user) => {
+  void resumeAuthenticatedDestination(user);
+});
 </script>
 
 <template>

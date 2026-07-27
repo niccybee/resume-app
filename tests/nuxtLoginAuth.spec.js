@@ -25,8 +25,12 @@ describe("Nuxt login choices", () => {
     expect(loginPage).toContain("Try password sign-in again");
   });
 
-  it("explicitly opens the OAuth URL returned by Supabase", () => {
-    expect(loginPage).toContain("const oauthUrl = await auth.signInWithGoogle(redirectTo.href)");
+  it("retains the destination while using a stable external-auth callback", () => {
+    expect(loginPage).toContain(
+      "rememberExternalAuthDestination(window.localStorage, destination.value)",
+    );
+    expect(loginPage).toContain("externalAuthCallbackUrl(window.location.origin)");
+    expect(loginPage).toContain("const oauthUrl = await auth.signInWithGoogle(");
     expect(loginPage).toContain("if (oauthUrl) window.location.assign(oauthUrl)");
   });
 });

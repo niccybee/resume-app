@@ -2,6 +2,7 @@ import {
   createOpenRouterServer,
   OpenRouterServerError,
 } from "../utils/openRouterService";
+import { resolveRuntimeSecret } from "../utils/runtimeSecrets";
 
 export default defineEventHandler(async (event) => {
   try {
@@ -9,7 +10,10 @@ export default defineEventHandler(async (event) => {
     const service = createOpenRouterServer({
       supabaseUrl: config.public.supabaseUrl,
       publishableKey: config.public.supabasePublishableKey,
-      serviceRoleKey: config.supabaseServiceRoleKey,
+      serviceRoleKey: resolveRuntimeSecret(
+        config.supabaseServiceRoleKey,
+        "SUPABASE_SERVICE_ROLE_KEY",
+      ),
     });
     return await service.handle({
       authorization: getHeader(event, "authorization"),

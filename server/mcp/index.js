@@ -16,6 +16,7 @@ import {
   mcpAuthenticationRateLimit,
   McpRateLimitError,
 } from "../utils/mcpRateLimit";
+import { resolveRuntimeSecret } from "../utils/runtimeSecrets";
 
 export default defineMcpHandler({
   name: "Resume Studio",
@@ -36,7 +37,10 @@ export default defineMcpHandler({
         supabaseUrl: config.mcpSupabaseUrl,
         publishableKey: config.mcpSupabasePublishableKey,
         createClient,
-        gatewayKey: config.mcpGatewayKey,
+        gatewayKey: resolveRuntimeSecret(
+          config.mcpGatewayKey,
+          "NUXT_MCP_GATEWAY_KEY",
+        ),
         requireGateway: true,
         requireUserOptIn: true,
       });

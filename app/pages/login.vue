@@ -10,10 +10,31 @@ import { isSupabaseConfigured } from "../../src/supabase";
 
 definePageMeta({ layout: "public" });
 
-const email = ref("");
+const credentials = reactive({ email: "", password: "" });
+const activeEmailMethod = ref("magic-link");
 const route = useRoute();
 const auth = useAuthStore();
 const destination = computed(() => loginDestination(route.query.redirect));
+const emailMethods = computed(() => [
+  { label: "Magic link", value: "magic-link", slot: "magic-link", disabled: auth.loading },
+  { label: "Password", value: "password", slot: "password", disabled: auth.loading },
+]);
+const googleButtonLabel = computed(() => {
+  if (auth.pendingAction === "google") return "Connecting to Google…";
+  if (auth.feedbackAction === "google" && auth.error) return "Try Google sign-in again";
+  return "Continue with Google";
+});
+const magicLinkButtonLabel = computed(() => {
+  if (auth.pendingAction === "magic-link") return "Sending secure link…";
+  if (auth.feedbackAction === "magic-link" && auth.notice) return "Sign-in link sent";
+  if (auth.feedbackAction === "magic-link" && auth.error) return "Try sending the link again";
+  return "Send sign-in link";
+});
+const passwordButtonLabel = computed(() => {
+  if (auth.pendingAction === "password") return "Signing in…";
+  if (auth.feedbackAction === "password" && auth.error) return "Try password sign-in again";
+  return "Sign in with password";
+});
 const developerAccessAvailable = computed(() => (
   isDeveloperAccessAvailable() &&
   (destination.value === "/app" || destination.value.startsWith("/app/"))
@@ -27,13 +48,27 @@ if (auth.user || (developerAccessAvailable.value && isDeveloperAccessEnabled()))
 async function requestMagicLink() {
   const redirectTo = new URL("/login", window.location.origin);
   redirectTo.searchParams.set("redirect", destination.value);
-  await auth.requestMagicLink(email.value, redirectTo.href);
+  await auth.requestMagicLink(credentials.email, redirectTo.href);
+}
+
+async function signInWithPassword() {
+  const signedIn = await auth.signInWithPassword(credentials.email, credentials.password);
+  if (signedIn) await navigateTo(destination.value, { replace: true });
+}
+
+async function signInWithGoogle() {
+  const redirectTo = new URL("/login", window.location.origin);
+  redirectTo.searchParams.set("redirect", destination.value);
+  const oauthUrl = await auth.signInWithGoogle(redirectTo.href);
+  if (oauthUrl) window.location.assign(oauthUrl);
 }
 
 async function continueWithDeveloperAccess() {
   if (!enableDeveloperAccess()) return;
   await navigateTo(destination.value, { replace: true });
 }
+
+watch(activeEmailMethod, () => auth.clearFeedback());
 </script>
 
 <template>
@@ -56,32 +91,105 @@ async function continueWithDeveloperAccess() {
       <template #header>
         <p class="panel-number">ACCESS / 01</p>
         <h2>Sign in to manage CVs</h2>
-        <p>We’ll email the existing owner account a one-time secure link.</p>
+        <p>Choose Google, a one-time email link, or your account password.</p>
       </template>
 
-      <UForm :state="{ email }" class="login-form" @submit="requestMagicLink">
-        <UFormField label="Email" name="email" required>
-          <UInput
-            v-model="email"
-            class="w-full"
-            type="email"
-            autocomplete="email"
-            placeholder="you@example.com"
-            icon="i-lucide-mail"
-            required
-          />
-        </UFormField>
+      <div class="login-options">
         <UButton
-          class="nuxt-ui-button editorial-action"
-          type="submit"
-          label="Send sign-in link"
-          icon="i-lucide-arrow-right"
-          trailing
+          class="nuxt-ui-button google-action"
+          type="button"
+          :label="googleButtonLabel"
+          color="neutral"
+          variant="outline"
           block
-          :loading="auth.loading"
+          :loading="auth.pendingAction === 'google'"
           :disabled="auth.loading || !isSupabaseConfigured"
-        />
-      </UForm>
+          @click="signInWithGoogle"
+        >
+          <template #leading>
+            <span class="google-mark" aria-hidden="true">G</span>
+          </template>
+        </UButton>
+
+        <USeparator label="or continue with email" />
+
+        <UTabs
+          v-model="activeEmailMethod"
+          class="login-tabs"
+          :items="emailMethods"
+          color="neutral"
+          variant="link"
+          :ui="{
+            list: 'border-default',
+            indicator: 'bg-primary',
+            trigger: 'font-label uppercase tracking-wider',
+            content: 'pt-5',
+          }"
+        >
+          <template #magic-link>
+            <UForm :state="credentials" class="login-form" @submit="requestMagicLink">
+              <UFormField label="Email" name="email" required>
+                <UInput
+                  v-model="credentials.email"
+                  class="w-full"
+                  type="email"
+                  autocomplete="email"
+                  placeholder="you@example.com"
+                  icon="i-lucide-mail"
+                  required
+                />
+              </UFormField>
+              <UButton
+                class="nuxt-ui-button editorial-action"
+                type="submit"
+                :label="magicLinkButtonLabel"
+                icon="i-lucide-arrow-right"
+                trailing
+                block
+                :loading="auth.pendingAction === 'magic-link'"
+                :disabled="auth.loading || !isSupabaseConfigured"
+              />
+            </UForm>
+          </template>
+
+          <template #password>
+            <UForm :state="credentials" class="login-form" @submit="signInWithPassword">
+              <UFormField label="Email" name="email" required>
+                <UInput
+                  v-model="credentials.email"
+                  class="w-full"
+                  type="email"
+                  autocomplete="username"
+                  placeholder="you@example.com"
+                  icon="i-lucide-mail"
+                  required
+                />
+              </UFormField>
+              <UFormField label="Password" name="password" required>
+                <UInput
+                  v-model="credentials.password"
+                  class="w-full"
+                  type="password"
+                  autocomplete="current-password"
+                  placeholder="Enter your password"
+                  icon="i-lucide-lock-keyhole"
+                  required
+                />
+              </UFormField>
+              <UButton
+                class="nuxt-ui-button editorial-action"
+                type="submit"
+                :label="passwordButtonLabel"
+                icon="i-lucide-log-in"
+                trailing
+                block
+                :loading="auth.pendingAction === 'password'"
+                :disabled="auth.loading || !isSupabaseConfigured"
+              />
+            </UForm>
+          </template>
+        </UTabs>
+      </div>
 
       <UAlert
         v-if="!isSupabaseConfigured"
@@ -219,6 +327,43 @@ async function continueWithDeveloperAccess() {
 .login-form {
   display: grid;
   gap: 1.25rem;
+}
+
+.login-options {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.google-action {
+  min-height: 3rem;
+  border: 1px solid var(--ink);
+  background: var(--paper-light);
+  color: var(--ink);
+}
+
+.google-mark {
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  place-items: center;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  font-family: Arial, sans-serif;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.login-tabs :deep([data-slot="trigger"]) {
+  font-family: var(--font-label);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-tabs :deep([data-slot="indicator"]) {
+  background: var(--marker);
 }
 
 .editorial-action {

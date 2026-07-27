@@ -90,6 +90,14 @@ async function setEnabled(enabled) {
           :disabled="saving"
           @click="setEnabled(false)"
         />
+        <UButton
+          class="nuxt-ui-button"
+          to="/docs/mcp"
+          label="Read the setup guide"
+          color="neutral"
+          variant="link"
+          trailing-icon="i-lucide-arrow-right"
+        />
       </div>
     </section>
 
@@ -107,8 +115,8 @@ async function setEnabled(enabled) {
         color="warning"
         variant="outline"
         icon="i-lucide-info"
-        title="ChatGPT plan requirement"
-        description="Full read and write MCP apps currently require ChatGPT Business, Enterprise, or Edu. Pro supports read and fetch access only."
+        title="ChatGPT workspace requirement"
+        description="Custom MCP apps currently require ChatGPT Business, Enterprise, or Edu on the web. A workspace admin or owner may need to enable Developer mode first."
       />
     </section>
 

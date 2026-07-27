@@ -8,10 +8,32 @@ export const useAuthStore = defineStore("auth", {
     user: null,
     ready: false,
     loading: false,
+    pendingAction: "",
+    feedbackAction: "",
     error: "",
     notice: "",
   }),
   actions: {
+    startAction(action) {
+      this.loading = true;
+      this.pendingAction = action;
+      this.feedbackAction = "";
+      this.error = "";
+      this.notice = "";
+    },
+    finishAction(action, { error = "", notice = "" } = {}) {
+      this.loading = false;
+      this.pendingAction = "";
+      this.feedbackAction = action;
+      this.error = error;
+      this.notice = notice;
+    },
+    clearFeedback() {
+      if (this.loading) return;
+      this.feedbackAction = "";
+      this.error = "";
+      this.notice = "";
+    },
     async initialize() {
       if (this.ready) return;
       if (!initializationByStore.has(this)) {
@@ -30,20 +52,73 @@ export const useAuthStore = defineStore("auth", {
       await initializationByStore.get(this);
     },
     async requestMagicLink(email, redirectTo = `${window.location.origin}/app/cvs`) {
-      this.loading = true;
-      this.error = "";
-      this.notice = "";
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
-      });
-      this.loading = false;
-      if (error) {
-        this.error = error.message;
+      this.startAction("magic-link");
+      try {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: redirectTo, shouldCreateUser: false },
+        });
+        if (error) {
+          this.finishAction("magic-link", { error: error.message });
+          return false;
+        }
+        this.finishAction("magic-link", {
+          notice: "Check your email for the secure sign-in link.",
+        });
+        return true;
+      } catch (cause) {
+        this.finishAction("magic-link", {
+          error: cause?.message || "The secure sign-in link could not be sent.",
+        });
         return false;
       }
-      this.notice = "Check your email for the secure sign-in link.";
-      return true;
+    },
+    async signInWithPassword(email, password) {
+      this.startAction("password");
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          this.finishAction("password", { error: error.message });
+          return false;
+        }
+        this.user = data.user || data.session?.user || null;
+        this.finishAction("password");
+        return Boolean(this.user);
+      } catch (cause) {
+        this.finishAction("password", {
+          error: cause?.message || "Password sign-in could not be completed.",
+        });
+        return false;
+      }
+    },
+    async signInWithGoogle(redirectTo = `${window.location.origin}/app/cvs`) {
+      this.startAction("google");
+      try {
+        const { data, error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo,
+            skipBrowserRedirect: true,
+          },
+        });
+        if (error) {
+          this.finishAction("google", { error: error.message });
+          return "";
+        }
+        if (!data?.url) {
+          this.finishAction("google", {
+            error: "Google sign-in did not return a secure redirect.",
+          });
+          return "";
+        }
+        this.finishAction("google");
+        return data.url;
+      } catch (cause) {
+        this.finishAction("google", {
+          error: cause?.message || "Google sign-in could not be started.",
+        });
+        return "";
+      }
     },
     async signOut() {
       await supabase.auth.signOut();

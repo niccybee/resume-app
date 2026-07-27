@@ -2,7 +2,7 @@
   <UHeader id="public-site-header" class="public-header" :toggle="false">
     <template #title>
       <span class="public-brand">
-        <span>CV / NB</span>
+        <span>CV / OBAIR</span>
         <small>Resume Studio</small>
       </span>
     </template>
@@ -10,17 +10,15 @@
     <template #right>
       <UButton
         class="nuxt-ui-button"
-        to="/login"
-        label="Owner sign in"
+        to="/docs"
+        label="Docs"
         color="neutral"
         variant="link"
       />
       <UButton
-        class="nuxt-ui-button external-link"
-        to="https://nicbenson.com.au"
-        target="_blank"
-        label="NicBenson.com.au"
-        trailing-icon="i-lucide-arrow-up-right"
+        class="nuxt-ui-button"
+        to="/login"
+        label="Owner sign in"
         color="neutral"
         variant="link"
       />
@@ -74,10 +72,6 @@
 }
 
 @media (max-width: 560px) {
-  .external-link {
-    display: none;
-  }
-
   .public-brand small {
     display: none;
   }

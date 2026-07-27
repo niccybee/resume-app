@@ -131,7 +131,7 @@ async function createTasks() {
     <div class="chat-input-group">
       <UTextarea
         v-model="prompt"
-        rows="3"
+        :rows="3"
         aria-label="Task instructions"
         placeholder="E2 as Growth Lead from 2024-02 to present: Built…"
         @keydown.meta.enter.prevent="submitPrompt"
@@ -157,7 +157,7 @@ async function createTasks() {
             :disabled="generating"
             @click="generateWithAi"
           >
-            Ask OpenRouter
+            {{ generating ? "Asking OpenRouter…" : "Ask OpenRouter" }}
           </button>
         </div>
       </div>
@@ -180,7 +180,7 @@ async function createTasks() {
           :disabled="creating"
           @click="createTasks"
         >
-          Apply Change Proposal
+          {{ creating ? "Applying Change Proposal…" : "Apply Change Proposal" }}
         </button>
         <button
           type="button"
@@ -198,7 +198,7 @@ async function createTasks() {
           v-model="reviewJson"
           data-testid="edit-task-json"
           aria-label="Edit Change Proposal JSON"
-          rows="12"
+          :rows="12"
           spellcheck="false"
         />
       </label>

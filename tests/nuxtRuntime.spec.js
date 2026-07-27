@@ -1464,13 +1464,32 @@ describe("Nuxt runtime", async () => {
       expect(await workspaceNavigation.isVisible()).toBe(true);
       expect(page.url()).toContain("/app/missing");
 
-      await page.getByRole("button", { name: "Close sidebar" }).click();
-      await page.getByRole("button", { name: "Open sidebar" }).waitFor();
-      expect(await workspaceNavigation.isVisible()).toBe(false);
+      const firstNavigationLink = page.getByRole("link", { name: "Saved CVs", exact: true });
+      const brandLink = page.getByRole("link", { name: "Resume Studio saved CVs" });
+      const minimizeSidebarButton = page.getByRole("button", { name: "Minimize sidebar" });
+      const expandedNavigationBox = await firstNavigationLink.boundingBox();
+      const expandedBrandBox = await brandLink.boundingBox();
+      const expandedToggleBox = await minimizeSidebarButton.boundingBox();
 
-      await page.getByRole("button", { name: "Open sidebar" }).click();
-      await page.getByRole("button", { name: "Close sidebar" }).waitFor();
+      await minimizeSidebarButton.click();
+      const expandSidebarButton = page.getByRole("button", { name: "Expand sidebar" });
+      await expandSidebarButton.waitFor();
       expect(await workspaceNavigation.isVisible()).toBe(true);
+      expect(await workspaceNavigation.getAttribute("data-collapsed")).toBe("true");
+      expect(await brandLink.isVisible()).toBe(true);
+
+      const collapsedNavigationBox = await firstNavigationLink.boundingBox();
+      const collapsedBrandBox = await brandLink.boundingBox();
+      const collapsedToggleBox = await expandSidebarButton.boundingBox();
+      expect(Math.abs(collapsedNavigationBox.y - expandedNavigationBox.y)).toBeLessThan(2);
+      expect(Math.abs(collapsedBrandBox.y - expandedBrandBox.y)).toBeLessThan(2);
+      expect(Math.abs(collapsedToggleBox.y - expandedToggleBox.y)).toBeLessThan(2);
+      expect(collapsedToggleBox.x).toBeLessThan(expandedToggleBox.x);
+
+      await expandSidebarButton.click();
+      await page.getByRole("button", { name: "Minimize sidebar" }).waitFor();
+      expect(await workspaceNavigation.isVisible()).toBe(true);
+      expect(await workspaceNavigation.getAttribute("data-collapsed")).toBe("false");
 
       await page.getByRole("link", { name: "Saved CVs", exact: true }).click();
       await page.waitForURL("**/app/cvs");
@@ -1495,14 +1514,19 @@ describe("Nuxt runtime", async () => {
       await blockSearch.waitFor();
       expect(await blockSearch.isVisible()).toBe(true);
 
-      await page.getByRole("link", { name: "AI settings", exact: true }).click();
+      await page.getByRole("button", { name: "Open settings menu" }).click();
+      const mcpConnection = page.getByRole("menuitem", { name: "MCP connection" });
+      await mcpConnection.waitFor();
+      expect(await mcpConnection.isVisible()).toBe(true);
+      await page.getByRole("menuitem", { name: "Web AI connection" }).click();
       await page.waitForURL("**/app/settings/ai");
       await page.getByRole("heading", { name: "AI settings" }).waitFor();
       const openRouterStatus = page.getByText("OpenRouter is not connected");
       await openRouterStatus.waitFor();
       expect(await openRouterStatus.isVisible()).toBe(true);
 
-      await page.getByRole("button", { name: "Sign out" }).click();
+      await page.getByRole("button", { name: "Open settings menu" }).click();
+      await page.getByRole("menuitem", { name: "Sign out" }).click();
       await page.waitForURL("**/login");
       const loginHeading = page.getByRole("heading", { name: "Sign in to manage CVs" });
       await loginHeading.waitFor();

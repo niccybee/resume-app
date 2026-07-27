@@ -3,8 +3,9 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import CvDocument from "../components/CvDocument.vue";
 import TaskChat from "../components/TaskChat.vue";
+import { BLOCK_KINDS } from "../domain/blocks/blockLibrary";
 import { addSelection, groupExperienceSelections, moveSelection, normalizeDraft, removeSelection } from "../domain/cvs/cvDraft";
-import { formatEmploymentPeriod } from "../domain/employment/occasion";
+import { formatEmploymentPeriod, normalizeEmploymentGroup } from "../domain/employment/occasion";
 import { createTaskBlocks } from "../domain/tasks/createTaskBlocks";
 import { listThemes } from "../domain/themes/themeRegistry";
 import { blockLibrary } from "../services/blockLibrary";
@@ -20,6 +21,9 @@ const activeSession = ref(null);
 const sessionChangeProposal = ref(null);
 const proposingChange = ref(false);
 const copyRoleName = ref("");
+const blockKindFilter = ref("all");
+const selectedJobIds = ref([]);
+const pendingRequest = ref("");
 const selectedVersions = reactive({});
 function normalizeEditorDraft(input) {
   const normalized = normalizeDraft(input);
@@ -42,6 +46,33 @@ const themeItems = [
   })),
 ];
 const compositionSectionItems = ["experience", "skills", "certifications", "education", "interests"];
+const blockKindItems = computed(() => [
+  { label: "All", value: "all" },
+  ...BLOCK_KINDS.map((kind) => ({
+    label: `${kind.charAt(0).toUpperCase()}${kind.slice(1)}`,
+    value: kind,
+  })),
+]);
+const jobFilterItems = computed(() => {
+  const jobs = new Map();
+  for (const block of blocks.value) {
+    if (block.kind !== "experience") continue;
+    const employment = employmentForBlock(block);
+    if (!jobs.has(employment.occasionId)) {
+      jobs.set(employment.occasionId, {
+        label: `${employment.role} at ${employment.employer} · ${formatEmploymentPeriod(employment.startDate, employment.endDate)}`,
+        value: employment.occasionId,
+      });
+    }
+  }
+  return [...jobs.values()].sort((left, right) => left.label.localeCompare(right.label));
+});
+const filteredBlocks = computed(() => blocks.value.filter((block) => {
+  if (blockKindFilter.value !== "all" && block.kind !== blockKindFilter.value) return false;
+  if (!selectedJobIds.value.length) return true;
+  if (block.kind !== "experience") return false;
+  return selectedJobIds.value.includes(employmentForBlock(block).occasionId);
+}));
 const selectedTheme = computed({
   get: () => draft.themeId || defaultThemeValue,
   set: (value) => { draft.themeId = value === defaultThemeValue ? null : value; },
@@ -55,6 +86,18 @@ function blockVersionItems(block) {
     label: `Block Version ${version.number} · ${version.source.type}`,
     value: version.id,
   }));
+}
+function employmentForBlock(block) {
+  const employmentContext = block.contexts?.find((context) => context.type === "employment");
+  return normalizeEmploymentGroup(employmentContext?.metadata);
+}
+function experienceParentJob(block) {
+  if (block.kind !== "experience") return "";
+  const employment = employmentForBlock(block);
+  return `${employment.role} at ${employment.employer}`;
+}
+function requestIs(key) {
+  return pendingRequest.value === key;
 }
 function selectionFor(block, version, section = sectionFor(block.kind)) { return { blockId:block.id, versionId:version.id, section, block:{ title:block.title, kind:block.kind, contexts:block.contexts, versionNumber:version.number }, content:version.content }; }
 function selectedForBlock(blockId) { return draft.selections.find((item) => item.blockId === blockId); }
@@ -124,6 +167,9 @@ async function refreshEditingContext() {
 }
 
 async function startEditingSession(revision) {
+  const requestKey = `start-session:${revision?.id || "initial"}`;
+  if (pendingRequest.value) return;
+  pendingRequest.value = requestKey;
   error.value = "";
   notice.value = "";
   try {
@@ -134,10 +180,15 @@ async function startEditingSession(revision) {
     } });
   } catch (reason) {
     error.value = reason.message;
+  } finally {
+    pendingRequest.value = "";
   }
 }
 
 async function resumeEditingSession(summary) {
+  const requestKey = `resume-session:${summary.id}`;
+  if (pendingRequest.value) return;
+  pendingRequest.value = requestKey;
   error.value = "";
   notice.value = "";
   try {
@@ -146,6 +197,8 @@ async function resumeEditingSession(summary) {
     activateEditingSession(session, summary.baseRevisionNumber);
   } catch (reason) {
     error.value = reason.message;
+  } finally {
+    pendingRequest.value = "";
   }
 }
 
@@ -183,6 +236,8 @@ async function persistActiveEditingSession({ refresh = true } = {}) {
 }
 
 async function save() {
+  if (pendingRequest.value) return null;
+  pendingRequest.value = "save-session";
   saving.value = true;
   error.value = "";
   notice.value = "";
@@ -205,6 +260,7 @@ async function save() {
     return null;
   } finally {
     saving.value=false;
+    pendingRequest.value = "";
   }
 }
 async function resolveFinishedSession(sessionId, originalError) {
@@ -214,7 +270,8 @@ async function resolveFinishedSession(sessionId, originalError) {
 }
 
 async function finishEditingSession() {
-  if (!activeSession.value || saving.value) return;
+  if (!activeSession.value || saving.value || pendingRequest.value) return;
+  pendingRequest.value = "finish-session";
   saving.value = true;
   error.value = "";
   notice.value = "";
@@ -242,11 +299,13 @@ async function finishEditingSession() {
     error.value = reason.message;
   } finally {
     saving.value = false;
+    pendingRequest.value = "";
   }
 }
 
 async function proposeEditingSessionChange() {
-  if (!activeSession.value || proposingChange.value) return;
+  if (!activeSession.value || proposingChange.value || pendingRequest.value) return;
+  pendingRequest.value = "review-session-change";
   proposingChange.value = true;
   error.value = "";
   notice.value = "";
@@ -268,11 +327,14 @@ async function proposeEditingSessionChange() {
     error.value = reason.message;
   } finally {
     proposingChange.value = false;
+    pendingRequest.value = "";
   }
 }
 
 async function proposeLifecycleChange(operation) {
-  if (proposingChange.value) return;
+  if (proposingChange.value || pendingRequest.value) return;
+  const requestKey = `lifecycle:${operation.type}:${operation.target?.id || operation.source?.id || ""}`;
+  pendingRequest.value = requestKey;
   proposingChange.value = true;
   error.value = "";
   notice.value = "";
@@ -282,6 +344,7 @@ async function proposeLifecycleChange(operation) {
     error.value = reason.message;
   } finally {
     proposingChange.value = false;
+    pendingRequest.value = "";
   }
 }
 
@@ -308,7 +371,8 @@ function proposeSessionLifecycle(session, type) {
 }
 
 async function applySessionChangeProposal() {
-  if (!sessionChangeProposal.value || saving.value) return;
+  if (!sessionChangeProposal.value || saving.value || pendingRequest.value) return;
+  pendingRequest.value = "apply-proposal";
   saving.value = true;
   error.value = "";
   notice.value = "";
@@ -343,11 +407,13 @@ async function applySessionChangeProposal() {
     error.value = reason.message;
   } finally {
     saving.value = false;
+    pendingRequest.value = "";
   }
 }
 
 async function discardSessionChangeProposal() {
-  if (!sessionChangeProposal.value || saving.value) return;
+  if (!sessionChangeProposal.value || saving.value || pendingRequest.value) return;
+  pendingRequest.value = "discard-proposal";
   saving.value = true;
   error.value = "";
   try {
@@ -358,6 +424,7 @@ async function discardSessionChangeProposal() {
     error.value = reason.message;
   } finally {
     saving.value = false;
+    pendingRequest.value = "";
   }
 }
 function proposeRevisionPublication(revision) {
@@ -375,6 +442,8 @@ function publicationLabel(revision) {
   return `Publish Revision ${revision.number}`;
 }
 async function generateSummary() {
+  if (generatingSummary.value || pendingRequest.value) return;
+  pendingRequest.value = "generate-summary";
   error.value = "";
   generatingSummary.value = true;
   try {
@@ -383,6 +452,7 @@ async function generateSummary() {
     error.value = reason.message;
   } finally {
     generatingSummary.value = false;
+    pendingRequest.value = "";
   }
 }
 async function createReviewedTasks(tasks) {
@@ -419,13 +489,29 @@ function generateTaskProposal(instruction) {
         <p v-if="!openEditingSessions.length">No open Editing Sessions.</p>
         <article v-for="session in openEditingSessions" :key="session.id" class="session-row">
           <span>{{ editingSessionLabel(session) }} · working version {{ session.optimisticVersion }}</span>
-          <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="resumeEditingSession(session)">Resume Editing Session</button>
+          <UButton
+            v-if="draft.status !== 'archived'"
+            class="secondary control-compact"
+            :loading="requestIs(`resume-session:${session.id}`)"
+            :disabled="Boolean(pendingRequest)"
+            @click="resumeEditingSession(session)"
+          >
+            Resume Editing Session
+          </UButton>
         </article>
         <template v-if="archivedEditingSessions.length">
           <h3>Archived Editing Sessions</h3>
           <article v-for="session in archivedEditingSessions" :key="session.id" class="session-row">
             <span>Archived Editing Session · working version {{ session.optimisticVersion }}</span>
-            <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="proposeSessionLifecycle(session, 'restore_editing_session')">Restore Editing Session</button>
+            <UButton
+              v-if="draft.status !== 'archived'"
+              class="secondary control-compact"
+              :loading="requestIs(`lifecycle:restore_editing_session:${session.id}`)"
+              :disabled="Boolean(pendingRequest)"
+              @click="proposeSessionLifecycle(session, 'restore_editing_session')"
+            >
+              Restore Editing Session
+            </UButton>
           </article>
         </template>
         <p v-if="activeSession"><strong>{{ editingSessionLabel({ baseRevisionNumber: activeBaseRevisionNumber }) }}</strong> · working version {{ activeSession.optimisticVersion }}</p>
@@ -434,7 +520,25 @@ function generateTaskProposal(instruction) {
       <div class="grid"><label>Name<UInput v-model="draft.profile.basics.name" /></label><label>Target role<UInput v-model="draft.profile.basics.label" /></label></div>
       <label>Email<UInput v-model="draft.profile.basics.email" type="email" /></label>
       <label>Theme<USelect v-model="selectedTheme" :items="themeItems" aria-label="Theme" /></label>
-      <details><summary>Summary generator</summary><label>Direction<UInput v-model="instruction" placeholder="Focus on product leadership" /></label><button class="secondary control-standard" :aria-busy="generatingSummary" :disabled="generatingSummary" @click="generateSummary">Generate Summary Change Proposal</button><article v-if="proposal"><label>Edit Summary Change Proposal<UTextarea v-model="proposal.text" aria-label="Edit Summary Change Proposal" /></label><div class="grid"><button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Apply Change Proposal</button><button class="secondary control-standard" @click="proposal=null">Discard</button></div></article></details>
+      <details>
+        <summary>Summary generator</summary>
+        <label>Direction<UInput v-model="instruction" placeholder="Focus on product leadership" /></label>
+        <UButton
+          class="secondary control-standard"
+          :loading="generatingSummary"
+          :disabled="Boolean(pendingRequest)"
+          @click="generateSummary"
+        >
+          Generate Summary Change Proposal
+        </UButton>
+        <article v-if="proposal">
+          <label>Edit Summary Change Proposal<UTextarea v-model="proposal.text" aria-label="Edit Summary Change Proposal" /></label>
+          <div class="grid">
+            <button class="control-standard" @click="replaceDraft(cvWorkspace.acceptSummary(draft, proposal)); proposal=null">Apply Change Proposal</button>
+            <button class="secondary control-standard" @click="proposal=null">Discard</button>
+          </div>
+        </article>
+      </details>
 
       <TaskChat
         :generate-tasks-handler="generateTaskProposal"
@@ -443,20 +547,151 @@ function generateTaskProposal(instruction) {
 
       <h2>CV Block Library</h2>
       <p v-if="!blocks.length">No CV Blocks available. <NuxtLink to="/app/blocks">Create CV Blocks first.</NuxtLink></p>
-      <article v-for="block in blocks" :key="block.id" class="library-row"><div><small>{{ block.kind }}</small><strong>{{ block.title }}</strong><USelect v-model="selectedVersions[block.id]" :items="blockVersionItems(block)" aria-label="Block Version" /></div><button v-if="!selectedForBlock(block.id)" class="secondary control-compact" @click="add(block)">Add Block Version</button><button v-else class="secondary control-compact" :disabled="selectedForBlock(block.id).versionId === selectedVersions[block.id]" @click="replaceVersion(block)">Replace Block Version</button></article>
+      <div v-if="blocks.length" class="library-filters">
+        <div
+          class="block-kind-tabs"
+          role="tablist"
+          aria-label="Filter CV Blocks by type"
+        >
+          <UButton
+            v-for="item in blockKindItems"
+            :key="item.value"
+            class="block-kind-tab"
+            :class="{ 'block-kind-tab--active': blockKindFilter === item.value }"
+            role="tab"
+            size="xs"
+            :aria-selected="blockKindFilter === item.value"
+            @click="blockKindFilter = item.value"
+          >
+            {{ item.label }}
+          </UButton>
+        </div>
+        <div v-if="jobFilterItems.length" class="job-filter">
+          <span>Jobs</span>
+          <USelectMenu
+            v-model="selectedJobIds"
+            :items="jobFilterItems"
+            value-key="value"
+            label-key="label"
+            multiple
+            searchable
+            size="sm"
+            class="job-filter-select"
+            icon="i-lucide-briefcase-business"
+            placeholder="All jobs"
+            aria-label="Filter CV Blocks by jobs"
+          >
+            <template #default="{ modelValue }">
+              <span>{{ modelValue.length ? `${modelValue.length} job${modelValue.length === 1 ? "" : "s"} selected` : "All jobs" }}</span>
+            </template>
+          </USelectMenu>
+          <UButton
+            v-if="selectedJobIds.length"
+            class="secondary control-compact job-filter-clear"
+            size="xs"
+            aria-label="Clear job filter"
+            @click="selectedJobIds = []"
+          >
+            Clear
+          </UButton>
+        </div>
+      </div>
+      <p v-if="blocks.length && !filteredBlocks.length" class="empty-library-filter">
+        No CV Blocks match the selected filters.
+      </p>
+      <article v-for="block in filteredBlocks" :key="block.id" class="library-row">
+        <div class="library-row-body">
+          <small>{{ block.kind }}</small>
+          <strong>{{ block.title }}</strong>
+          <span v-if="experienceParentJob(block)" class="library-row-context">
+            {{ experienceParentJob(block) }}
+          </span>
+        </div>
+        <footer class="library-row-footer">
+          <USelect
+            v-model="selectedVersions[block.id]"
+            :items="blockVersionItems(block)"
+            size="xs"
+            class="library-version-select"
+            aria-label="Block Version"
+          />
+          <UButton
+            v-if="!selectedForBlock(block.id)"
+            class="secondary control-compact"
+            size="xs"
+            @click="add(block)"
+          >
+            Add Block Version
+          </UButton>
+          <UButton
+            v-else
+            class="secondary control-compact"
+            size="xs"
+            :disabled="selectedForBlock(block.id).versionId === selectedVersions[block.id]"
+            @click="replaceVersion(block)"
+          >
+            Replace Block Version
+          </UButton>
+        </footer>
+      </article>
 
       <h2>Selected Block Versions</h2>
       <section class="section-list experience-composition"><h3>experience</h3><p v-if="!selectedExperienceGroups.length"><small>No selected Block Versions.</small></p><section v-for="employer in selectedExperienceGroups" :key="employer.employerId" class="selection-employer"><h4>{{ employer.employer }}</h4><div v-for="occasion in employer.occasions" :key="occasion.occasionId"><h5>{{ occasion.role }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</h5><article v-for="item in occasion.items" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text }} · Block Version {{ selectionVersionNumber(item) }}</span><div><USelect class="selection-section" :model-value="item.section" :items="compositionSectionItems" aria-label="CV section" @update:model-value="changeSection(item, $event)" /><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection.experience.length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></div></section></section>
       <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="section-list"><h3>{{ section }}</h3><p v-if="!selectedBySection[section]?.length"><small>No selected Block Versions.</small></p><article v-for="item in selectedBySection[section]" :key="item.versionId" class="selection"><span>{{ item.block?.title || item.content?.text || item.content?.name }} · Block Version {{ selectionVersionNumber(item) }}</span><div><USelect class="selection-section" :model-value="item.section" :items="compositionSectionItems" aria-label="CV section" @update:model-value="changeSection(item, $event)" /><button class="outline control-compact" :disabled="item.order === 0" @click="shift(item,-1)">↑</button><button class="outline control-compact" :disabled="item.order === selectedBySection[section].length - 1" @click="shift(item,1)">↓</button><button class="secondary control-compact" @click="remove(item.versionId)">Remove</button></div></article></section>
       <button v-if="draft.status !== 'archived' && draft.selections.length" class="secondary control-standard" @click="clearDraft">Clear selected Block Versions…</button>
-      <button v-if="draft.status !== 'archived' && (activeSession || !draft.id)" class="control-standard" :aria-busy="saving" :disabled="saving" @click="save">{{ activeSession ? "Save Editing Session" : "Create CV Editing Session" }}</button>
-      <button v-if="activeSession" class="secondary control-standard" :aria-busy="proposingChange" :disabled="saving || proposingChange" @click="proposeEditingSessionChange">Review Change Proposal</button>
-      <button v-if="activeSession" class="secondary control-standard" :disabled="saving" @click="finishEditingSession">Finish as CV Revision</button>
+      <UButton
+        v-if="draft.status !== 'archived' && (activeSession || !draft.id)"
+        class="control-standard"
+        :loading="requestIs('save-session')"
+        :disabled="Boolean(pendingRequest)"
+        @click="save"
+      >
+        {{ activeSession ? "Save Editing Session" : "Create CV Editing Session" }}
+      </UButton>
+      <UButton
+        v-if="activeSession"
+        class="secondary control-standard"
+        :loading="requestIs('review-session-change')"
+        :disabled="Boolean(pendingRequest)"
+        @click="proposeEditingSessionChange"
+      >
+        Review Change Proposal
+      </UButton>
+      <UButton
+        v-if="activeSession"
+        class="secondary control-standard"
+        :loading="requestIs('finish-session')"
+        :disabled="Boolean(pendingRequest)"
+        @click="finishEditingSession"
+      >
+        Finish as CV Revision
+      </UButton>
       <label v-if="draft.id">New role-focused CV name<UInput v-model="copyRoleName" placeholder="Head of Marketing at Facebook" /></label>
       <template v-if="activeSession && draft.status !== 'archived'">
-        <button class="secondary control-standard" :disabled="saving || proposingChange" @click="copyFrom(activeSession, 'copy_to_new_version')">Copy to New Version</button>
-        <button class="secondary control-standard" :disabled="saving || proposingChange || !copyRoleName.trim()" @click="copyFrom(activeSession, 'copy_for_new_role')">Copy for New Role</button>
-        <button class="secondary control-standard" :disabled="saving || proposingChange" @click="proposeSessionLifecycle(activeSession, 'archive_editing_session')">Archive Editing Session</button>
+        <UButton
+          class="secondary control-standard"
+          :loading="requestIs(`lifecycle:copy_to_new_version:${activeSession.id}`)"
+          :disabled="Boolean(pendingRequest)"
+          @click="copyFrom(activeSession, 'copy_to_new_version')"
+        >
+          Copy to New Version
+        </UButton>
+        <UButton
+          class="secondary control-standard"
+          :loading="requestIs(`lifecycle:copy_for_new_role:${activeSession.id}`)"
+          :disabled="Boolean(pendingRequest) || !copyRoleName.trim()"
+          @click="copyFrom(activeSession, 'copy_for_new_role')"
+        >
+          Copy for New Role
+        </UButton>
+        <UButton
+          class="secondary control-standard"
+          :loading="requestIs(`lifecycle:archive_editing_session:${activeSession.id}`)"
+          :disabled="Boolean(pendingRequest)"
+          @click="proposeSessionLifecycle(activeSession, 'archive_editing_session')"
+        >
+          Archive Editing Session
+        </UButton>
       </template>
       <article v-if="sessionChangeProposal" aria-label="Editing Session Change Proposal" class="proposal-review">
         <h3>Editing Session Change Proposal</h3>
@@ -474,25 +709,112 @@ function generateTaskProposal(instruction) {
         <p v-if="sessionChangeProposal.warnings?.length">Warnings: {{ sessionChangeProposal.warnings.join(" · ") }}</p>
         <p v-else>No warnings.</p>
         <div class="grid">
-          <button class="control-standard" :disabled="saving" @click="applySessionChangeProposal">Apply Proposed Changes</button>
-          <button class="secondary control-standard" :disabled="saving" @click="discardSessionChangeProposal">Discard Change Proposal</button>
+          <UButton
+            class="control-standard"
+            :loading="requestIs('apply-proposal')"
+            :disabled="Boolean(pendingRequest)"
+            @click="applySessionChangeProposal"
+          >
+            Apply Proposed Changes
+          </UButton>
+          <UButton
+            class="secondary control-standard"
+            :loading="requestIs('discard-proposal')"
+            :disabled="Boolean(pendingRequest)"
+            @click="discardSessionChangeProposal"
+          >
+            Discard Change Proposal
+          </UButton>
         </div>
       </article>
       <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
-      <button v-if="draft.id && draft.status !== 'archived'" class="secondary control-standard" @click="proposeLifecycleChange({ type: 'archive_cv', target: { type: 'cv', id: draft.id } })">Archive CV</button>
-      <button v-else-if="draft.id" class="secondary control-standard" @click="proposeLifecycleChange({ type: 'restore_cv', target: { type: 'cv', id: draft.id } })">Restore CV</button>
-      <details v-if="draft.id && draft.status !== 'archived'"><summary>Publishing</summary><label>Stable public slug<UInput v-model="publishSlug" :disabled="Boolean(draft.slug)" placeholder="product-lead" /></label><p>Select an exact immutable Revision below, review its Change Proposal, then apply.</p><template v-if="draft.status === 'published'"><p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p><button class="secondary" @click="proposeLifecycleChange({ type: 'withdraw_publication', target: { type: 'cv', id: draft.id } })">Withdraw publication</button></template></details>
+      <UButton
+        v-if="draft.id && draft.status !== 'archived'"
+        class="secondary control-standard"
+        :loading="requestIs(`lifecycle:archive_cv:${draft.id}`)"
+        :disabled="Boolean(pendingRequest)"
+        @click="proposeLifecycleChange({ type: 'archive_cv', target: { type: 'cv', id: draft.id } })"
+      >
+        Archive CV
+      </UButton>
+      <UButton
+        v-else-if="draft.id"
+        class="secondary control-standard"
+        :loading="requestIs(`lifecycle:restore_cv:${draft.id}`)"
+        :disabled="Boolean(pendingRequest)"
+        @click="proposeLifecycleChange({ type: 'restore_cv', target: { type: 'cv', id: draft.id } })"
+      >
+        Restore CV
+      </UButton>
+      <details v-if="draft.id && draft.status !== 'archived'">
+        <summary>Publishing</summary>
+        <label>Stable public slug<UInput v-model="publishSlug" :disabled="Boolean(draft.slug)" placeholder="product-lead" /></label>
+        <p>Select an exact immutable Revision below, review its Change Proposal, then apply.</p>
+        <template v-if="draft.status === 'published'">
+          <p><NuxtLink :to="`/cv/${draft.slug}`" target="_blank">Open /cv/{{ draft.slug }}</NuxtLink></p>
+          <UButton
+            class="secondary"
+            :loading="requestIs(`lifecycle:withdraw_publication:${draft.id}`)"
+            :disabled="Boolean(pendingRequest)"
+            @click="proposeLifecycleChange({ type: 'withdraw_publication', target: { type: 'cv', id: draft.id } })"
+          >
+            Withdraw publication
+          </UButton>
+        </template>
+      </details>
       <section v-if="draft.id" aria-labelledby="revision-history-heading">
         <h2 id="revision-history-heading">Revision history</h2>
-        <p v-if="!revisions.length">No immutable CV Revisions yet. <button v-if="draft.status !== 'archived' && !openEditingSessions.length" class="secondary control-compact" @click="startEditingSession(null)">Start first Editing Session</button></p>
+        <p v-if="!revisions.length">
+          No immutable CV Revisions yet.
+          <UButton
+            v-if="draft.status !== 'archived' && !openEditingSessions.length"
+            class="secondary control-compact"
+            :loading="requestIs('start-session:initial')"
+            :disabled="Boolean(pendingRequest)"
+            @click="startEditingSession(null)"
+          >
+            Start first Editing Session
+          </UButton>
+        </p>
         <ol v-else>
           <li v-for="revision in revisions" :key="revision.id">
             <strong>Revision {{ revision.number }}</strong>
             <span v-if="revision.baseRevisionNumber"> · based on Revision {{ revision.baseRevisionNumber }}</span>
-            <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="startEditingSession(revision)">Start from Revision {{ revision.number }}</button>
-            <button v-if="draft.status !== 'archived'" class="secondary control-compact" @click="copyFrom(revision, 'copy_to_new_version')">Copy to New Version</button>
-            <button class="secondary control-compact" :disabled="!copyRoleName.trim()" @click="copyFrom(revision, 'copy_for_new_role')">Copy for New Role</button>
-            <button v-if="draft.status !== 'archived'" class="secondary control-compact" :disabled="(draft.status === 'published' && revision.id === draft.publishedRevisionId) || !publishSlug.trim()" @click="proposeRevisionPublication(revision)">{{ publicationLabel(revision) }}</button>
+            <UButton
+              v-if="draft.status !== 'archived'"
+              class="secondary control-compact"
+              :loading="requestIs(`start-session:${revision.id}`)"
+              :disabled="Boolean(pendingRequest)"
+              @click="startEditingSession(revision)"
+            >
+              Start from Revision {{ revision.number }}
+            </UButton>
+            <UButton
+              v-if="draft.status !== 'archived'"
+              class="secondary control-compact"
+              :loading="requestIs(`lifecycle:copy_to_new_version:${revision.id}`)"
+              :disabled="Boolean(pendingRequest)"
+              @click="copyFrom(revision, 'copy_to_new_version')"
+            >
+              Copy to New Version
+            </UButton>
+            <UButton
+              class="secondary control-compact"
+              :loading="requestIs(`lifecycle:copy_for_new_role:${revision.id}`)"
+              :disabled="Boolean(pendingRequest) || !copyRoleName.trim()"
+              @click="copyFrom(revision, 'copy_for_new_role')"
+            >
+              Copy for New Role
+            </UButton>
+            <UButton
+              v-if="draft.status !== 'archived'"
+              class="secondary control-compact"
+              :loading="requestIs(`lifecycle:publish_revision:${revision.id}`)"
+              :disabled="Boolean(pendingRequest) || (draft.status === 'published' && revision.id === draft.publishedRevisionId) || !publishSlug.trim()"
+              @click="proposeRevisionPublication(revision)"
+            >
+              {{ publicationLabel(revision) }}
+            </UButton>
           </li>
         </ol>
       </section>
@@ -508,7 +830,21 @@ function generateTaskProposal(instruction) {
 .live-preview { position: sticky; top: 1rem; transform-origin: top left; }
 .live-preview > p { margin: 0 0 .65rem; font-family: var(--font-label); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; }
 .library-row, .selection, .session-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .85rem !important; margin: .6rem 0 !important; border: 1px solid var(--ink) !important; background: var(--paper-light); box-shadow: 3px 3px 0 var(--paper-deep); }
+.library-row { display: block; }
+.library-row-body { min-width: 0; padding: 0 .1rem .75rem; }
 .library-row strong { display: block; font-family: var(--font-editorial); font-size: 1.05rem; }
+.library-row-context { display: block; margin-top: .25rem; color: var(--muted); font-size: .8rem; }
+.library-row-footer { display: flex; align-items: center; justify-content: space-between; gap: .65rem; padding-top: .65rem; border-top: 1px solid var(--paper-deep); }
+.library-version-select { width: auto; min-width: 10rem; max-width: 14rem; }
+.library-filters { display: grid; gap: .65rem; margin: 1rem 0; }
+.block-kind-tabs { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem; padding: .35rem; background: var(--ink); }
+.block-kind-tabs .block-kind-tab { width: 100%; min-width: 0; margin: 0; border-color: var(--paper-light); background: transparent; color: var(--paper-light); box-shadow: none; }
+.block-kind-tabs .block-kind-tab--active { background: var(--marker) !important; color: var(--ink) !important; }
+.job-filter { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; }
+.job-filter > span { font-family: var(--font-label); font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.job-filter-select { flex: 1 1 auto; width: 0; min-width: 0; }
+.job-filter-clear { width: auto; margin: 0; }
+.empty-library-filter { margin: 1rem 0; color: var(--muted); }
 .selection button { width: auto; margin: 0 .15rem; }
 .selection .selection-section { display: inline-flex; width: auto; min-width: 9rem; margin: 0 .3rem; }
 .section-list { margin: 1.5rem 0; }
@@ -519,6 +855,7 @@ function generateTaskProposal(instruction) {
 .proposal-review { margin: 1.5rem 0 !important; border: 2px solid var(--ink) !important; box-shadow: 6px 6px 0 var(--marker) !important; }
 .proposal-review pre { max-height: 22rem; overflow: auto; padding: 1rem; background: var(--ink); color: var(--paper-light); font-family: var(--font-label); font-size: .7rem; }
 @media (max-width: 1180px) { .editor-layout { grid-template-columns: 1fr; } .live-preview { position: static; } }
-@media (max-width: 650px) { .library-row, .selection, .session-row { align-items: stretch; flex-direction: column; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
+@media (max-width: 650px) { .selection, .session-row { align-items: stretch; flex-direction: column; } .library-row-footer, .job-filter { align-items: stretch; flex-direction: column; } .library-version-select, .job-filter-select { width: 100%; max-width: none; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
+@media (min-width: 1500px) { .block-kind-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media print { .editor-controls { display: none; } .editor-layout { display: block; } }
 </style>

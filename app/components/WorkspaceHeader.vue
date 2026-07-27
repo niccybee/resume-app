@@ -7,6 +7,7 @@ import {
 
 const auth = useAuthStore();
 const developerAccess = isDeveloperAccessEnabled();
+const collapsed = defineModel("collapsed", { type: Boolean, default: false });
 const navigation = [
   { label: "Saved CVs", icon: "i-lucide-files", to: "/app/cvs" },
   { label: "CV Blocks", icon: "i-lucide-library", to: "/app/blocks" },
@@ -32,27 +33,37 @@ async function leaveWorkspace() {
     id="workspace-navigation"
     data-workspace-navigation
     class="workspace-sidebar"
-    collapsible
     resizable
     :min-size="18"
     :max-size="24"
   >
-    <template #header="{ collapsed }">
-      <NuxtLink class="workspace-brand" to="/app/cvs" aria-label="Resume Studio saved CVs">
-        <span class="workspace-brand-mark">RS</span>
-        <span v-if="!collapsed" class="workspace-brand-copy">
-          <strong>Resume Studio</strong>
-          <small>Compose with evidence</small>
-        </span>
-      </NuxtLink>
+    <template #header>
+      <div class="workspace-brand-row">
+        <NuxtLink class="workspace-brand" to="/app/cvs" aria-label="Resume Studio saved CVs">
+          <span class="workspace-brand-mark">RS</span>
+          <span class="workspace-brand-copy">
+            <strong>Resume Studio</strong>
+            <small>Compose with evidence</small>
+          </span>
+        </NuxtLink>
+
+        <UButton
+          class="nuxt-ui-button workspace-sidebar-close"
+          color="neutral"
+          variant="ghost"
+          icon="i-lucide-x"
+          aria-label="Close sidebar"
+          title="Close sidebar"
+          @click="collapsed = true"
+        />
+      </div>
     </template>
 
-    <template #default="{ collapsed }">
-      <p v-if="!collapsed" class="sidebar-label">Workspace index</p>
+    <template #default>
+      <p class="sidebar-label">Workspace index</p>
       <UNavigationMenu
         :items="navigation"
         orientation="vertical"
-        :collapsed="collapsed"
         :ui="{
           link: 'rounded-none border-b border-[var(--paper-deep)] font-medium',
           linkLeadingIcon: 'text-[var(--marker-dark)]'
@@ -60,7 +71,7 @@ async function leaveWorkspace() {
       />
 
       <UAlert
-        v-if="developerAccess && !collapsed"
+        v-if="developerAccess"
         class="developer-access-notice"
         color="warning"
         variant="outline"
@@ -70,11 +81,10 @@ async function leaveWorkspace() {
       />
     </template>
 
-    <template #footer="{ collapsed }">
+    <template #footer>
       <UButton
         class="nuxt-ui-button leave-workspace"
-        :icon="collapsed ? 'i-lucide-log-out' : undefined"
-        :label="collapsed ? undefined : (developerAccess ? 'Exit developer access' : 'Sign out')"
+        :label="developerAccess ? 'Exit developer access' : 'Sign out'"
         color="neutral"
         variant="outline"
         block
@@ -93,10 +103,20 @@ async function leaveWorkspace() {
 
 .workspace-brand {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 0.75rem;
   color: var(--ink);
   text-decoration: none;
+}
+
+.workspace-brand-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .workspace-brand-mark {
@@ -142,6 +162,17 @@ async function leaveWorkspace() {
 
 .leave-workspace {
   box-shadow: none;
+}
+
+.workspace-sidebar-close {
+  flex: 0 0 auto;
+  box-shadow: none;
+}
+
+@media (max-width: 1023px) {
+  .workspace-sidebar-close {
+    display: none;
+  }
 }
 
 @media print {

@@ -1379,6 +1379,14 @@ describe("Nuxt runtime", async () => {
       expect(await workspaceNavigation.isVisible()).toBe(true);
       expect(page.url()).toContain("/app/missing");
 
+      await page.getByRole("button", { name: "Close sidebar" }).click();
+      await page.getByRole("button", { name: "Open sidebar" }).waitFor();
+      expect(await workspaceNavigation.isVisible()).toBe(false);
+
+      await page.getByRole("button", { name: "Open sidebar" }).click();
+      await page.getByRole("button", { name: "Close sidebar" }).waitFor();
+      expect(await workspaceNavigation.isVisible()).toBe(true);
+
       await page.getByRole("link", { name: "Saved CVs", exact: true }).click();
       await page.waitForURL("**/app/cvs");
       await page.getByRole("heading", { name: "No saved CVs yet" }).waitFor();

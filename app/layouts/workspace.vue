@@ -1,6 +1,7 @@
 <script setup>
 const route = useRoute();
 const workspaceMain = ref(null);
+const sidebarCollapsed = ref(false);
 
 watch(
   () => route.fullPath,
@@ -13,8 +14,10 @@ watch(
 
 <template>
   <div data-layout="workspace">
-    <UDashboardGroup storage="localStorage" storage-key="resume-studio-workspace">
-      <WorkspaceHeader />
+    <UDashboardGroup storage="localStorage" storage-key="resume-studio-workspace-v2">
+      <div v-show="!sidebarCollapsed" class="workspace-sidebar-shell">
+        <WorkspaceHeader v-model:collapsed="sidebarCollapsed" />
+      </div>
 
       <section ref="workspaceMain" class="workspace-main">
         <header class="workspace-page-header">
@@ -22,6 +25,16 @@ watch(
             class="nuxt-ui-button workspace-menu-toggle"
             color="neutral"
             variant="outline"
+          />
+          <UButton
+            v-if="sidebarCollapsed"
+            class="nuxt-ui-button workspace-sidebar-reopen"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-panel-left-open"
+            aria-label="Open sidebar"
+            title="Open sidebar"
+            @click="sidebarCollapsed = false"
           />
           <div class="workspace-heading">
             <p class="eyebrow">Resume Studio / Workspace</p>
@@ -52,6 +65,10 @@ watch(
   background: rgb(243 236 223 / 86%);
 }
 
+.workspace-sidebar-shell {
+  display: contents;
+}
+
 .workspace-page-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -63,7 +80,21 @@ watch(
 }
 
 .workspace-menu-toggle {
+  grid-column: 1;
   margin-top: 0.15rem;
+}
+
+.workspace-sidebar-reopen {
+  grid-column: 1;
+  margin-top: 0.15rem;
+}
+
+.workspace-heading {
+  grid-column: 2;
+}
+
+.workspace-folio {
+  grid-column: 3;
 }
 
 .workspace-heading .eyebrow {
@@ -106,7 +137,7 @@ watch(
   }
 
   .workspace-page-header {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 }
 
@@ -116,6 +147,12 @@ watch(
   }
 
   .workspace-folio {
+    display: none;
+  }
+}
+
+@media (max-width: 1023px) {
+  .workspace-sidebar-reopen {
     display: none;
   }
 }

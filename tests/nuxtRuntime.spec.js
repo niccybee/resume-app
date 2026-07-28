@@ -79,6 +79,8 @@ let mcpContentProposalSequence = 0;
 let mcpContentApplyCount = 0;
 let mcpGrantRevoked = false;
 const mcpAuditEvents = [];
+const mcpCreatedCvs = [];
+const mcpCreatedSessions = [];
 
 const publicationServer = createServer(async (request, response) => {
   if (request.url === "/auth/v1/user") {
@@ -131,7 +133,8 @@ const publicationServer = createServer(async (request, response) => {
   }
   if (requestUrl.pathname === "/rest/v1/cv_documents") {
     response.setHeader("Content-Type", "application/json");
-    const rows = requestUrl.searchParams.get("id") === "eq.cv-another-user" ? [] : [{
+    const requestedId = requestUrl.searchParams.get("id")?.replace(/^eq\./, "");
+    const rows = requestedId === "cv-another-user" ? [] : [{
       id: "cv-mcp",
       owner_id: "mcp-owner",
       name: "Product Manager at Google",
@@ -139,8 +142,10 @@ const publicationServer = createServer(async (request, response) => {
       status: mcpCvStatus,
       published_at: "2026-07-21T00:00:00.000Z",
       published_revision_id: mcpPublishedRevisionId,
-    }];
-    response.end(JSON.stringify(rows));
+    }, ...mcpCreatedCvs];
+    response.end(JSON.stringify(
+      requestedId ? rows.filter((row) => row.id === requestedId) : rows,
+    ));
     return;
   }
   if (requestUrl.pathname === "/rest/v1/cv_revisions") {
@@ -162,9 +167,11 @@ const publicationServer = createServer(async (request, response) => {
   }
   if (requestUrl.pathname === "/rest/v1/cv_editing_sessions") {
     response.setHeader("Content-Type", "application/json");
-    const rows = requestUrl.searchParams.get("cv_id") === "eq.cv-another-user"
+    const requestedCvId = requestUrl.searchParams.get("cv_id")?.replace(/^eq\./, "");
+    const rows = requestedCvId === "cv-another-user"
       ? []
-      : [mcpEditingSessionRow];
+      : [mcpEditingSessionRow, ...mcpCreatedSessions]
+          .filter((row) => !requestedCvId || row.cv_id === requestedCvId);
     response.end(JSON.stringify(rows));
     return;
   }
@@ -235,11 +242,14 @@ const publicationServer = createServer(async (request, response) => {
     for await (const chunk of request) body += chunk;
     const input = JSON.parse(body);
     response.setHeader("Content-Type", "application/json");
-    if (input.p_session_id !== "session-mcp") {
+    const editingSession = input.p_session_id === "session-mcp"
+      ? mcpEditingSessionRow
+      : mcpCreatedSessions.find((session) => session.id === input.p_session_id);
+    if (!editingSession) {
       response.end("null");
       return;
     }
-    response.end(JSON.stringify(mcpEditingSessionRow));
+    response.end(JSON.stringify(editingSession));
     return;
   }
   if (requestUrl.pathname === "/rest/v1/rpc/create_cv_content_change_proposal") {
@@ -379,7 +389,44 @@ const publicationServer = createServer(async (request, response) => {
   if (["/rest/v1/rpc/apply_cv_lifecycle_proposal", "/rest/v1/rpc/apply_cv_publication_proposal"].includes(requestUrl.pathname)) {
     const operation = mcpActiveProposal.normalized_operations[0];
     let result;
-    if (operation.type === "start_editing_session") {
+    if (operation.type === "create_cv") {
+      const createdAt = "2026-07-21T04:01:00.000Z";
+      const value = operation.value;
+      const cv = {
+        id: operation.target.id,
+        owner_id: "mcp-owner",
+        name: value.name,
+        slug: null,
+        status: "draft",
+        published_at: null,
+        published_revision_id: null,
+      };
+      const session = {
+        id: `session-created-${mcpCreatedSessions.length + 1}`,
+        cv_id: cv.id,
+        owner_id: "mcp-owner",
+        base_revision_id: null,
+        status: "open",
+        optimistic_version: 1,
+        working_name: value.name,
+        working_theme_id: value.themeId || null,
+        working_profile: value.profile || {},
+        working_summary: value.summary || "",
+        working_summary_provenance: value.summaryProvenance || null,
+        finished_revision_id: null,
+        selections: value.selections || [],
+        created_at: createdAt,
+        updated_at: createdAt,
+        finished_at: null,
+      };
+      mcpCreatedCvs.push(cv);
+      mcpCreatedSessions.push(session);
+      result = {
+        cvId: cv.id,
+        editingSessionId: session.id,
+        optimisticVersion: 1,
+      };
+    } else if (operation.type === "start_editing_session") {
       result = { cvId: operation.target.id, editingSessionId: "session-started", optimisticVersion: 1 };
     } else if (operation.type === "resume_editing_session") {
       result = { cvId: "cv-mcp", editingSessionId: operation.target.id, optimisticVersion: mcpEditingSessionRow.optimistic_version };
@@ -820,6 +867,16 @@ describe("Nuxt runtime", async () => {
       "export_cv_revision",
       "propose_content_changes",
       "propose_lifecycle_change",
+      "propose_create_cv",
+      "propose_update_cv",
+      "propose_archive_cv",
+      "propose_restore_cv",
+      "propose_create_cv_block",
+      "propose_update_cv_block",
+      "propose_duplicate_cv_block",
+      "propose_archive_cv_block",
+      "propose_restore_cv_block",
+      "propose_delete_cv_block",
       "apply_change_proposal",
       "discard_change_proposal",
     ]));
@@ -959,6 +1016,64 @@ describe("Nuxt runtime", async () => {
       },
     });
 
+    const createCvProposal = await call("propose_create_cv", {
+      schemaVersion: "1",
+      value: {
+        name: "Head of Marketing at Facebook",
+        themeId: "editorial",
+        profile: { basics: { name: "MCP Owner" } },
+        summary: "Growth and product leader.",
+        selections: [],
+      },
+    });
+    expect(createCvProposal.result.structuredContent.data).toMatchObject({
+      operationType: "create_cv",
+      status: "pending",
+      target: { type: "cv", id: expect.any(String) },
+      nextActions: ["apply", "discard"],
+    });
+    const createdCvId = createCvProposal.result.structuredContent.data.target.id;
+    const beforeCreateApply = await call("get_cv", { cvId: createdCvId });
+    expect(beforeCreateApply.result).toMatchObject({ isError: true });
+    const createdCv = await call("apply_change_proposal", {
+      proposalId: createCvProposal.result.structuredContent.data.id,
+    });
+    expect(createdCv.result.structuredContent.data).toMatchObject({
+      status: "applied",
+      result: {
+        cvId: createdCvId,
+        editingSessionId: expect.any(String),
+        optimisticVersion: 1,
+      },
+    });
+    const persistedCv = await call("get_cv", { cvId: createdCvId });
+    expect(persistedCv.result.structuredContent.data).toMatchObject({
+      id: createdCvId,
+      name: "Head of Marketing at Facebook",
+      status: "draft",
+    });
+    const updateCvProposal = await call("propose_update_cv", {
+      schemaVersion: "1",
+      sessionId: "session-mcp",
+      baseVersion: 2,
+      value: {
+        name: "Product Manager at Google",
+        themeId: "editorial",
+        profile: { basics: { name: "MCP Owner" } },
+        summary: "A proposed working summary.",
+        selections: [],
+      },
+    });
+    expect(updateCvProposal.result.structuredContent.data).toMatchObject({
+      operationType: "edit_content",
+      status: "pending",
+      target: { type: "editing_session", id: "session-mcp" },
+    });
+    await call("discard_change_proposal", {
+      proposalId: updateCvProposal.result.structuredContent.data.id,
+    });
+    expect(mcpEditingSessionRow.working_summary).toBe("A working summary.");
+
     const otherUserCv = await call("get_cv", { cvId: "cv-another-user" });
     expect(otherUserCv.result).toMatchObject({ isError: true });
     expect(otherUserCv.result.content[0].text).toContain('"code": "not-found"');
@@ -977,18 +1092,13 @@ describe("Nuxt runtime", async () => {
     expect(invalid.result.content[0].text).toMatch(/validation|invalid/i);
 
     const applyCountBefore = mcpContentApplyCount;
-    const proposed = await call("propose_content_changes", {
+    const proposed = await call("propose_update_cv_block", {
       schemaVersion: "1",
-      target: { type: "editing_session", id: "session-mcp" },
+      sessionId: "session-mcp",
       baseVersion: 2,
-      operations: [{
-        type: "append_block_version",
-        blockId: "block-mcp",
-        basedOnVersionId: "version-mcp",
-        schemaVersion: "1",
-        content: { text: "Launched the product to two million people." },
-        source: { type: "mcp", clientId: "chat-client-runtime" },
-      }],
+      blockId: "block-mcp",
+      basedOnVersionId: "version-mcp",
+      content: { text: "Launched the product to two million people." },
     });
     expect(proposed.result.structuredContent.data).toMatchObject({
       operationType: "edit_content",
@@ -1096,8 +1206,11 @@ describe("Nuxt runtime", async () => {
     expect(mcpCurrentBlockVersion.id).toBe("version-mcp-2");
     expect(mcpEditingSessionRow.optimistic_version).toBe(3);
 
-    const proposeAndApplyLifecycle = async (operation) => {
-      const lifecycleProposal = await call("propose_lifecycle_change", { operation });
+    const proposeAndApplyLifecycle = async (
+      operation,
+      proposal = { name: "propose_lifecycle_change", arguments: { operation } },
+    ) => {
+      const lifecycleProposal = await call(proposal.name, proposal.arguments);
       expect(lifecycleProposal.result.structuredContent.data).toMatchObject({
         operationType: operation.type,
         status: "pending",
@@ -1155,24 +1268,42 @@ describe("Nuxt runtime", async () => {
     });
     expect(mcpEditingSessionRow.status).toBe("open");
 
-    await proposeAndApplyLifecycle({ type: "archive_cv", target: { type: "cv", id: "cv-mcp" } });
+    await proposeAndApplyLifecycle(
+      { type: "archive_cv", target: { type: "cv", id: "cv-mcp" } },
+      { name: "propose_archive_cv", arguments: { cvId: "cv-mcp" } },
+    );
     expect(mcpCvStatus).toBe("archived");
-    await proposeAndApplyLifecycle({ type: "restore_cv", target: { type: "cv", id: "cv-mcp" } });
+    await proposeAndApplyLifecycle(
+      { type: "restore_cv", target: { type: "cv", id: "cv-mcp" } },
+      { name: "propose_restore_cv", arguments: { cvId: "cv-mcp" } },
+    );
     expect(mcpCvStatus).toBe("draft");
 
-    await proposeAndApplyLifecycle({
-      type: "archive_cv_block", target: { type: "cv_block", id: "block-mcp" },
-      baseVersionId: "version-mcp-2",
-    });
+    await proposeAndApplyLifecycle(
+      {
+        type: "archive_cv_block", target: { type: "cv_block", id: "block-mcp" },
+        baseVersionId: "version-mcp-2",
+      },
+      {
+        name: "propose_archive_cv_block",
+        arguments: { blockId: "block-mcp", baseVersionId: "version-mcp-2" },
+      },
+    );
     expect(mcpBlockStatus).toBe("archived");
     expect(mcpAuditEvents.at(-1)?.p_target_identities).toEqual({
       proposalIds: [expect.any(String)],
       blockIds: ["block-mcp"],
     });
-    await proposeAndApplyLifecycle({
-      type: "restore_cv_block", target: { type: "cv_block", id: "block-mcp" },
-      baseVersionId: "version-mcp-2",
-    });
+    await proposeAndApplyLifecycle(
+      {
+        type: "restore_cv_block", target: { type: "cv_block", id: "block-mcp" },
+        baseVersionId: "version-mcp-2",
+      },
+      {
+        name: "propose_restore_cv_block",
+        arguments: { blockId: "block-mcp", baseVersionId: "version-mcp-2" },
+      },
+    );
     expect(mcpBlockStatus).toBe("active");
 
     const finished = await proposeAndApplyLifecycle({

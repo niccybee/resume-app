@@ -314,7 +314,16 @@ export function createMemoryCvRepository(initial = [], {
         let source;
         let warnings = [];
         let diff = { lifecycle: { operation: operation.type, source: copy(input.target) } };
-        if (operation.type === "create_cv_block") {
+        if (operation.type === "create_cv") {
+          source = null;
+          diff = {
+            cv: {
+              operation: operation.type,
+              target: copy(operation.target),
+              after: copy(operation.value),
+            },
+          };
+        } else if (operation.type === "create_cv_block") {
           source = null;
           diff = { block: {
             operation: operation.type,
@@ -584,7 +593,43 @@ export function createMemoryCvRepository(initial = [], {
       if (current.operationType !== "replace_working_state") {
         const operation = current.operations[0];
         let result;
-        if (operation.type === "publish_revision") {
+        if (operation.type === "create_cv") {
+          if (records.has(operation.target.id)) {
+            throw new CvWorkspaceError("stale-proposal", "The proposed CV identity is already in use.");
+          }
+          const draft = normalizeDraft(operation.value);
+          const now = nowIso();
+          const cvId = operation.target.id;
+          records.set(cvId, lineage({
+            id: cvId,
+            name: draft.name,
+            status: "draft",
+          }));
+          revisions.set(cvId, []);
+          const created = {
+            id: `session-${++sessionSequence}`,
+            cvId,
+            baseRevisionId: null,
+            status: "open",
+            optimisticVersion: 1,
+            name: draft.name,
+            themeId: draft.themeId,
+            profile: copy(draft.profile),
+            summary: draft.summary,
+            summaryProvenance: copy(draft.summaryProvenance),
+            selections: copy(draft.selections),
+            finishedRevisionId: null,
+            createdAt: now,
+            updatedAt: now,
+            finishedAt: null,
+          };
+          editingSessions.set(created.id, created);
+          result = {
+            cvId,
+            editingSessionId: created.id,
+            optimisticVersion: created.optimisticVersion,
+          };
+        } else if (operation.type === "publish_revision") {
           const revision = [...revisions.values()].flat().find((item) => item.id === operation.target.id && item.cvId === operation.target.cvId);
           if (!revision) throw new CvWorkspaceError("not-found", "CV Revision not found.");
           const document = records.get(revision.cvId);

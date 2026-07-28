@@ -1,5 +1,10 @@
 begin;
 
+-- Repair production drift after the reviewed MCP CRUD tool release.
+-- Keep the canonical lifecycle proposal and apply functions aligned with
+-- database/cv_lifecycle.sql, then admit every dedicated CRUD tool to the
+-- fail-closed audit path so underlying errors are not masked.
+
 alter table public.cv_editing_sessions alter column base_revision_id drop not null;
 alter table public.cv_change_proposals drop constraint if exists cv_change_proposals_operation_type_check;
 alter table public.cv_change_proposals drop constraint if exists cv_change_proposals_target_type_check;
@@ -140,16 +145,8 @@ returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_owner_id uuid := (select auth.uid());
   v_type text := p_operation->>'type';
-  v_target_type text := case
-    when v_type in ('copy_to_new_version', 'copy_for_new_role')
-      then p_operation #>> '{source,type}'
-    else p_operation #>> '{target,type}'
-  end;
-  v_target_id uuid := (case
-    when v_type in ('copy_to_new_version', 'copy_for_new_role')
-      then p_operation #>> '{source,id}'
-    else p_operation #>> '{target,id}'
-  end)::uuid;
+  v_target_type text := coalesce(p_operation #>> '{source,type}', p_operation #>> '{target,type}');
+  v_target_id uuid := coalesce(p_operation #>> '{source,id}', p_operation #>> '{target,id}')::uuid;
   v_cv_id uuid;
   v_base integer;
   v_base_revision_id uuid := nullif(p_operation->>'baseRevisionId', '')::uuid;
@@ -646,5 +643,93 @@ begin
 end; $$;
 revoke all on function public.apply_cv_lifecycle_proposal(uuid) from public, anon;
 grant execute on function public.apply_cv_lifecycle_proposal(uuid) to authenticated;
+
+create or replace function public.record_mcp_audit_event(
+  p_client_id text,
+  p_operation text,
+  p_target_identities jsonb,
+  p_result text,
+  p_error_code text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_actor_id uuid := (select auth.uid());
+  v_client_id text := nullif((select auth.jwt() ->> 'client_id'), '');
+  v_id uuid;
+  v_key text;
+  v_value jsonb;
+  v_item jsonb;
+begin
+  if v_actor_id is null then
+    raise exception 'Authentication is required.' using errcode = '42501';
+  end if;
+  if v_client_id is null or v_client_id is distinct from p_client_id
+    or length(v_client_id) not between 1 and 512 then
+    raise exception 'The OAuth client identity is invalid.' using errcode = '42501';
+  end if;
+  if p_operation is null or p_operation not in (
+    'get_connection_identity', 'list_cvs', 'get_cv', 'list_cv_revisions',
+    'get_cv_revision', 'list_editing_sessions', 'get_editing_session',
+    'list_cv_blocks', 'get_cv_block', 'get_block_version',
+    'get_publication_state', 'get_supported_schemas', 'export_cv_revision',
+    'propose_content_changes', 'propose_lifecycle_change',
+    'propose_create_cv', 'propose_update_cv', 'propose_archive_cv', 'propose_restore_cv',
+    'propose_create_cv_block', 'propose_update_cv_block',
+    'propose_duplicate_cv_block', 'propose_archive_cv_block',
+    'propose_restore_cv_block', 'propose_delete_cv_block',
+    'apply_change_proposal', 'discard_change_proposal'
+  ) then
+    raise exception 'A valid MCP operation is required.' using errcode = '22023';
+  end if;
+  if p_result is null or p_result not in ('succeeded', 'failed', 'rate_limited') then
+    raise exception 'A valid MCP audit result is required.' using errcode = '22023';
+  end if;
+  if p_error_code is not null and length(p_error_code) not between 1 and 128 then
+    raise exception 'The error code is invalid.' using errcode = '22023';
+  end if;
+  if jsonb_typeof(coalesce(p_target_identities, '{}'::jsonb)) <> 'object'
+    or octet_length(coalesce(p_target_identities, '{}'::jsonb)::text) > 8192 then
+    raise exception 'Target identities must be a bounded object.' using errcode = '22023';
+  end if;
+
+  for v_key in select jsonb_object_keys(coalesce(p_target_identities, '{}'::jsonb)) loop
+    if v_key not in (
+      'proposalIds', 'cvIds', 'blockIds', 'versionIds', 'revisionIds', 'editingSessionIds'
+    ) then
+      raise exception 'Unsupported target identity category.' using errcode = '22023';
+    end if;
+    v_value := p_target_identities -> v_key;
+    if jsonb_typeof(v_value) <> 'array' or jsonb_array_length(v_value) > 100 then
+      raise exception 'Target identity categories must be bounded arrays.' using errcode = '22023';
+    end if;
+    for v_item in select value from jsonb_array_elements(v_value) loop
+      if jsonb_typeof(v_item) <> 'string' or length(v_item #>> '{}') not between 1 and 512 then
+        raise exception 'Target identities must be bounded strings.' using errcode = '22023';
+      end if;
+    end loop;
+  end loop;
+
+  insert into public.cv_mcp_audit_events(
+    actor_id, client_id, operation, target_identities, result, error_code
+  ) values (
+    v_actor_id,
+    v_client_id,
+    p_operation,
+    coalesce(p_target_identities, '{}'::jsonb),
+    p_result,
+    p_error_code
+  ) returning id into v_id;
+  return v_id;
+end;
+$$;
+
+revoke all on function public.record_mcp_audit_event(text, text, jsonb, text, text)
+  from public, anon;
+grant execute on function public.record_mcp_audit_event(text, text, jsonb, text, text)
+  to authenticated;
 
 commit;

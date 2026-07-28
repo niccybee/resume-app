@@ -96,4 +96,72 @@ describe("CV and Editing Session lifecycle migration", () => {
     expect(contraction).toMatch(/revoke execute on function public\.start_cv_editing_session\(uuid, uuid\)[\s\S]*from authenticated/i);
     expect(contraction).not.toMatch(/grant execute on function public\.start_cv_editing_session\(uuid, uuid\)[\s\S]*to authenticated/i);
   });
+
+  it("ships the MCP CRUD database contract through the Supabase migration chain", async () => {
+    const sql = await readFile(
+      new URL(
+        "supabase/migrations/20260728052000_repair_mcp_crud_database_contract.sql",
+        root,
+      ),
+      "utf8",
+    );
+    const targetResolutionSql = await readFile(
+      new URL(
+        "supabase/migrations/20260728070800_fix_mcp_create_block_target_resolution.sql",
+        root,
+      ),
+      "utf8",
+    );
+    const dateValidationSql = await readFile(
+      new URL(
+        "supabase/migrations/20260728071200_restore_cv_block_date_validation.sql",
+        root,
+      ),
+      "utf8",
+    );
+    const create = targetResolutionSql.slice(
+      targetResolutionSql.indexOf("create or replace function public.create_cv_lifecycle_proposal"),
+      targetResolutionSql.indexOf("revoke all on function public.create_cv_lifecycle_proposal"),
+    );
+    const apply = sql.slice(
+      sql.indexOf("create or replace function public.apply_cv_lifecycle_proposal"),
+      sql.indexOf("revoke all on function public.apply_cv_lifecycle_proposal"),
+    );
+    const audit = sql.slice(
+      sql.indexOf("create or replace function public.record_mcp_audit_event"),
+      sql.indexOf("revoke all on function public.record_mcp_audit_event"),
+    );
+
+    expect(create).toMatch(
+      /'archive_cv_block', 'restore_cv_block', 'create_cv_block', 'duplicate_cv_block', 'delete_cv_block'\) and v_target_type <> 'cv_block'/i,
+    );
+    expect(create).toMatch(
+      /when v_type in \('copy_to_new_version', 'copy_for_new_role'\)[\s\S]*then p_operation #>> '\{source,type\}'[\s\S]*else p_operation #>> '\{target,type\}'/i,
+    );
+    expect(create).not.toMatch(
+      /v_target_type text := coalesce\(p_operation #>> '\{source,type\}'/i,
+    );
+    expect(create).toMatch(/An Experience Block requires a valid Employment Occasion/i);
+    expect(create).toMatch(/A sidebar CV Block requires a sidebar context/i);
+    expect(dateValidationSql).toMatch(
+      /create or replace function public\.is_valid_cv_block_date\(p_value text\)/i,
+    );
+    expect(dateValidationSql).toMatch(
+      /revoke all on function public\.is_valid_cv_block_date\(text\)[\s\S]*from public, anon, authenticated/i,
+    );
+    expect(apply).toMatch(/change_proposal\.operation_type = 'create_cv_block'/i);
+    expect(apply).toMatch(/save_cv_block_version/i);
+    for (const operation of [
+      "propose_create_cv",
+      "propose_update_cv",
+      "propose_create_cv_block",
+      "propose_update_cv_block",
+      "propose_duplicate_cv_block",
+      "propose_archive_cv_block",
+      "propose_restore_cv_block",
+      "propose_delete_cv_block",
+    ]) {
+      expect(audit).toContain(operation);
+    }
+  });
 });

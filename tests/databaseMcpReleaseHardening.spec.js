@@ -49,6 +49,11 @@ describe("MCP release hardening database contract", () => {
     for (const key of [
       "proposalIds", "cvIds", "blockIds", "versionIds", "revisionIds", "editingSessionIds",
     ]) expect(recorder).toContain(`'${key}'`);
+    for (const operation of [
+      "propose_create_cv", "propose_update_cv", "propose_archive_cv", "propose_restore_cv",
+      "propose_create_cv_block", "propose_update_cv_block", "propose_duplicate_cv_block",
+      "propose_archive_cv_block", "propose_restore_cv_block", "propose_delete_cv_block",
+    ]) expect(recorder).toContain(`'${operation}'`);
     expect(sql).toMatch(/grant execute on function public\.record_mcp_audit_event\(text, text, jsonb, text, text\)\s+to authenticated/i);
   });
 

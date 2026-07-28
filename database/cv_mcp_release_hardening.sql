@@ -259,6 +259,10 @@ begin
     'list_cv_blocks', 'get_cv_block', 'get_block_version',
     'get_publication_state', 'get_supported_schemas', 'export_cv_revision',
     'propose_content_changes', 'propose_lifecycle_change',
+    'propose_create_cv', 'propose_update_cv', 'propose_archive_cv',
+    'propose_restore_cv', 'propose_create_cv_block', 'propose_update_cv_block',
+    'propose_duplicate_cv_block', 'propose_archive_cv_block',
+    'propose_restore_cv_block', 'propose_delete_cv_block',
     'apply_change_proposal', 'discard_change_proposal'
   ) then
     raise exception 'A valid MCP operation is required.' using errcode = '22023';

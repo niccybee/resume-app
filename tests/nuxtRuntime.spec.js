@@ -1074,6 +1074,41 @@ describe("Nuxt runtime", async () => {
     });
     expect(mcpEditingSessionRow.working_summary).toBe("A working summary.");
 
+    for (const block of [{
+      kind: "experience",
+      title: "International product launch",
+      schemaVersion: "1",
+      content: { text: "Led a product launch across three APAC markets." },
+      employmentOccasion: {
+        employer: "Google",
+        role: "Product Manager",
+        startDate: "2021-03",
+      },
+    }, {
+      kind: "skill",
+      title: "Product strategy",
+      schemaVersion: "1",
+      content: {
+        name: "Product strategy",
+        keywords: ["roadmaps", "customer research"],
+      },
+    }]) {
+      const createBlockProposal = await call("propose_create_cv_block", block);
+      expect(createBlockProposal.result.structuredContent.data).toMatchObject({
+        operationType: "create_cv_block",
+        status: "pending",
+        target: { type: "cv_block", id: expect.any(String) },
+        nextActions: ["apply", "discard"],
+      });
+      const discardedBlockProposal = await call("discard_change_proposal", {
+        proposalId: createBlockProposal.result.structuredContent.data.id,
+      });
+      expect(discardedBlockProposal.result.structuredContent.data).toMatchObject({
+        status: "discarded",
+        nextActions: [],
+      });
+    }
+
     const otherUserCv = await call("get_cv", { cvId: "cv-another-user" });
     expect(otherUserCv.result).toMatchObject({ isError: true });
     expect(otherUserCv.result.content[0].text).toContain('"code": "not-found"');

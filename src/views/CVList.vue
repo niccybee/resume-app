@@ -140,6 +140,8 @@ onMounted(load);
 
 .cv-sheet {
   position: relative;
+  display: flex;
+  flex-direction: column;
   min-height: 15rem;
   border: 2px solid var(--ink) !important;
   background: var(--paper-light);
@@ -185,7 +187,7 @@ onMounted(load);
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
-  margin-top: 2rem;
+  margin-top: auto;
   padding-top: 0.8rem;
   border-top: 1px solid var(--ink);
   font-size: 0.82rem;

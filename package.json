@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "nuxt dev --dotenv .env.local",
     "build": "bun scripts/static-cvs.mjs && nuxt build",
+    "package:skill": "bun scripts/package-resume-studio-skill.mjs",
     "preview": "nuxt preview --dotenv .env.local",
     "pretest": "playwright-core install chromium",
     "test": "vitest run",

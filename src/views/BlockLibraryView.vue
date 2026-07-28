@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
+import { defineShortcuts } from "@nuxt/ui/composables/defineShortcuts";
 import { BLOCK_KINDS } from "../domain/blocks/blockLibrary";
 import { blockLibrary } from "../services/blockLibrary";
 import { cvWorkspace } from "../services/cvWorkspace";
@@ -21,6 +22,8 @@ const editingSessions = ref([]);
 const editingSessionId = ref("");
 const importing = ref(false);
 const importResult = ref(null);
+const createOpen = ref(false);
+const searchOpen = ref(false);
 
 function currentValue(block) {
   const content = block.currentVersion?.content || {};
@@ -78,6 +81,37 @@ const roleFilterItems = computed(() => roles.value.map((role) => ({ label: role.
 const occasionFilterItems = computed(() => occasions.value.map((occasion) => ({ label: occasion.label, value: occasion.id })));
 const sidebarFilterItems = computed(() => sidebarSections.value.map((section) => ({ label: section, value: section })));
 const editingSessionItems = computed(() => editingSessions.value.map((session) => ({ label: session.label, value: session.id })));
+const searchGroups = computed(() => [{
+  id: "cv-blocks",
+  label: "CV Blocks",
+  items: catalog.value.blocks
+    .filter((block) => block.status === "active")
+    .map((block) => {
+      const employment = block.contexts.find((context) => context.type === "employment");
+      const context = normalizeEmploymentGroup(employment?.metadata);
+      return {
+        label: block.title,
+        description: currentValue(block),
+        suffix: employment
+          ? [context.employer, context.role].filter(Boolean).join(" · ")
+          : block.kind,
+        icon: block.kind === "experience" ? "i-lucide-briefcase-business" : "i-lucide-file-text",
+        onSelect: () => {
+          filters.search = block.title;
+          searchOpen.value = false;
+        },
+      };
+    }),
+}]);
+
+defineShortcuts({
+  meta_k: {
+    usingInput: true,
+    handler: () => {
+      searchOpen.value = true;
+    },
+  },
+});
 
 async function load() {
   status.value = "loading";
@@ -109,6 +143,7 @@ async function createBlock() {
     await blockLibrary.saveVersion({ kind: form.kind, title: form.title, content: contentFor(form.kind, form.value), contexts });
     Object.assign(form, { kind: form.kind, title: "", value: "", employer: "", role: "", startDate: "", endDate: "" });
     await load();
+    createOpen.value = false;
   } catch (reason) { error.value = reason.message; }
   finally { saving.value = false; }
 }
@@ -246,26 +281,117 @@ onMounted(load);
 </script>
 
 <template>
+  <section class="library-actions" aria-label="CV Block Library actions">
+    <UTooltip text="Search CV Blocks · ⌘K" :content="{ side: 'bottom' }">
+      <UButton
+        class="secondary library-action-button"
+        color="secondary"
+        variant="outline"
+        square
+        icon="i-lucide-search"
+        aria-label="Search CV Blocks"
+        aria-keyshortcuts="Meta+K"
+        @click="searchOpen = true"
+      />
+    </UTooltip>
+    <UButton
+      class="secondary"
+      color="secondary"
+      variant="outline"
+      icon="i-lucide-plus"
+      aria-label="Create CV Block"
+      @click="createOpen = true"
+    >
+      Create CV Block
+    </UButton>
+  </section>
+
   <section class="library-tools">
-    <UInput v-model="filters.search" type="search" aria-label="Search CV Blocks, employers, roles…" placeholder="Search CV Blocks, employers, roles…" />
     <USelect v-model="filters.kind" :items="blockKindFilterItems" aria-label="CV Block type" placeholder="All CV Block types" />
     <USelect v-model="filters.companyId" :items="employerFilterItems" aria-label="Employer" placeholder="All employers" />
     <USelect v-model="filters.roleId" :items="roleFilterItems" aria-label="Role" placeholder="All roles" />
     <USelect v-model="filters.occasionId" :items="occasionFilterItems" aria-label="Employment Occasion" placeholder="All Employment Occasions" />
     <USelect v-model="filters.section" :items="sidebarFilterItems" aria-label="Sidebar section" placeholder="All sidebar sections" />
-    <button class="secondary control-compact" @click="Object.assign(filters, { search: '', kind: '', companyId: '', roleId: '', occasionId: '', section: '' })">Clear filters</button>
+    <UButton
+      class="secondary control-compact"
+      color="secondary"
+      variant="outline"
+      @click="Object.assign(filters, { search: '', kind: '', companyId: '', roleId: '', occasionId: '', section: '' })"
+    >
+      Clear filters
+    </UButton>
   </section>
 
-  <details class="create-panel">
-    <summary>Create CV Block</summary>
-    <form @submit.prevent="createBlock">
-      <div class="grid"><label>Type<USelect v-model="form.kind" :items="BLOCK_KINDS" aria-label="CV Block type" /></label><label>Title<UInput v-model="form.title" required /></label></div>
-      <div v-if="form.kind === 'experience'" class="grid"><label>Employer<UInput v-model="form.employer" required /></label><label>Role<UInput v-model="form.role" required /></label></div>
-      <div v-if="form.kind === 'experience'" class="grid"><label>Start period<UInput v-model="form.startDate" type="month" required /></label><label>End period <small>(blank means present)</small><UInput v-model="form.endDate" type="month" /></label></div>
-      <label>Content<UTextarea v-model="form.value" required /></label>
-      <button :aria-busy="saving" :disabled="saving">Save CV Block</button>
-    </form>
-  </details>
+  <UModal
+    v-model:open="searchOpen"
+    title="Search CV Blocks"
+    description="Search titles, content, employers, and roles."
+    :ui="{ content: 'sm:max-w-2xl', body: 'p-0' }"
+  >
+    <template #body>
+      <UCommandPalette
+        v-model:search-term="filters.search"
+        :groups="searchGroups"
+        :input="{ type: 'search', 'aria-label': 'Search CV Blocks, employers, roles…' }"
+        placeholder="Search CV Blocks, employers, roles…"
+        :close="false"
+        @update:open="searchOpen = $event"
+      >
+        <template #footer>
+          <footer class="command-bar-footer">
+            <span>{{ visibleBlocks.length }} matching CV Block{{ visibleBlocks.length === 1 ? '' : 's' }}</span>
+            <span class="command-bar-shortcut" aria-label="Keyboard shortcut Command K">
+              <UKbd value="meta" />
+              <UKbd value="K" />
+            </span>
+            <UButton
+              color="secondary"
+              variant="outline"
+              square
+              icon="i-lucide-x"
+              aria-label="Close search"
+              @click="searchOpen = false"
+            />
+          </footer>
+        </template>
+      </UCommandPalette>
+    </template>
+  </UModal>
+
+  <UModal
+    v-model:open="createOpen"
+    title="Create CV Block"
+    description="Add a reusable unit of CV content. Future edits append immutable Block Versions."
+    scrollable
+    :ui="{ content: 'sm:max-w-2xl', footer: 'justify-end' }"
+  >
+    <template #body>
+      <form id="create-cv-block-form" class="create-panel" @submit.prevent="createBlock">
+        <div class="grid"><label>Type<USelect v-model="form.kind" :items="BLOCK_KINDS" aria-label="CV Block type" /></label><label>Title<UInput v-model="form.title" required /></label></div>
+        <div v-if="form.kind === 'experience'" class="grid"><label>Employer<UInput v-model="form.employer" required /></label><label>Role<UInput v-model="form.role" required /></label></div>
+        <div v-if="form.kind === 'experience'" class="grid"><label>Start period<UInput v-model="form.startDate" type="month" required /></label><label>End period <small>(blank means present)</small><UInput v-model="form.endDate" type="month" /></label></div>
+        <label>Content<UTextarea v-model="form.value" required /></label>
+      </form>
+    </template>
+    <template #footer>
+      <UButton
+        color="secondary"
+        variant="outline"
+        :disabled="saving"
+        @click="createOpen = false"
+      >
+        Cancel
+      </UButton>
+      <UButton
+        type="submit"
+        form="create-cv-block-form"
+        :loading="saving"
+        :disabled="saving"
+      >
+        Save CV Block
+      </UButton>
+    </template>
+  </UModal>
 
   <article class="import-panel">
     <div>
@@ -285,18 +411,136 @@ onMounted(load);
       <h3>{{ occasion.role }}</h3>
       <p class="occasion-period">{{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</p>
       <div class="block-grid">
-        <article v-for="block in occasion.blocks" :key="block.id">
+        <UCard
+          v-for="block in occasion.blocks"
+          :key="block.id"
+          as="article"
+          class="block-card"
+          variant="outline"
+          :ui="{ body: 'block-card-body', footer: 'block-card-footer' }"
+        >
           <p class="kind">Experience</p><h4>{{ block.title }}</h4><p>{{ currentValue(block) }}</p>
-          <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><span class="block-actions"><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button><button class="secondary control-compact" @click="runBlockLifecycle('duplicate', block)">Duplicate CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('archive', block)">Archive CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('delete', block)">Delete CV Block</button></span></footer>
-        </article>
+          <template #footer>
+            <small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small>
+            <span class="block-actions">
+              <UTooltip text="Edit & Block Versions" :content="{ side: 'top' }">
+                <UButton
+                  class="secondary block-action-button"
+                  color="secondary"
+                  variant="outline"
+                  size="xs"
+                  square
+                  icon="i-lucide-file-pen-line"
+                  aria-label="Edit & Block Versions"
+                  @click="edit(block)"
+                />
+              </UTooltip>
+              <UTooltip text="Duplicate CV Block" :content="{ side: 'top' }">
+                <UButton
+                  class="secondary block-action-button"
+                  color="secondary"
+                  variant="outline"
+                  size="xs"
+                  square
+                  icon="i-lucide-copy"
+                  aria-label="Duplicate CV Block"
+                  @click="runBlockLifecycle('duplicate', block)"
+                />
+              </UTooltip>
+              <UTooltip text="Archive CV Block" :content="{ side: 'top' }">
+                <UButton
+                  class="secondary block-action-button"
+                  color="secondary"
+                  variant="outline"
+                  size="xs"
+                  square
+                  icon="i-lucide-archive"
+                  aria-label="Archive CV Block"
+                  @click="runBlockLifecycle('archive', block)"
+                />
+              </UTooltip>
+              <UTooltip text="Delete CV Block" :content="{ side: 'top' }">
+                <UButton
+                  class="secondary block-action-button"
+                  color="secondary"
+                  variant="outline"
+                  size="xs"
+                  square
+                  icon="i-lucide-trash-2"
+                  aria-label="Delete CV Block"
+                  @click="runBlockLifecycle('delete', block)"
+                />
+              </UTooltip>
+            </span>
+          </template>
+        </UCard>
       </div>
     </section>
   </section>
   <section v-if="visibleSidebarBlocks.length" class="block-grid sidebar-blocks">
-    <article v-for="block in visibleSidebarBlocks" :key="block.id">
+    <UCard
+      v-for="block in visibleSidebarBlocks"
+      :key="block.id"
+      as="article"
+      class="block-card"
+      variant="outline"
+      :ui="{ body: 'block-card-body', footer: 'block-card-footer' }"
+    >
       <p class="kind">{{ block.kind }}</p><h3>{{ block.title }}</h3><p>{{ currentValue(block) }}</p>
-      <footer><small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small><span class="block-actions"><button class="secondary control-compact" @click="edit(block)">Edit & Block Versions</button><button class="secondary control-compact" @click="runBlockLifecycle('duplicate', block)">Duplicate CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('archive', block)">Archive CV Block</button><button class="secondary control-compact" @click="runBlockLifecycle('delete', block)">Delete CV Block</button></span></footer>
-    </article>
+      <template #footer>
+        <small>{{ block.versions.length }} Block Version{{ block.versions.length === 1 ? '' : 's' }}</small>
+        <span class="block-actions">
+          <UTooltip text="Edit & Block Versions" :content="{ side: 'top' }">
+            <UButton
+              class="secondary block-action-button"
+              color="secondary"
+              variant="outline"
+              size="xs"
+              square
+              icon="i-lucide-file-pen-line"
+              aria-label="Edit & Block Versions"
+              @click="edit(block)"
+            />
+          </UTooltip>
+          <UTooltip text="Duplicate CV Block" :content="{ side: 'top' }">
+            <UButton
+              class="secondary block-action-button"
+              color="secondary"
+              variant="outline"
+              size="xs"
+              square
+              icon="i-lucide-copy"
+              aria-label="Duplicate CV Block"
+              @click="runBlockLifecycle('duplicate', block)"
+            />
+          </UTooltip>
+          <UTooltip text="Archive CV Block" :content="{ side: 'top' }">
+            <UButton
+              class="secondary block-action-button"
+              color="secondary"
+              variant="outline"
+              size="xs"
+              square
+              icon="i-lucide-archive"
+              aria-label="Archive CV Block"
+              @click="runBlockLifecycle('archive', block)"
+            />
+          </UTooltip>
+          <UTooltip text="Delete CV Block" :content="{ side: 'top' }">
+            <UButton
+              class="secondary block-action-button"
+              color="secondary"
+              variant="outline"
+              size="xs"
+              square
+              icon="i-lucide-trash-2"
+              aria-label="Delete CV Block"
+              @click="runBlockLifecycle('delete', block)"
+            />
+          </UTooltip>
+        </span>
+      </template>
+    </UCard>
   </section>
 
   <details v-if="archivedBlocks.length" class="archived-blocks">
@@ -329,8 +573,12 @@ onMounted(load);
 </template>
 
 <style scoped>
+.library-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+.library-action-button { width: 2.5rem; min-width: 2.5rem; height: 2.5rem; }
 .library-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; align-items: start; padding-bottom: 1.25rem; border-bottom: 1px solid var(--ink); }
-.create-panel { margin: 1.5rem 0 2rem !important; }
+.create-panel { margin: 0 !important; }
+.command-bar-footer { display: flex; align-items: center; gap: .75rem; padding: .65rem .75rem; color: var(--muted); font-family: var(--font-label); font-size: .72rem; }
+.command-bar-shortcut { display: inline-flex; align-items: center; gap: .25rem; margin-left: auto; }
 .import-panel { display: flex; justify-content: space-between; align-items: center; gap: 2rem; border: 2px solid var(--ink) !important; background: var(--paper-light); box-shadow: 6px 6px 0 var(--paper-deep); }
 .import-panel p { margin: .3rem 0; color: var(--muted); }
 .import-panel button { width: auto; white-space: nowrap; }
@@ -342,13 +590,16 @@ onMounted(load);
 .occasion-period { margin-bottom: .75rem; color: var(--muted); font-family: var(--font-label); font-size: .72rem; }
 .block-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
 .block-grid article { border: 1px solid var(--ink) !important; background: var(--paper-light); box-shadow: 4px 4px 0 var(--paper-deep); }
+.block-grid > .block-card { display: flex; flex-direction: column; height: 100%; padding: 0; }
+.block-card :deep([data-slot="body"]) { flex: 1; padding: 1rem; }
+.block-card :deep([data-slot="footer"]) { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: auto; padding: .8rem 1rem 1rem; }
 .sidebar-blocks, .archived-blocks { margin-top: 2rem; }
 .empty-state { margin-top: 1rem; padding: 2rem; border: 1px solid var(--ink); background: var(--paper-light); font-family: var(--font-editorial); font-size: 1.35rem; }
 .kind { margin: 0 0 .5rem; color: var(--marker-dark); }
-footer { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding-top: .8rem; border-top: 1px solid var(--paper-deep); }
-.block-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .35rem; }
+.block-actions { display: inline-flex; flex-wrap: nowrap; align-items: center; justify-content: flex-end; gap: .35rem; }
+.block-actions .block-action-button { width: 2rem; min-width: 2rem; height: 2rem; margin: 0; padding: .4rem; }
 dialog { width: min(94vw, 50rem); border: 2px solid var(--ink); border-radius: 0; background: var(--paper); box-shadow: 10px 10px 0 var(--marker); }
 dialog article { max-width: 46rem; }
 @media (max-width: 1050px) { .import-panel { align-items: flex-start; flex-direction: column; } }
-@media (max-width: 600px) { .library-tools { grid-template-columns: 1fr; } .employer-group { padding-left: .7rem; } footer { flex-direction: column; } .block-actions { justify-content: flex-start; } }
+@media (max-width: 600px) { .library-actions { align-items: stretch; flex-direction: column; } .library-action-button { align-self: flex-start; } .library-tools { grid-template-columns: 1fr; } .employer-group { padding-left: .7rem; } .block-card :deep([data-slot="footer"]) { align-items: flex-start; flex-direction: column; } .block-actions { justify-content: flex-start; } }
 </style>

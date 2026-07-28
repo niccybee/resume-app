@@ -1,0 +1,13 @@
+interface:
+  display_name: "Resume Studio"
+  short_description: "Shape CVs safely through the Resume Studio MCP"
+  default_prompt: "Use $resume-studio to show my CVs and help me tailor one for a role."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "resume-studio"
+      description: "Authenticated Resume Studio CV and CV Block tools"
+      transport: "streamable_http"
+      url: "https://cv.obair.tech/mcp"
+policy:
+  allow_implicit_invocation: true

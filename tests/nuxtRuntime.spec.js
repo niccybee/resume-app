@@ -1662,9 +1662,11 @@ describe("Nuxt runtime", async () => {
       await page.getByRole("heading", { name: "No saved CVs yet" }).waitFor();
       await page.getByRole("button", { name: "Create the first CV" }).click();
       await page.waitForURL("**/app/cvs/new");
+      await page.getByRole("button", { name: "Add CV details" }).click();
       const cvName = page.getByLabel("CV name");
       await cvName.waitFor();
       expect(await cvName.isVisible()).toBe(true);
+      await page.getByRole("button", { name: "Cancel" }).click();
       const cvBlockLibrary = page.getByRole("heading", { name: "CV Block Library" });
       await cvBlockLibrary.waitFor();
       expect(await cvBlockLibrary.isVisible()).toBe(true);
@@ -1676,9 +1678,14 @@ describe("Nuxt runtime", async () => {
 
       await page.getByRole("link", { name: "CV Blocks", exact: true }).click();
       await page.waitForURL("**/app/blocks");
+      const blockSearchTrigger = page.getByRole("button", { name: "Search CV Blocks" });
+      await blockSearchTrigger.waitFor();
+      expect(await blockSearchTrigger.getAttribute("aria-keyshortcuts")).toBe("Meta+K");
+      await blockSearchTrigger.click();
       const blockSearch = page.getByRole("searchbox", { name: "Search CV Blocks, employers, roles…" });
       await blockSearch.waitFor();
       expect(await blockSearch.isVisible()).toBe(true);
+      await page.getByRole("button", { name: "Close search" }).click();
 
       await page.getByRole("button", { name: "Open settings menu" }).click();
       const mcpConnection = page.getByRole("menuitem", { name: "MCP connection" });

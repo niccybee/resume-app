@@ -5,10 +5,12 @@ definePageMeta({ layout: "public" });
 
 useSeoMeta({
   title: "MCP setup | Resume Studio Docs",
-  description: "A plain-language guide to connecting Resume Studio to ChatGPT or OpenCode.",
+  description: "A plain-language guide to connecting Resume Studio to ChatGPT, Codex, OpenCode, or Claude.",
 });
 
 const endpoint = "https://cv.obair.tech/mcp";
+const skillDownload = "/downloads/resume-studio-skill.zip";
+const skillInstallCommand = "npx skills@latest add https://github.com/niccybee/resume-app -g -a codex opencode claude-code -s resume-studio -y";
 const copyState = ref("idle");
 const opencodeConfig = `{
   "$schema": "https://opencode.ai/config.json",
@@ -114,6 +116,47 @@ async function copyEndpoint() {
       </div>
     </section>
 
+    <section id="skill" class="guide-section" aria-labelledby="skill-heading">
+      <p class="eyebrow">Recommended skill</p>
+      <h2 id="skill-heading">Teach your assistant how Resume Studio works</h2>
+      <p>
+        The MCP connection gives your assistant access to your CV workspace. The Resume Studio
+        skill teaches it the safe workflow: read first, prepare a Change Proposal, wait for your
+        approval, then verify anything you apply.
+      </p>
+
+      <div class="hero-actions">
+        <UButton
+          class="nuxt-ui-button"
+          :to="skillDownload"
+          label="Download Resume Studio skill"
+          icon="i-lucide-download"
+          external
+        />
+      </div>
+
+      <div class="skill-install-grid">
+        <article>
+          <h3>ChatGPT or Claude</h3>
+          <p>Download the ZIP, open your app's Skills area, choose Upload, and select the downloaded file.</p>
+        </article>
+        <article>
+          <h3>Codex, OpenCode, or Claude Code</h3>
+          <p>Run this once in a terminal to install the same skill for all three clients:</p>
+          <pre><code>{{ skillInstallCommand }}</code></pre>
+        </article>
+      </div>
+
+      <UAlert
+        class="skill-connection-note"
+        color="neutral"
+        variant="outline"
+        icon="i-lucide-unplug"
+        title="The skill does not replace the connection"
+        description="Install the skill for better instructions, then follow the matching client steps below to connect your Resume Studio account."
+      />
+    </section>
+
     <section id="choose-your-chat-app" class="client-intro" aria-labelledby="choose-heading">
       <p class="eyebrow">Choose your chat app</p>
       <h2 id="choose-heading">Follow the steps for the app you use</h2>
@@ -140,25 +183,45 @@ async function copyEndpoint() {
       <ol class="steps-list">
         <li>
           <span class="step-number">1</span>
-          <div><strong>Open ChatGPT on the web.</strong> Go to Settings, then Apps.</div>
+          <div><strong>Install the skill.</strong> In Plugins, open Skills, choose Create then Upload, and select the downloaded ZIP.</div>
         </li>
         <li>
           <span class="step-number">2</span>
-          <div><strong>Turn on Developer mode if prompted.</strong> It may be under Advanced settings, or your workspace admin may need to enable it.</div>
+          <div><strong>Open ChatGPT on the web.</strong> Go to Settings, then Apps.</div>
         </li>
         <li>
           <span class="step-number">3</span>
-          <div><strong>Choose Create.</strong> Name the app “Resume Studio” and paste the connection address shown above.</div>
+          <div><strong>Turn on Developer mode if prompted.</strong> It may be under Advanced settings, or your workspace admin may need to enable it.</div>
         </li>
         <li>
           <span class="step-number">4</span>
-          <div><strong>Choose OAuth, then Scan tools.</strong> Sign in to Resume Studio and allow the connection when asked.</div>
+          <div><strong>Choose Create.</strong> Name the app “Resume Studio” and paste the connection address shown above.</div>
         </li>
         <li>
           <span class="step-number">5</span>
+          <div><strong>Choose OAuth, then Scan tools.</strong> Sign in to Resume Studio and allow the connection when asked.</div>
+        </li>
+        <li>
+          <span class="step-number">6</span>
           <div><strong>Start a new chat.</strong> Select Resume Studio from Apps, then ask: “Show me my CVs before suggesting any changes.”</div>
         </li>
       </ol>
+    </section>
+
+    <section id="codex" class="guide-section client-guide" aria-labelledby="codex-heading">
+      <div class="client-heading">
+        <div>
+          <p class="eyebrow">Codex</p>
+          <h2 id="codex-heading">Add Resume Studio to Codex</h2>
+        </div>
+        <UIcon name="i-lucide-code-2" class="client-icon" aria-hidden="true" />
+      </div>
+      <p>After installing the skill above, add the secure Resume Studio connection and sign in:</p>
+      <div class="technical-content standalone-technical-content">
+        <pre><code>codex mcp add resume-studio --url https://cv.obair.tech/mcp
+codex mcp login resume-studio</code></pre>
+      </div>
+      <p class="first-prompt">Start a new task and try: <strong>“Use $resume-studio to show me my CVs.”</strong></p>
     </section>
 
     <section id="opencode" class="guide-section client-guide" aria-labelledby="opencode-heading">
@@ -191,12 +254,34 @@ async function copyEndpoint() {
             <pre><code>opencode mcp auth resume-studio</code></pre>
             <p>Sign in to Resume Studio in the browser window that opens, then approve the connection.</p>
             <p><strong>3. Check that the connection worked:</strong></p>
-            <pre><code>opencode mcp auth list</code></pre>
+            <pre><code>opencode mcp list</code></pre>
           </div>
         </template>
       </UCollapsible>
 
       <p class="first-prompt">Once connected, try: <strong>“Show me my CVs before suggesting any changes.”</strong></p>
+    </section>
+
+    <section id="claude" class="guide-section client-guide" aria-labelledby="claude-heading">
+      <div class="client-heading">
+        <div>
+          <p class="eyebrow">Claude</p>
+          <h2 id="claude-heading">Add Resume Studio to Claude</h2>
+        </div>
+        <UIcon name="i-lucide-sparkles" class="client-icon" aria-hidden="true" />
+      </div>
+      <p>
+        In Claude Code, install the skill above, then add the connection and sign in:
+      </p>
+      <div class="technical-content standalone-technical-content">
+        <pre><code>claude mcp add --transport http --scope user resume-studio https://cv.obair.tech/mcp
+claude mcp login resume-studio</code></pre>
+      </div>
+      <p>
+        In claude.ai, upload the skill ZIP under Settings → Features. Add the Resume Studio
+        MCP connection if custom connections are available for your account.
+      </p>
+      <p class="first-prompt">Once connected, try: <strong>“Use the Resume Studio skill to list my CVs.”</strong></p>
     </section>
 
     <section class="guide-section help-section" aria-labelledby="help-heading">
@@ -245,6 +330,13 @@ async function copyEndpoint() {
 .technical-trigger { justify-content: space-between; }
 .technical-content { padding: 1.25rem; border: 1px solid var(--ink); border-top: 0; background: var(--paper); }
 .technical-content pre { overflow-x: auto; margin: .75rem 0 1.25rem; padding: 1rem; background: var(--ink); color: var(--paper-light); font-size: .78rem; line-height: 1.6; }
+.standalone-technical-content { margin-top: 1.5rem; border-top: 1px solid var(--ink); }
+.standalone-technical-content pre { margin-bottom: 0; }
+.skill-install-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 2rem; }
+.skill-install-grid article { min-width: 0; padding: 1.25rem; border: 1px solid var(--ink); background: var(--paper); }
+.skill-install-grid h3 { margin: 0 0 .65rem; font-family: var(--font-serif); font-size: 1.35rem; }
+.skill-install-grid pre { overflow-x: auto; margin: 1rem 0 0; padding: 1rem; background: var(--ink); color: var(--paper-light); font-size: .72rem; line-height: 1.6; }
+.skill-connection-note { margin-top: 1rem; }
 .first-prompt { margin: 1.5rem 0 0; padding-left: 1rem; border-left: 4px solid var(--marker); }
 .help-section dl { margin: 2rem 0 0; }
 .help-section dl > div { display: grid; grid-template-columns: minmax(12rem, .8fr) minmax(0, 1.5fr); gap: 1rem; padding: 1.25rem 0; border-top: 1px solid var(--paper-deep); }
@@ -255,6 +347,7 @@ async function copyEndpoint() {
   .docs-page { padding-top: 2.5rem; }
   .docs-hero h1 { font-size: clamp(2.8rem, 15vw, 4.5rem); }
   .endpoint-box, .endpoint-box :deep(button) { width: 100%; }
+  .skill-install-grid { grid-template-columns: 1fr; }
   .help-section dl > div { grid-template-columns: 1fr; gap: .4rem; }
 }
 </style>

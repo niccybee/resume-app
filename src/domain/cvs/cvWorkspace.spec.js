@@ -819,6 +819,57 @@ describe("CV workspace boundary", () => {
     ]);
   });
 
+  it("creates a new CV and initial Editing Session only after explicit proposal apply", async () => {
+    const workspace = createCvWorkspace({
+      repository: createMemoryCvRepository(),
+    });
+    const proposal = await workspace.proposeLifecycleChange({
+      schemaVersion: "1",
+      operation: {
+        type: "create_cv",
+        value: {
+          name: "Head of Marketing at Facebook",
+          themeId: "editorial",
+          profile: { basics: { name: "Nicholas Benson" } },
+          summary: "Growth and product leader.",
+          selections: [skill],
+        },
+      },
+    });
+
+    expect(proposal).toMatchObject({
+      operationType: "create_cv",
+      status: "pending",
+      target: { type: "cv", id: expect.any(String) },
+      nextActions: ["apply", "discard"],
+    });
+    await expect(workspace.list()).resolves.toEqual([]);
+
+    const applied = await workspace.applyChangeProposal(proposal.id);
+    expect(applied).toMatchObject({
+      status: "applied",
+      result: {
+        cvId: proposal.target.id,
+        editingSessionId: expect.any(String),
+        optimisticVersion: 1,
+      },
+    });
+    await expect(workspace.open(proposal.target.id)).resolves.toMatchObject({
+      id: proposal.target.id,
+      name: "Head of Marketing at Facebook",
+      status: "draft",
+    });
+    await expect(
+      workspace.resumeEditingSession(applied.result.editingSessionId),
+    ).resolves.toMatchObject({
+      cvId: proposal.target.id,
+      name: "Head of Marketing at Facebook",
+      themeId: "editorial",
+      summary: "Growth and product leader.",
+      selections: [{ ...skill, order: 0 }],
+    });
+  });
+
   it("keeps base-less memory sessions aligned with persistence without fabricating Revision 1", async () => {
     const workspace = createCvWorkspace({ repository: createMemoryCvRepository() });
     const initial = await workspace.createCvEditingSession({

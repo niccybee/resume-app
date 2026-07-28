@@ -49,6 +49,13 @@ the Working Composition atomically. Repeated apply returns the original result,
 while stale proposals return refreshed target context for recovery. The Nuxt UI
 and future MCP handlers use the same CV workspace application-service methods.
 
+The remote MCP exposes model-friendly CV and CV Block CRUD proposal tools while
+preserving explicit apply. See [`docs/mcp-crud-tools.md`](docs/mcp-crud-tools.md)
+for the tool map and lifecycle semantics. Existing installations upgrading to
+the `create_cv` proposal operation must reapply `database/cv_lifecycle.sql`,
+then `database/cv_revision_publication.sql`, before deploying the matching Nuxt
+server.
+
 “Copy to New Version” creates another open Editing Session in the same CV.
 “Copy for New Role” creates an independent CV and open Editing Session whose
 first finished Revision is v1. Both copy from an exact CV Revision or current

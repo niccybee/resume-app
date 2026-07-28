@@ -10,6 +10,7 @@ export const CHANGE_PROPOSAL_OPERATION_TYPES = Object.freeze([
   "restore_editing_session",
   "archive_cv",
   "restore_cv",
+  "create_cv",
   "archive_cv_block",
   "restore_cv_block",
   "create_cv_block",

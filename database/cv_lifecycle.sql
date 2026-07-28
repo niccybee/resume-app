@@ -13,7 +13,7 @@ alter table public.cv_change_proposals add constraint cv_change_proposals_operat
   check (operation_type in (
     'edit_content', 'replace_working_state', 'copy_to_new_version', 'copy_for_new_role',
     'start_editing_session', 'resume_editing_session', 'finish_editing_session',
-    'archive_editing_session', 'restore_editing_session', 'archive_cv', 'restore_cv',
+    'archive_editing_session', 'restore_editing_session', 'create_cv', 'archive_cv', 'restore_cv',
     'archive_cv_block', 'restore_cv_block', 'create_cv_block', 'duplicate_cv_block',
     'delete_cv_block', 'publish_revision', 'withdraw_publication'
   ));
@@ -150,19 +150,20 @@ declare
   v_cv_status text;
   v_id uuid;
   v_context jsonb;
+  v_state jsonb;
 begin
   if v_owner_id is null then raise exception 'Authentication is required.' using errcode = '42501'; end if;
   if p_schema_version <> '1' or v_type not in (
     'start_editing_session', 'resume_editing_session', 'finish_editing_session',
     'copy_to_new_version', 'copy_for_new_role', 'archive_editing_session',
-    'restore_editing_session', 'archive_cv', 'restore_cv',
+    'restore_editing_session', 'create_cv', 'archive_cv', 'restore_cv',
     'archive_cv_block', 'restore_cv_block', 'create_cv_block', 'duplicate_cv_block', 'delete_cv_block'
   ) then
     raise exception 'Unsupported lifecycle Change Proposal.' using errcode = '22023';
   end if;
   if v_type in ('copy_to_new_version', 'copy_for_new_role') and v_target_type not in ('editing_session', 'cv_revision')
     or v_type in ('resume_editing_session', 'finish_editing_session', 'archive_editing_session', 'restore_editing_session') and v_target_type <> 'editing_session'
-    or v_type in ('start_editing_session', 'archive_cv', 'restore_cv') and v_target_type <> 'cv'
+    or v_type in ('create_cv', 'start_editing_session', 'archive_cv', 'restore_cv') and v_target_type <> 'cv'
     or v_type in ('archive_cv_block', 'restore_cv_block', 'create_cv_block', 'duplicate_cv_block', 'delete_cv_block') and v_target_type <> 'cv_block' then
     raise exception 'Lifecycle operation and target types do not match.' using errcode = '22023';
   end if;
@@ -179,6 +180,19 @@ begin
   elsif v_target_type = 'cv_revision' then
     select cv_id into v_cv_id from public.cv_revisions where id = v_target_id and owner_id = v_owner_id;
     if not found then raise exception 'CV Revision not found.' using errcode = 'P0002'; end if;
+    v_base := null;
+  elsif v_target_type = 'cv' and v_type = 'create_cv' then
+    if exists (
+      select 1 from public.cv_documents
+      where id = v_target_id
+    ) then
+      raise exception 'The proposed CV identity is already in use.' using errcode = '40001';
+    end if;
+    v_state := public.validate_cv_proposed_working_state(
+      v_owner_id,
+      p_operation->'value'
+    );
+    v_cv_id := null;
     v_base := null;
   elsif v_target_type = 'cv' then
     select id, status into v_cv_id, v_status from public.cv_documents where id = v_target_id and owner_id = v_owner_id for share;
@@ -223,12 +237,12 @@ begin
           raise exception 'An Experience Block requires a valid Employment Occasion.' using errcode = '22023';
         end if;
       elsif v_context->>'type' is distinct from 'sidebar'
-        or v_context->>'key' is distinct from case p_operation->>'kind'
+        or v_context->>'key' is distinct from (case p_operation->>'kind'
           when 'skill' then 'skills'
           when 'certification' then 'certifications'
           when 'education' then 'education'
           when 'interest' then 'interests'
-        end then
+        end) then
         raise exception 'A sidebar CV Block requires a sidebar context.' using errcode = '22023';
       end if;
     else
@@ -287,12 +301,19 @@ begin
   values (v_owner_id, '1', v_type, v_target_type, v_target_id, v_cv_id, v_base, jsonb_build_array(
       case
         when v_type = 'copy_for_new_role' then jsonb_set(p_operation, '{name}', to_jsonb(btrim(p_operation->>'name')))
+        when v_type = 'create_cv' then jsonb_set(p_operation, '{value}', v_state)
         when v_type = 'create_cv_block' or (v_type = 'duplicate_cv_block' and p_operation ? 'title')
           then jsonb_set(p_operation, '{title}', to_jsonb(btrim(p_operation->>'title')))
         else p_operation
       end
     ),
-    case when v_type = 'create_cv_block' then
+    case when v_type = 'create_cv' then
+      jsonb_build_object('cv', jsonb_build_object(
+        'operation', v_type,
+        'target', jsonb_build_object('type', v_target_type, 'id', v_target_id),
+        'after', v_state
+      ))
+    when v_type = 'create_cv_block' then
       jsonb_build_object('block', jsonb_build_object(
         'operation', v_type,
         'target', jsonb_build_object('type', v_target_type, 'id', v_target_id),
@@ -332,6 +353,7 @@ declare
   v_revision_number integer;
   v_published_revision_id uuid;
   v_block_result jsonb;
+  v_state jsonb;
 begin
   if v_owner_id is null then raise exception 'Authentication is required.' using errcode = '42501'; end if;
   select source.* into change_proposal from public.cv_change_proposals source
@@ -344,7 +366,72 @@ begin
     return public.get_cv_change_proposal(change_proposal.id);
   end if;
   v_operation := change_proposal.normalized_operations->0;
-  if change_proposal.operation_type = 'start_editing_session' then
+  if change_proposal.operation_type = 'create_cv' then
+    if exists (
+      select 1 from public.cv_documents
+      where id = change_proposal.target_id
+    ) then
+      update public.cv_change_proposals
+      set status = 'invalidated',
+        result = jsonb_build_object('reason', 'stale-proposal')
+      where id = change_proposal.id;
+      return public.get_cv_change_proposal(change_proposal.id);
+    end if;
+    v_state := public.validate_cv_proposed_working_state(
+      v_owner_id,
+      v_operation->'value'
+    );
+    insert into public.cv_documents(id, owner_id, name, status, profile)
+    values(
+      change_proposal.target_id,
+      v_owner_id,
+      v_state->>'name',
+      'draft',
+      '{}'::jsonb
+    );
+    insert into public.cv_editing_sessions(
+      cv_id, owner_id, base_revision_id, status, optimistic_version,
+      working_name, working_theme_id, working_profile, working_summary,
+      working_summary_provenance
+    ) values (
+      change_proposal.target_id,
+      v_owner_id,
+      null,
+      'open',
+      1,
+      v_state->>'name',
+      nullif(v_state->>'themeId', ''),
+      v_state->'profile',
+      nullif(v_state->>'summary', ''),
+      nullif(v_state->'summaryProvenance', 'null'::jsonb)
+    ) returning id into v_new_session_id;
+    insert into public.cv_editing_session_compositions(
+      session_id, cv_id, owner_id, block_id, version_id, section, display, position
+    )
+    select
+      v_new_session_id,
+      change_proposal.target_id,
+      v_owner_id,
+      (selection->>'blockId')::uuid,
+      (selection->>'versionId')::uuid,
+      selection->>'section',
+      coalesce(selection->'block', '{}'::jsonb) ||
+        case when selection ? 'group'
+          then jsonb_build_object('grouping', selection->'group')
+          else '{}'::jsonb
+        end,
+      (selection->>'order')::integer
+    from jsonb_array_elements(v_state->'selections') as selection;
+    update public.cv_change_proposals
+    set status = 'applied',
+      applied_at = now(),
+      result = jsonb_build_object(
+        'cvId', change_proposal.target_id,
+        'editingSessionId', v_new_session_id,
+        'optimisticVersion', 1
+      )
+    where id = change_proposal.id;
+  elsif change_proposal.operation_type = 'start_editing_session' then
     perform 1 from public.cv_documents document
     where document.id = change_proposal.target_id and document.owner_id = v_owner_id and document.status <> 'archived'
     for update;

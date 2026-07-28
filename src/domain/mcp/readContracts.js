@@ -104,6 +104,7 @@ export function proposalResultContract() {
     operationResults: {
       edit_content: { required: ["editingSessionId", "optimisticVersion", "affectedIdentities"] },
       replace_working_state: { required: ["editingSessionId", "optimisticVersion", "affectedIdentities"] },
+      create_cv: { required: ["cvId", "editingSessionId", "optimisticVersion"] },
       start_editing_session: { required: ["cvId", "editingSessionId", "optimisticVersion"] },
       resume_editing_session: { required: ["cvId", "editingSessionId", "optimisticVersion"] },
       finish_editing_session: {

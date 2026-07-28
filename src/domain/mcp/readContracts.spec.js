@@ -31,7 +31,7 @@ describe("MCP read contracts", () => {
       schemaVersion: "1",
       explicitApplyRequired: true,
       operations: expect.arrayContaining([
-        "edit_content", "replace_working_state", "create_cv_block", "duplicate_cv_block", "delete_cv_block",
+        "edit_content", "replace_working_state", "create_cv", "create_cv_block", "duplicate_cv_block", "delete_cv_block",
       ]),
       contentOperations: ["append_block_version", "replace_working_state"],
       statuses: ["pending", "applied", "discarded", "expired", "invalidated"],
@@ -70,6 +70,11 @@ describe("MCP read contracts", () => {
   it("describes required fields that representative applied results return", () => {
     const contract = proposalResultContract();
     const appliedResults = {
+      create_cv: {
+        cvId: "cv-created",
+        editingSessionId: "session-created",
+        optimisticVersion: 1,
+      },
       finish_editing_session: {
         cvId: "cv-1",
         editingSessionId: "session-1",

@@ -299,7 +299,21 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
       if (!supported.has(operation?.type)) {
         throw new CvWorkspaceError("validation-failed", "Unsupported lifecycle Change Proposal operation.");
       }
-      if (operation.type === "publish_revision") {
+      if (operation.type === "create_cv") {
+        const value = normalizeDraft(operation.value || {});
+        if (!value.name || value.name === "Untitled CV") {
+          throw new CvWorkspaceError("validation-failed", "Enter a name for the new CV.");
+        }
+        operation.value = {
+          name: value.name,
+          themeId: value.themeId,
+          profile: value.profile,
+          summary: value.summary,
+          summaryProvenance: value.summaryProvenance,
+          selections: value.selections,
+        };
+        operation.target = { type: "cv", id: crypto.randomUUID() };
+      } else if (operation.type === "publish_revision") {
         if (operation.target?.type !== "cv_revision" || !operation.target.id || !operation.target.cvId) {
           throw new CvWorkspaceError("validation-failed", "Publishing requires an exact CV Revision target.");
         }
@@ -381,7 +395,7 @@ export function createCvWorkspace({ repository, blockLibrary, summaryGenerator }
       if ((sessionSource || sessionTarget) && !Number.isInteger(operation.baseOptimisticVersion)) {
         throw new CvWorkspaceError("validation-failed", "An Editing Session base optimistic version is required.");
       }
-      if (["archive_cv", "restore_cv", "withdraw_publication"].includes(operation.type) && operation.target?.type !== "cv") {
+      if (["create_cv", "archive_cv", "restore_cv", "withdraw_publication"].includes(operation.type) && operation.target?.type !== "cv") {
         throw new CvWorkspaceError("validation-failed", "CV lifecycle operations require a CV target.");
       }
       if (["archive_cv_block", "restore_cv_block", "duplicate_cv_block", "delete_cv_block"].includes(operation.type)) {

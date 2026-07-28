@@ -86,7 +86,9 @@ transactional audit commit, and mutation rollback when its audit cannot commit.
 First enable MCP in Resume Studio settings for an existing account, then connect
 that account from the intended chat client and
 confirm it discovers `resume-studio://glossary/v1`, `list_cvs`,
-`propose_lifecycle_change`, and `apply_change_proposal`. Ask it to use **Copy to
+`propose_create_cv`, `propose_update_cv`, `propose_create_cv_block`,
+`propose_update_cv_block`, `propose_archive_cv`, `propose_archive_cv_block`,
+and `apply_change_proposal`. Ask it to use **Copy to
 New Version**, review the pending proposal, explicitly approve that exact
 proposal, reconnect the client, and confirm the new Editing Session appears in
 the same CV. The source must remain open.

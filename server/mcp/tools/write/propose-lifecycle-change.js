@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { blockContentSchema, employmentOccasionSchema } from "../../../utils/mcpBlockSchema";
 import { defineMcpChangeTool } from "../../../utils/mcpChangeTool";
+import { mcpWorkingStateSchema } from "../../../utils/mcpCrudSchemas";
 
 const id = z.string().min(1);
 const cvTarget = z.object({ type: z.literal("cv"), id });
@@ -12,6 +13,7 @@ const sessionSource = sessionTarget;
 const blockKind = z.enum(["experience", "skill", "certification", "education", "interest"]);
 
 const operationSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("create_cv"), value: mcpWorkingStateSchema }),
   z.object({ type: z.literal("start_editing_session"), target: cvTarget, baseRevisionId: id.nullable().optional() }),
   z.object({ type: z.literal("resume_editing_session"), target: sessionTarget, baseOptimisticVersion: z.number().int().positive() }),
   z.object({ type: z.literal("finish_editing_session"), target: sessionTarget, baseOptimisticVersion: z.number().int().positive() }),

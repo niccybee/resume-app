@@ -13,6 +13,10 @@ describe("explicit CV Revision publication migration", () => {
     expect(sql).toMatch(/^begin;/i);
     expect(sql).toMatch(/publish_revision/);
     expect(sql).toMatch(/withdraw_publication/);
+    expect(sql).toMatch(/create_cv/);
+    expect(sql).toMatch(/create_cv_block/);
+    expect(sql).toMatch(/duplicate_cv_block/);
+    expect(sql).toMatch(/delete_cv_block/);
     expect(sql).toMatch(/create or replace function public\.create_cv_publication_proposal/i);
     expect(sql).toMatch(/create or replace function public\.apply_cv_publication_proposal/i);
     expect(sql).toMatch(/status = 'applied'/i);

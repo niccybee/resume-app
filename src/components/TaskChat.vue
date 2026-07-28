@@ -216,6 +216,7 @@ async function createTasks() {
 .task-chat-eyebrow, .chat-message > span { color: var(--marker-dark); font-family: var(--font-label); font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .chat-thread { display: grid; gap: .75rem; max-height: 17rem; margin: 0; padding: 1.25rem; overflow-y: auto; list-style: none; }
 .chat-message { max-width: 82%; padding: .75rem .9rem; border: 1px solid var(--ink); background: var(--paper); }
+.chat-message-assistant { width: 100%; max-width: none; }
 .chat-message-user { justify-self: end; background: var(--marker-soft); }
 .chat-message p { margin-top: .25rem; font-size: .9rem; }
 .chat-input-group { margin: 0 1.25rem 1.25rem; border: 1px solid var(--ink); background: var(--paper-light); }

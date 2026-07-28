@@ -9,6 +9,7 @@ import { formatEmploymentPeriod, normalizeEmploymentGroup } from "../domain/empl
 import { createTaskBlocks } from "../domain/tasks/createTaskBlocks";
 import { listThemes } from "../domain/themes/themeRegistry";
 import { blockLibrary } from "../services/blockLibrary";
+import { cvProfileDefaults } from "../services/cvProfileDefaults";
 import { cvWorkspace } from "../services/cvWorkspace";
 import { openRouter } from "../services/openRouter";
 
@@ -24,6 +25,9 @@ const copyRoleName = ref("");
 const blockKindFilter = ref("all");
 const selectedJobIds = ref([]);
 const pendingRequest = ref("");
+const cvDetailsOpen = ref(false);
+const sessionProposalOpen = ref(false);
+const savingCvDetails = ref(false);
 const selectedVersions = reactive({});
 function normalizeEditorDraft(input) {
   const normalized = normalizeDraft(input);
@@ -36,6 +40,12 @@ function normalizeEditorDraft(input) {
   };
 }
 const draft = reactive(normalizeEditorDraft({ name: "", profile: { basics: {} }, selections: [] }));
+const cvDetails = reactive({
+  name: "",
+  personName: "",
+  targetRole: "",
+  email: "",
+});
 const themes = listThemes();
 const defaultThemeValue = "__default_editorial__";
 const themeItems = [
@@ -78,7 +88,49 @@ const selectedTheme = computed({
   set: (value) => { draft.themeId = value === defaultThemeValue ? null : value; },
 });
 
+function plainSnapshot(value) {
+  return JSON.parse(JSON.stringify(value));
+}
 function replaceDraft(next) { Object.assign(draft, normalizeEditorDraft(next)); }
+function openCvDetails() {
+  Object.assign(cvDetails, {
+    name: draft.name || "",
+    personName: draft.profile.basics.name || "",
+    targetRole: draft.profile.basics.label || "",
+    email: draft.profile.basics.email || "",
+  });
+  cvDetailsOpen.value = true;
+}
+async function saveCvDetails() {
+  if (savingCvDetails.value) return;
+  savingCvDetails.value = true;
+  error.value = "";
+  try {
+    draft.name = cvDetails.name.trim();
+    draft.profile.basics = {
+      ...draft.profile.basics,
+      name: cvDetails.personName.trim(),
+      label: cvDetails.targetRole.trim(),
+      email: cvDetails.email.trim(),
+    };
+    const savedDefaults = await cvProfileDefaults.save({
+      name: draft.profile.basics.name,
+      email: draft.profile.basics.email,
+    });
+    cvDetailsOpen.value = false;
+    notice.value = savedDefaults.scope === "developer"
+      ? "CV details updated. Developer defaults saved locally."
+      : "CV details updated and account defaults saved.";
+  } catch (reason) {
+    error.value = reason.message;
+  } finally {
+    savingCvDetails.value = false;
+  }
+}
+function showSessionProposal(nextProposal) {
+  sessionChangeProposal.value = nextProposal;
+  sessionProposalOpen.value = true;
+}
 function sectionFor(kind) { return { experience:"experience", skill:"skills", certification:"certifications", education:"education", interest:"interests" }[kind]; }
 function selectedVersion(block) { return block.versions.find((item)=>item.id===(selectedVersions[block.id]||block.currentVersion.id))||block.currentVersion; }
 function blockVersionItems(block) {
@@ -173,11 +225,11 @@ async function startEditingSession(revision) {
   error.value = "";
   notice.value = "";
   try {
-    sessionChangeProposal.value = await cvWorkspace.proposeLifecycleChange({ operation: {
+    showSessionProposal(await cvWorkspace.proposeLifecycleChange({ operation: {
       type: "start_editing_session",
       target: { type: "cv", id: draft.id },
       baseRevisionId: revision?.id || null,
-    } });
+    } }));
   } catch (reason) {
     error.value = reason.message;
   } finally {
@@ -194,6 +246,7 @@ async function resumeEditingSession(summary) {
   try {
     const session = await cvWorkspace.resumeEditingSession(summary.id);
     sessionChangeProposal.value = null;
+    sessionProposalOpen.value = false;
     activateEditingSession(session, summary.baseRevisionNumber);
   } catch (reason) {
     error.value = reason.message;
@@ -204,11 +257,12 @@ async function resumeEditingSession(summary) {
 
 onMounted(async () => {
   try {
-    const [catalog, existing, history, sessions] = await Promise.all([
+    const [catalog, existing, history, sessions, profileDefaults] = await Promise.all([
       blockLibrary.browse(),
       route.params.cvId ? cvWorkspace.open(route.params.cvId) : Promise.resolve(null),
       route.params.cvId ? cvWorkspace.history(route.params.cvId) : Promise.resolve([]),
       route.params.cvId ? cvWorkspace.editingSessions(route.params.cvId) : Promise.resolve([]),
+      cvProfileDefaults.load().catch(() => null),
     ]);
     blocks.value = catalog.blocks;
     revisions.value = history;
@@ -216,6 +270,9 @@ onMounted(async () => {
     if (existing) {
       replaceDraft(existing);
       publishSlug.value = existing.slug || "";
+    } else if (profileDefaults) {
+      draft.profile.basics.name ||= profileDefaults.name;
+      draft.profile.basics.email ||= profileDefaults.email;
     }
     alignSelectedVersions();
     status.value = "loaded";
@@ -223,9 +280,11 @@ onMounted(async () => {
 });
 
 async function persistActiveEditingSession({ refresh = true } = {}) {
+  const sessionSnapshot = plainSnapshot(activeSession.value);
+  const draftSnapshot = plainSnapshot(draft);
   const saved = await cvWorkspace.saveEditingSession({
-    ...activeSession.value,
-    ...draft,
+    ...sessionSnapshot,
+    ...draftSnapshot,
     id: activeSession.value.id,
     cvId: draft.id,
     optimisticVersion: activeSession.value.optimisticVersion,
@@ -248,7 +307,7 @@ async function save() {
       return saved;
     }
     if (draft.id) throw new Error("Resume or start an Editing Session before changing this CV.");
-    const session = await cvWorkspace.createCvEditingSession(normalizeDraft(draft));
+    const session = await cvWorkspace.createCvEditingSession(normalizeDraft(plainSnapshot(draft)));
     replaceDraft({ ...draft, id: session.cvId });
     activateEditingSession(session);
     await refreshEditingContext();
@@ -289,11 +348,11 @@ async function finishEditingSession() {
       return;
     }
 
-    sessionChangeProposal.value = await cvWorkspace.proposeLifecycleChange({ operation: {
+    showSessionProposal(await cvWorkspace.proposeLifecycleChange({ operation: {
       type: "finish_editing_session",
       target: { type: "editing_session", id: saved.id },
       baseOptimisticVersion: saved.optimisticVersion,
-    } });
+    } }));
     notice.value = "Review the finish proposal, then apply it to create the immutable CV Revision.";
   } catch (reason) {
     error.value = reason.message;
@@ -310,19 +369,19 @@ async function proposeEditingSessionChange() {
   error.value = "";
   notice.value = "";
   try {
-    sessionChangeProposal.value = await cvWorkspace.proposeEditingSessionChange({
+    showSessionProposal(await cvWorkspace.proposeEditingSessionChange({
       sessionId: activeSession.value.id,
       baseOptimisticVersion: activeSession.value.optimisticVersion,
       operations: [{
         type: "replace_working_state",
         value: {
-          ...activeSession.value,
-          ...draft,
+          ...plainSnapshot(activeSession.value),
+          ...plainSnapshot(draft),
           id: activeSession.value.id,
           cvId: draft.id,
         },
       }],
-    });
+    }));
   } catch (reason) {
     error.value = reason.message;
   } finally {
@@ -339,7 +398,7 @@ async function proposeLifecycleChange(operation) {
   error.value = "";
   notice.value = "";
   try {
-    sessionChangeProposal.value = await cvWorkspace.proposeLifecycleChange({ operation });
+    showSessionProposal(await cvWorkspace.proposeLifecycleChange({ operation }));
   } catch (reason) {
     error.value = reason.message;
   } finally {
@@ -394,6 +453,7 @@ async function applySessionChangeProposal() {
       publishSlug.value = draft.slug || publishSlug.value;
     }
     sessionChangeProposal.value = null;
+    sessionProposalOpen.value = false;
     await refreshEditingContext();
     notice.value = operationType === "finish_editing_session"
       ? `Editing Session finished as Revision ${applied.result.revisionNumber}.`
@@ -419,6 +479,7 @@ async function discardSessionChangeProposal() {
   try {
     await cvWorkspace.discardChangeProposal(sessionChangeProposal.value.id);
     sessionChangeProposal.value = null;
+    sessionProposalOpen.value = false;
     notice.value = "Change Proposal discarded. The Editing Session was not changed.";
   } catch (reason) {
     error.value = reason.message;
@@ -481,17 +542,42 @@ function generateTaskProposal(instruction) {
   <section v-else-if="status === 'missing'"><h2>CV not found</h2><NuxtLink to="/app/cvs">Return to saved CVs</NuxtLink></section>
   <div v-else-if="status === 'failed'" role="alert">{{ error }}</div>
   <div v-else class="editor-layout">
-    <section class="editor-controls">
-      <div v-if="error" role="alert">{{ error }}</div>
-      <p v-if="notice" role="status">{{ notice }}</p>
-      <section v-if="draft.id" aria-labelledby="editing-sessions-heading">
-        <h2 id="editing-sessions-heading">Open Editing Sessions</h2>
-        <p v-if="!openEditingSessions.length">No open Editing Sessions.</p>
+    <section
+      v-if="draft.id"
+      class="editor-session-bar"
+      aria-labelledby="editing-sessions-heading"
+    >
+      <div class="editor-session-bar-heading">
+        <div>
+          <p class="editor-session-eyebrow">Editing Session</p>
+          <h2 id="editing-sessions-heading">
+            {{ activeSession ? editingSessionLabel({ baseRevisionNumber: activeBaseRevisionNumber }) : "Open Editing Sessions" }}
+          </h2>
+          <p v-if="activeSession">
+            working version {{ activeSession.optimisticVersion }}
+          </p>
+          <p v-else-if="!openEditingSessions.length">
+            No open Editing Sessions.
+          </p>
+        </div>
+        <UButton
+          color="secondary"
+          variant="outline"
+          icon="i-lucide-file-pen-line"
+          class="control-compact"
+          @click="openCvDetails"
+        >
+          CV details
+        </UButton>
+      </div>
+      <div v-if="!activeSession && openEditingSessions.length" class="editor-session-list">
         <article v-for="session in openEditingSessions" :key="session.id" class="session-row">
           <span>{{ editingSessionLabel(session) }} · working version {{ session.optimisticVersion }}</span>
           <UButton
             v-if="draft.status !== 'archived'"
-            class="secondary control-compact"
+            color="secondary"
+            variant="outline"
+            class="control-compact"
             :loading="requestIs(`resume-session:${session.id}`)"
             :disabled="Boolean(pendingRequest)"
             @click="resumeEditingSession(session)"
@@ -499,26 +585,44 @@ function generateTaskProposal(instruction) {
             Resume Editing Session
           </UButton>
         </article>
-        <template v-if="archivedEditingSessions.length">
-          <h3>Archived Editing Sessions</h3>
-          <article v-for="session in archivedEditingSessions" :key="session.id" class="session-row">
-            <span>Archived Editing Session · working version {{ session.optimisticVersion }}</span>
-            <UButton
-              v-if="draft.status !== 'archived'"
-              class="secondary control-compact"
-              :loading="requestIs(`lifecycle:restore_editing_session:${session.id}`)"
-              :disabled="Boolean(pendingRequest)"
-              @click="proposeSessionLifecycle(session, 'restore_editing_session')"
-            >
-              Restore Editing Session
-            </UButton>
-          </article>
-        </template>
-        <p v-if="activeSession"><strong>{{ editingSessionLabel({ baseRevisionNumber: activeBaseRevisionNumber }) }}</strong> · working version {{ activeSession.optimisticVersion }}</p>
-      </section>
-      <label>CV name<UInput v-model="draft.name" placeholder="Product lead CV" /></label>
-      <div class="grid"><label>Name<UInput v-model="draft.profile.basics.name" /></label><label>Target role<UInput v-model="draft.profile.basics.label" /></label></div>
-      <label>Email<UInput v-model="draft.profile.basics.email" type="email" /></label>
+      </div>
+      <details v-if="archivedEditingSessions.length" class="editor-archived-sessions">
+        <summary>Archived Editing Sessions</summary>
+        <article v-for="session in archivedEditingSessions" :key="session.id" class="session-row">
+          <span>Archived Editing Session · working version {{ session.optimisticVersion }}</span>
+          <UButton
+            v-if="draft.status !== 'archived'"
+            color="secondary"
+            variant="outline"
+            class="control-compact"
+            :loading="requestIs(`lifecycle:restore_editing_session:${session.id}`)"
+            :disabled="Boolean(pendingRequest)"
+            @click="proposeSessionLifecycle(session, 'restore_editing_session')"
+          >
+            Restore Editing Session
+          </UButton>
+        </article>
+      </details>
+    </section>
+    <section class="editor-controls">
+      <div v-if="error" role="alert">{{ error }}</div>
+      <p v-if="notice" role="status">{{ notice }}</p>
+      <div class="cv-details-summary">
+        <div>
+          <p class="editor-session-eyebrow">CV details</p>
+          <strong>{{ draft.name || "Untitled CV" }}</strong>
+          <span>{{ draft.profile.basics.name || "Add your name" }} · {{ draft.profile.basics.label || "Add a target role" }}</span>
+        </div>
+        <UButton
+          color="secondary"
+          variant="outline"
+          icon="i-lucide-file-pen-line"
+          class="control-compact"
+          @click="openCvDetails"
+        >
+          {{ draft.id ? "Edit CV details" : "Add CV details" }}
+        </UButton>
+      </div>
       <label>Theme<USelect v-model="selectedTheme" :items="themeItems" aria-label="Theme" /></label>
       <details>
         <summary>Summary generator</summary>
@@ -557,7 +661,8 @@ function generateTaskProposal(instruction) {
             v-for="item in blockKindItems"
             :key="item.value"
             class="block-kind-tab"
-            :class="{ 'block-kind-tab--active': blockKindFilter === item.value }"
+            color="secondary"
+            :variant="blockKindFilter === item.value ? 'solid' : 'outline'"
             role="tab"
             size="xs"
             :aria-selected="blockKindFilter === item.value"
@@ -567,7 +672,6 @@ function generateTaskProposal(instruction) {
           </UButton>
         </div>
         <div v-if="jobFilterItems.length" class="job-filter">
-          <span>Jobs</span>
           <USelectMenu
             v-model="selectedJobIds"
             :items="jobFilterItems"
@@ -577,9 +681,13 @@ function generateTaskProposal(instruction) {
             searchable
             size="sm"
             class="job-filter-select"
+            color="secondary"
+            variant="outline"
             icon="i-lucide-briefcase-business"
+            trailing-icon="i-lucide-chevron-down"
             placeholder="All jobs"
             aria-label="Filter CV Blocks by jobs"
+            :ui="{ base: 'w-full min-w-0 justify-between', leading: 'pointer-events-none', trailing: 'pointer-events-none' }"
           >
             <template #default="{ modelValue }">
               <span>{{ modelValue.length ? `${modelValue.length} job${modelValue.length === 1 ? "" : "s"} selected` : "All jobs" }}</span>
@@ -693,40 +801,15 @@ function generateTaskProposal(instruction) {
           Archive Editing Session
         </UButton>
       </template>
-      <article v-if="sessionChangeProposal" aria-label="Editing Session Change Proposal" class="proposal-review">
-        <h3>Editing Session Change Proposal</h3>
-        <p>Target {{ sessionChangeProposal.target?.id || activeSession?.id }} · Editing Session working version {{ sessionChangeProposal.baseOptimisticVersion }}</p>
-        <p>Expires {{ sessionChangeProposal.expiresAt }}</p>
-        <h4>Structured diff</h4>
-        <ul>
-          <li v-for="field in sessionChangeProposal.diff?.fields || []" :key="field.path">
-            {{ field.path }}: {{ field.before }} → {{ field.after }}
-          </li>
-          <li>Added Block Versions: {{ sessionChangeProposal.diff?.composition?.added?.length || 0 }}</li>
-          <li>Removed Block Versions: {{ sessionChangeProposal.diff?.composition?.removed?.length || 0 }}</li>
-        </ul>
-        <pre>{{ JSON.stringify(sessionChangeProposal.diff, null, 2) }}</pre>
-        <p v-if="sessionChangeProposal.warnings?.length">Warnings: {{ sessionChangeProposal.warnings.join(" · ") }}</p>
-        <p v-else>No warnings.</p>
-        <div class="grid">
-          <UButton
-            class="control-standard"
-            :loading="requestIs('apply-proposal')"
-            :disabled="Boolean(pendingRequest)"
-            @click="applySessionChangeProposal"
-          >
-            Apply Proposed Changes
-          </UButton>
-          <UButton
-            class="secondary control-standard"
-            :loading="requestIs('discard-proposal')"
-            :disabled="Boolean(pendingRequest)"
-            @click="discardSessionChangeProposal"
-          >
-            Discard Change Proposal
-          </UButton>
-        </div>
-      </article>
+      <UButton
+        v-if="sessionChangeProposal && !sessionProposalOpen"
+        color="secondary"
+        variant="outline"
+        class="control-standard"
+        @click="sessionProposalOpen = true"
+      >
+        Review pending Change Proposal
+      </UButton>
       <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
       <UButton
         v-if="draft.id && draft.status !== 'archived'"
@@ -820,6 +903,99 @@ function generateTaskProposal(instruction) {
       </section>
     </section>
     <aside class="live-preview"><p><strong>Live preview</strong></p><CvDocument :document="draft" /></aside>
+
+    <UModal
+      v-model:open="cvDetailsOpen"
+      title="CV details"
+      description="Set this CV's name and target role. Your name and email become the defaults for future CVs."
+      :ui="{ content: 'sm:max-w-xl', footer: 'justify-end' }"
+    >
+      <template #body>
+        <div class="modal-form">
+          <UFormField label="CV name" required>
+            <UInput v-model="cvDetails.name" placeholder="Product lead CV" class="w-full" />
+          </UFormField>
+          <UFormField label="Name" required>
+            <UInput v-model="cvDetails.personName" class="w-full" />
+          </UFormField>
+          <UFormField label="Target role">
+            <UInput v-model="cvDetails.targetRole" class="w-full" />
+          </UFormField>
+          <UFormField label="Email">
+            <UInput v-model="cvDetails.email" type="email" class="w-full" />
+          </UFormField>
+          <p class="modal-form-note">
+            Name and email are saved to your Resume Studio account as defaults. They can still be changed for each CV.
+          </p>
+        </div>
+      </template>
+      <template #footer>
+        <UButton
+          color="neutral"
+          variant="outline"
+          :disabled="savingCvDetails"
+          @click="cvDetailsOpen = false"
+        >
+          Cancel
+        </UButton>
+        <UButton
+          :loading="savingCvDetails"
+          :disabled="!cvDetails.name.trim() || !cvDetails.personName.trim()"
+          @click="saveCvDetails"
+        >
+          Save CV details
+        </UButton>
+      </template>
+    </UModal>
+
+    <UModal
+      v-model:open="sessionProposalOpen"
+      title="Review Change Proposal"
+      description="Nothing changes until you apply this proposal."
+      scrollable
+      :ui="{ content: 'sm:max-w-3xl', footer: 'justify-end' }"
+    >
+      <template #body>
+        <article
+          v-if="sessionChangeProposal"
+          aria-label="Editing Session Change Proposal"
+          class="proposal-review"
+        >
+          <h3>Editing Session Change Proposal</h3>
+          <p>Target {{ sessionChangeProposal.target?.id || activeSession?.id }} · Editing Session working version {{ sessionChangeProposal.baseOptimisticVersion }}</p>
+          <p>Expires {{ sessionChangeProposal.expiresAt }}</p>
+          <h4>Structured diff</h4>
+          <ul>
+            <li v-for="field in sessionChangeProposal.diff?.fields || []" :key="field.path">
+              {{ field.path }}: {{ field.before }} → {{ field.after }}
+            </li>
+            <li>Added Block Versions: {{ sessionChangeProposal.diff?.composition?.added?.length || 0 }}</li>
+            <li>Removed Block Versions: {{ sessionChangeProposal.diff?.composition?.removed?.length || 0 }}</li>
+          </ul>
+          <pre>{{ JSON.stringify(sessionChangeProposal.diff, null, 2) }}</pre>
+          <p v-if="sessionChangeProposal.warnings?.length">Warnings: {{ sessionChangeProposal.warnings.join(" · ") }}</p>
+          <p v-else>No warnings.</p>
+        </article>
+      </template>
+      <template #footer>
+        <UButton
+          color="neutral"
+          variant="outline"
+          :loading="requestIs('discard-proposal')"
+          :disabled="Boolean(pendingRequest)"
+          @click="discardSessionChangeProposal"
+        >
+          Discard Change Proposal
+        </UButton>
+        <UButton
+          :loading="requestIs('apply-proposal')"
+          :disabled="Boolean(pendingRequest)"
+          @click="applySessionChangeProposal"
+        >
+          Apply Proposed Changes
+        </UButton>
+      </template>
+    </UModal>
   </div>
 </template>
 
@@ -827,6 +1003,18 @@ function generateTaskProposal(instruction) {
 .editor-layout { display: grid; grid-template-columns: minmax(23rem, .9fr) minmax(34rem, 1.1fr); gap: clamp(1.5rem, 3vw, 3rem); align-items: start; }
 .editor-controls { min-width: 0; }
 .editor-controls > h2, .editor-controls > section > h2 { margin-top: 2.5rem; padding-bottom: .55rem; border-bottom: 2px solid var(--ink); font-size: 1.8rem; font-weight: 400; }
+.editor-session-bar { grid-column: 1 / -1; padding: 1rem; border: 1px solid var(--ink); background: var(--paper-light); box-shadow: 4px 4px 0 var(--paper-deep); }
+.editor-session-bar-heading, .cv-details-summary { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.editor-session-bar h2 { margin: .15rem 0; font-family: var(--font-editorial); font-size: clamp(1.45rem, 2.5vw, 2rem); font-weight: 400; }
+.editor-session-bar p { margin: 0; }
+.editor-session-eyebrow { margin: 0; color: var(--marker-dark); font-family: var(--font-label); font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.editor-session-list { margin-top: .75rem; border-top: 1px solid var(--paper-deep); }
+.editor-archived-sessions { margin-top: .75rem; }
+.cv-details-summary { margin-bottom: 1rem; padding: .85rem; border: 1px solid var(--ink); background: var(--paper-light); }
+.cv-details-summary strong, .cv-details-summary span { display: block; }
+.cv-details-summary span { margin-top: .2rem; color: var(--muted); font-size: .8rem; }
+.modal-form { display: grid; gap: 1rem; }
+.modal-form-note { margin: 0; color: var(--muted); font-size: .85rem; }
 .live-preview { position: sticky; top: 1rem; transform-origin: top left; }
 .live-preview > p { margin: 0 0 .65rem; font-family: var(--font-label); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; }
 .library-row, .selection, .session-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .85rem !important; margin: .6rem 0 !important; border: 1px solid var(--ink) !important; background: var(--paper-light); box-shadow: 3px 3px 0 var(--paper-deep); }
@@ -837,12 +1025,10 @@ function generateTaskProposal(instruction) {
 .library-row-footer { display: flex; align-items: center; justify-content: space-between; gap: .65rem; padding-top: .65rem; border-top: 1px solid var(--paper-deep); }
 .library-version-select { width: auto; min-width: 10rem; max-width: 14rem; }
 .library-filters { display: grid; gap: .65rem; margin: 1rem 0; }
-.block-kind-tabs { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem; padding: .35rem; background: var(--ink); }
-.block-kind-tabs .block-kind-tab { width: 100%; min-width: 0; margin: 0; border-color: var(--paper-light); background: transparent; color: var(--paper-light); box-shadow: none; }
-.block-kind-tabs .block-kind-tab--active { background: var(--marker) !important; color: var(--ink) !important; }
-.job-filter { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; }
-.job-filter > span { font-family: var(--font-label); font-size: .65rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-.job-filter-select { flex: 1 1 auto; width: 0; min-width: 0; }
+.block-kind-tabs { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem; }
+.block-kind-tabs .block-kind-tab { width: 100%; min-width: 0; margin: 0; box-shadow: none; }
+.job-filter { display: flex; align-items: center; justify-content: stretch; gap: .5rem; }
+.job-filter-select { flex: 1 1 auto; width: 100%; min-width: 0; }
 .job-filter-clear { width: auto; margin: 0; }
 .empty-library-filter { margin: 1rem 0; color: var(--muted); }
 .selection button { width: auto; margin: 0 .15rem; }
@@ -852,10 +1038,10 @@ function generateTaskProposal(instruction) {
 .selection-employer { margin: .75rem 0 1.25rem; padding-left: .9rem; border-left: 4px solid var(--marker); }
 .selection-employer h4 { margin: 0 0 .6rem; }
 .selection-employer h5 { margin: .7rem 0 .35rem; color: var(--muted); font-family: var(--font-label); font-size: .72rem; }
-.proposal-review { margin: 1.5rem 0 !important; border: 2px solid var(--ink) !important; box-shadow: 6px 6px 0 var(--marker) !important; }
+.proposal-review { margin: 0 !important; }
 .proposal-review pre { max-height: 22rem; overflow: auto; padding: 1rem; background: var(--ink); color: var(--paper-light); font-family: var(--font-label); font-size: .7rem; }
 @media (max-width: 1180px) { .editor-layout { grid-template-columns: 1fr; } .live-preview { position: static; } }
-@media (max-width: 650px) { .selection, .session-row { align-items: stretch; flex-direction: column; } .library-row-footer, .job-filter { align-items: stretch; flex-direction: column; } .library-version-select, .job-filter-select { width: 100%; max-width: none; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
+@media (max-width: 650px) { .selection, .session-row, .editor-session-bar-heading, .cv-details-summary { align-items: stretch; flex-direction: column; } .library-row-footer, .job-filter { align-items: stretch; flex-direction: column; } .library-version-select, .job-filter-select { width: 100%; max-width: none; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
 @media (min-width: 1500px) { .block-kind-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
-@media print { .editor-controls { display: none; } .editor-layout { display: block; } }
+@media print { .editor-controls, .editor-session-bar { display: none; } .editor-layout { display: block; } }
 </style>

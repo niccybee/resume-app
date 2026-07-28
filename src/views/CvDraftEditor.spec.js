@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CvDraftEditor from "./CvDraftEditor.vue";
 import { createTaskBlocks } from "../domain/tasks/createTaskBlocks";
 import { blockLibrary } from "../services/blockLibrary";
+import { cvProfileDefaults } from "../services/cvProfileDefaults";
 import { cvWorkspace } from "../services/cvWorkspace";
 
 let routeParams = { cvId: "cv-1" };
@@ -19,6 +20,12 @@ vi.mock("../services/blockLibrary", () => ({
 }));
 vi.mock("../domain/tasks/createTaskBlocks", () => ({
   createTaskBlocks: vi.fn(),
+}));
+vi.mock("../services/cvProfileDefaults", () => ({
+  cvProfileDefaults: {
+    load: vi.fn(),
+    save: vi.fn(),
+  },
 }));
 vi.mock("../services/cvWorkspace", () => ({
   cvWorkspace: {
@@ -49,6 +56,27 @@ function button(wrapper, label) {
   return wrapper.findAll("button").find((item) => item.text() === label);
 }
 
+async function openCvDetailsModal(wrapper) {
+  await button(wrapper, wrapper.text().includes("Edit CV details") ? "Edit CV details" : "Add CV details").trigger("click");
+  await flushPromises();
+}
+
+async function saveCvDetails(wrapper, {
+  name,
+  personName,
+  targetRole,
+  email,
+}) {
+  await openCvDetailsModal(wrapper);
+  if (name !== undefined) await wrapper.get('input[placeholder="Product lead CV"]').setValue(name);
+  const modalInputs = wrapper.get('[role="dialog"][aria-label="CV details"]').findAll("input");
+  if (personName !== undefined) await modalInputs[1].setValue(personName);
+  if (targetRole !== undefined) await modalInputs[2].setValue(targetRole);
+  if (email !== undefined) await modalInputs[3].setValue(email);
+  await button(wrapper, "Save CV details").trigger("click");
+  await flushPromises();
+}
+
 async function mountEditor({ taskChatStub = true, cvId = "cv-1" } = {}) {
   routeParams = cvId ? { cvId } : {};
   const wrapper = mount(CvDraftEditor, {
@@ -59,6 +87,15 @@ async function mountEditor({ taskChatStub = true, cvId = "cv-1" } = {}) {
         UButton: {
           props: ["loading", "disabled"],
           template: '<button :disabled="disabled || loading" :aria-busy="loading ? \'true\' : undefined"><slot /></button>',
+        },
+        UFormField: {
+          props: ["label"],
+          template: "<label>{{ label }}<slot /></label>",
+        },
+        UModal: {
+          props: ["open", "title"],
+          emits: ["update:open"],
+          template: '<section v-if="open" role="dialog" :aria-label="title"><slot name="body" /><footer><slot name="footer" /></footer></section>',
         },
         USelectMenu: {
           props: ["modelValue", "items", "multiple"],
@@ -78,6 +115,15 @@ describe("CV summary proposals", () => {
     routeParams = { cvId: "cv-1" };
     blockLibrary.browse.mockResolvedValue({ blocks: [], experience: [], sidebar: {} });
     createTaskBlocks.mockResolvedValue([]);
+    cvProfileDefaults.load.mockResolvedValue({
+      name: "Account Owner",
+      email: "owner@example.com",
+    });
+    cvProfileDefaults.save.mockResolvedValue({
+      name: "Nic",
+      email: "nic@example.com",
+      scope: "account",
+    });
     cvWorkspace.history.mockResolvedValue([]);
     cvWorkspace.editingSessions.mockResolvedValue([]);
     cvWorkspace.open.mockResolvedValue({
@@ -261,6 +307,7 @@ describe("CV summary proposals", () => {
 
     const wrapper = await mountEditor();
 
+    await openCvDetailsModal(wrapper);
     expect(wrapper.find('input[placeholder="Product lead CV"]').element.value).toBe("Product CV");
     expect(wrapper.find('input[type="email"]').element.value).toBe("");
     expect(button(wrapper, "Resume Editing Session")).toBeTruthy();
@@ -304,9 +351,7 @@ describe("CV summary proposals", () => {
 
     await button(wrapper, "Resume Editing Session").trigger("click");
     await flushPromises();
-    await wrapper.get('input[placeholder="Product lead CV"]').setValue(
-      "Google Product Manager",
-    );
+    await saveCvDetails(wrapper, { name: "Google Product Manager" });
     await button(wrapper, "Save Editing Session").trigger("click");
     await flushPromises();
 
@@ -367,7 +412,7 @@ describe("CV summary proposals", () => {
 
     await button(wrapper, "Resume Editing Session").trigger("click");
     await flushPromises();
-    await wrapper.get('input[placeholder="Product lead CV"]').setValue("Google Product Manager");
+    await saveCvDetails(wrapper, { name: "Google Product Manager" });
     await button(wrapper, "Review Change Proposal").trigger("click");
     await flushPromises();
 
@@ -379,7 +424,11 @@ describe("CV summary proposals", () => {
         value: expect.objectContaining({ name: "Google Product Manager" }),
       }],
     });
+    expect(() => structuredClone(
+      cvWorkspace.proposeEditingSessionChange.mock.calls.at(-1)[0],
+    )).not.toThrow();
     expect(cvWorkspace.applyChangeProposal).not.toHaveBeenCalled();
+    expect(wrapper.get('[role="dialog"][aria-label="Review Change Proposal"]').exists()).toBe(true);
     expect(wrapper.get('[aria-label="Editing Session Change Proposal"]').text()).toContain("name");
     expect(wrapper.get('[aria-label="Editing Session Change Proposal"]').text()).toContain("Editing Session working version 3");
 
@@ -755,10 +804,10 @@ describe("CV summary proposals", () => {
     await interestSelection.findAll("button").find((item) =>
       item.text() === "Remove").trigger("click");
 
-    await wrapper.get('input[placeholder="Product lead CV"]').setValue(
-      "Google Product Manager CV",
-    );
-    await wrapper.get('input[type="email"]').setValue("product@example.com");
+    await saveCvDetails(wrapper, {
+      name: "Google Product Manager CV",
+      email: "product@example.com",
+    });
     await wrapper.get(".editor-controls > label select").setValue("modern");
     await button(wrapper, "Save Editing Session").trigger("click");
     await flushPromises();
@@ -800,7 +849,10 @@ describe("CV summary proposals", () => {
       name: "New Product CV", profile: { basics: {} }, summary: "", selections: [],
     });
     const wrapper = await mountEditor({ cvId: null });
-    await wrapper.get('input[placeholder="Product lead CV"]').setValue("New Product CV");
+    await saveCvDetails(wrapper, {
+      name: "New Product CV",
+      personName: "Account Owner",
+    });
 
     await button(wrapper, "Create CV Editing Session").trigger("click");
     await flushPromises();
@@ -808,6 +860,10 @@ describe("CV summary proposals", () => {
     expect(cvWorkspace.createCvEditingSession).toHaveBeenCalledWith(expect.objectContaining({
       id: null, name: "New Product CV", selections: [],
     }));
+    expect(cvProfileDefaults.save).toHaveBeenCalledWith({
+      name: "Account Owner",
+      email: "owner@example.com",
+    });
     expect(button(wrapper, "Save Editing Session")).toBeDefined();
     expect(wrapper.get('[role="status"]').text()).toContain("initial Editing Session created");
   });

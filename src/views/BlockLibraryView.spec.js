@@ -180,9 +180,59 @@ async function mountLibrary() {
     operationType: operation.type,
     status: "pending",
   }));
-  const wrapper = mount(BlockLibraryView);
+  const wrapper = mountBlockLibrary();
   await flushPromises();
   return wrapper;
+}
+
+function mountBlockLibrary() {
+  return mount(BlockLibraryView, {
+    global: {
+      stubs: {
+        UButton: {
+          props: ["icon"],
+          template: '<button><span v-if="icon" :data-icon="icon" /><slot /></button>',
+        },
+        UCard: {
+          props: ["as"],
+          template: '<component :is="as || \'div\'" class="block-card"><div data-slot="body"><slot /></div><div data-slot="footer"><slot name="footer" /></div></component>',
+        },
+        UCommandPalette: {
+          props: ["searchTerm", "placeholder"],
+          emits: ["update:searchTerm", "update:open"],
+          template: `
+            <div class="command-palette-stub">
+              <input
+                type="search"
+                aria-label="Search CV Blocks, employers, roles…"
+                :placeholder="placeholder"
+                :value="searchTerm"
+                @input="$emit('update:searchTerm', $event.target.value)"
+              />
+              <slot name="footer" />
+            </div>
+          `,
+        },
+        UIcon: {
+          props: ["name"],
+          template: '<span :data-icon="name" />',
+        },
+        UKbd: {
+          props: ["value"],
+          template: '<kbd>{{ value }}</kbd>',
+        },
+        UModal: {
+          props: ["open", "title"],
+          emits: ["update:open"],
+          template: '<div v-if="open" role="dialog" :aria-label="title"><slot name="body" /><slot name="footer" /></div>',
+        },
+        UTooltip: {
+          props: ["text"],
+          template: '<span class="tooltip-stub" :data-tooltip="text"><slot /></span>',
+        },
+      },
+    },
+  });
 }
 
 beforeEach(() => {
@@ -198,7 +248,12 @@ describe("native CV Block Library interactions", () => {
     expect(wrapper.text()).toContain("Product analytics");
     expect(wrapper.text()).toContain("Improved an earlier product.");
     expect(wrapper.text()).toContain("Basketball");
+    expect(wrapper.findAll('.block-card [data-slot="footer"]')).toHaveLength(4);
+    expect(wrapper.find('.block-card [data-slot="footer"]').text()).toContain("1 Block Version");
+    expect(wrapper.findAll(".block-actions button").every((button) =>
+      button.classes().includes("secondary"))).toBe(true);
 
+    await wrapper.get('button[aria-label="Search CV Blocks"]').trigger("click");
     await wrapper.get('input[type="search"]').setValue("analytics");
     expect(wrapper.text()).not.toContain("Launched a new product.");
     expect(wrapper.text()).toContain("Product analytics");
@@ -226,9 +281,32 @@ describe("native CV Block Library interactions", () => {
     expect(wrapper.text()).not.toContain("Launched a new product.");
   });
 
+  it("opens the CV Block command bar from the search icon and Meta+K", async () => {
+    const wrapper = await mountLibrary();
+
+    expect(wrapper.find('[role="dialog"][aria-label="Search CV Blocks"]').exists()).toBe(false);
+    const trigger = wrapper.get('button[aria-label="Search CV Blocks"]');
+    expect(trigger.attributes("aria-keyshortcuts")).toBe("Meta+K");
+
+    await trigger.trigger("click");
+    expect(wrapper.get('[role="dialog"][aria-label="Search CV Blocks"]').exists()).toBe(true);
+
+    await wrapper.get('[role="dialog"][aria-label="Search CV Blocks"] button[aria-label="Close search"]').trigger("click");
+    window.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "k",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }));
+    await flushPromises();
+
+    expect(wrapper.get('[role="dialog"][aria-label="Search CV Blocks"]').exists()).toBe(true);
+  });
+
   it("creates a CV Block through the existing domain boundary", async () => {
     const wrapper = await mountLibrary();
-    const form = wrapper.get(".create-panel form");
+    await wrapper.get('button[aria-label="Create CV Block"]').trigger("click");
+    const form = wrapper.get("form.create-panel");
 
     expect(wrapper.text()).toContain("Create CV Block");
     await form.get("select").setValue("skill");
@@ -248,6 +326,7 @@ describe("native CV Block Library interactions", () => {
         metadata: {},
       }],
     });
+    expect(wrapper.find('[role="dialog"][aria-label="Create CV Block"]').exists()).toBe(false);
   });
 
   it("duplicates, archives, restores, and safely deletes CV Blocks", async () => {
@@ -255,11 +334,13 @@ describe("native CV Block Library interactions", () => {
     mocks.browse.mockResolvedValue({ ...catalog, blocks: [...catalog.blocks, archived] });
     mocks.duplicateBlock.mockResolvedValue({ blockId: "block-copy" });
     mocks.deleteBlock.mockResolvedValue({ deletedBlockId: skillBlock.id });
-    const wrapper = mount(BlockLibraryView);
+    const wrapper = mountBlockLibrary();
     await flushPromises();
 
     const click = async (label) => {
-      await wrapper.findAll("button").find((item) => item.text() === label).trigger("click");
+      const target = wrapper.findAll("button").find((button) =>
+        button.attributes("aria-label") === label || button.text() === label);
+      await target.trigger("click");
       await flushPromises();
     };
     await click("Duplicate CV Block");
@@ -288,11 +369,11 @@ describe("native CV Block Library interactions", () => {
     }));
     const wrapper = await mountLibrary();
 
-    await wrapper.findAll("button").find((item) => item.text() === "Delete CV Block").trigger("click");
+    await wrapper.get('button[aria-label="Delete CV Block"]').trigger("click");
     await flushPromises();
 
     expect(wrapper.get('[role="alert"]').text()).toContain("Archive it instead");
-    expect(wrapper.text()).toContain("Archive CV Block");
+    expect(wrapper.find('button[aria-label="Archive CV Block"]').exists()).toBe(true);
   });
 
   it("refreshes the current Block Version after a stale conflict before retrying", async () => {
@@ -302,8 +383,7 @@ describe("native CV Block Library interactions", () => {
       }),
     );
     const wrapper = await mountLibrary();
-    const editButton = wrapper.findAll("button").find((button) =>
-      button.text().includes("Edit & Block Versions"));
+    const editButton = wrapper.get('button[aria-label="Edit & Block Versions"]');
 
     const refreshedExperienceBlock = {
       ...experienceBlock,
@@ -377,8 +457,7 @@ describe("native CV Block Library interactions", () => {
     const wrapper = await mountLibrary();
     mocks.browse.mockRejectedValueOnce(new Error("Network unavailable"));
 
-    await wrapper.findAll("button").find((button) =>
-      button.text().includes("Edit & Block Versions")).trigger("click");
+    await wrapper.get('button[aria-label="Edit & Block Versions"]').trigger("click");
     const dialog = wrapper.get("dialog");
     await dialog.get("textarea").setValue("A stale change.");
     await dialog.findAll("button").find((button) =>
@@ -399,8 +478,7 @@ describe("native CV Block Library interactions", () => {
     });
     const wrapper = await mountLibrary();
 
-    await wrapper.findAll("button").find((button) =>
-      button.text().includes("Edit & Block Versions")).trigger("click");
+    await wrapper.get('button[aria-label="Edit & Block Versions"]').trigger("click");
     const dialog = wrapper.get("dialog");
     await dialog.get('input[placeholder="Emphasise stakeholder leadership…"]').setValue(
       "Emphasise market reach",
@@ -433,8 +511,7 @@ describe("native CV Block Library interactions", () => {
 
   it("discards a reviewed Block Version Change Proposal without applying it", async () => {
     const wrapper = await mountLibrary();
-    await wrapper.findAll("button").find((button) =>
-      button.text().includes("Edit & Block Versions")).trigger("click");
+    await wrapper.get('button[aria-label="Edit & Block Versions"]').trigger("click");
     await flushPromises();
     const dialog = wrapper.get("dialog");
     await dialog.findAll("button").find((button) =>

@@ -140,8 +140,16 @@ returns jsonb language plpgsql security definer set search_path = '' as $$
 declare
   v_owner_id uuid := (select auth.uid());
   v_type text := p_operation->>'type';
-  v_target_type text := coalesce(p_operation #>> '{source,type}', p_operation #>> '{target,type}');
-  v_target_id uuid := coalesce(p_operation #>> '{source,id}', p_operation #>> '{target,id}')::uuid;
+  v_target_type text := case
+    when v_type in ('copy_to_new_version', 'copy_for_new_role')
+      then p_operation #>> '{source,type}'
+    else p_operation #>> '{target,type}'
+  end;
+  v_target_id uuid := (case
+    when v_type in ('copy_to_new_version', 'copy_for_new_role')
+      then p_operation #>> '{source,id}'
+    else p_operation #>> '{target,id}'
+  end)::uuid;
   v_cv_id uuid;
   v_base integer;
   v_base_revision_id uuid := nullif(p_operation->>'baseRevisionId', '')::uuid;

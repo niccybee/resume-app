@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const root = new URL("../", import.meta.url);
@@ -98,6 +98,17 @@ describe("CV and Editing Session lifecycle migration", () => {
   });
 
   it("ships the MCP CRUD database contract through the Supabase migration chain", async () => {
+    const migrationDirectory = new URL("supabase/migrations/", root);
+    const migrationFiles = (await readdir(migrationDirectory))
+      .filter(file => file.endsWith(".sql"))
+      .sort();
+    const deployedMigrationChain = (
+      await Promise.all(
+        migrationFiles.map(file =>
+          readFile(new URL(file, migrationDirectory), "utf8"),
+        ),
+      )
+    ).join("\n");
     const sql = await readFile(
       new URL(
         "supabase/migrations/20260728052000_repair_mcp_crud_database_contract.sql",
@@ -151,6 +162,9 @@ describe("CV and Editing Session lifecycle migration", () => {
     );
     expect(apply).toMatch(/change_proposal\.operation_type = 'create_cv_block'/i);
     expect(apply).toMatch(/save_cv_block_version/i);
+    expect(deployedMigrationChain).toMatch(
+      /create or replace function public\.save_cv_block_version\([\s\S]*if v_block\.current_version_id is null then[\s\S]*A new CV Block identity cannot use based_on_version_id[\s\S]*else[\s\S]*Base Block Version must belong to the same CV Block identity/i,
+    );
     for (const operation of [
       "propose_create_cv",
       "propose_update_cv",

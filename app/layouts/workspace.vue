@@ -17,7 +17,10 @@ watch(
       <WorkspaceHeader />
 
       <section ref="workspaceMain" class="workspace-main">
-        <header class="workspace-page-header">
+        <header
+          class="workspace-page-header"
+          :class="{ 'workspace-page-header--compact-mobile': route.meta.compactHeaderOnMobile }"
+        >
           <UDashboardSidebarToggle
             class="nuxt-ui-button workspace-menu-toggle"
             color="neutral"
@@ -125,6 +128,23 @@ watch(
   }
 
   .workspace-folio {
+    display: none;
+  }
+
+  .workspace-page-header--compact-mobile {
+    grid-template-columns: auto;
+    justify-items: start;
+    padding: .75rem 1rem 0;
+    border-bottom: 0;
+    background: transparent;
+  }
+
+  .workspace-page-header--compact-mobile .workspace-menu-toggle {
+    width: 2.75rem;
+    justify-self: start;
+  }
+
+  .workspace-page-header--compact-mobile .workspace-heading {
     display: none;
   }
 }

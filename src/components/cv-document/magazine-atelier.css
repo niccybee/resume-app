@@ -1,0 +1,367 @@
+/*
+ * Atelier: an architectural-journal system built from a measured grid,
+ * technical sans labels, serif reading text, and material print colours.
+ */
+.theme-magazine-atelier {
+  --ink: #17382c;
+  --accent: #aa513f;
+  --atelier-paper: #f2ede3;
+  --atelier-muted: #59665e;
+  --atelier-rule: #9ba49c;
+  counter-reset: atelier-section;
+  background: var(--atelier-paper);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  font-size: 10pt;
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  line-height: 1.36;
+  text-rendering: optimizeLegibility;
+}
+
+.theme-magazine-atelier :is(h1, h2, h3, h4) {
+  margin: 0;
+  color: var(--ink);
+  hyphens: none;
+  text-wrap: balance;
+}
+
+.theme-magazine-atelier .cv-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 47mm;
+  align-items: end;
+  gap: 12mm;
+  padding: 0 0 7mm;
+  border: 0;
+  border-bottom: 1pt solid var(--ink);
+}
+
+.theme-magazine-atelier .cv-hero > div {
+  min-width: 0;
+}
+
+.theme-magazine-atelier .cv-hero h1 {
+  max-width: 13ch;
+  overflow-wrap: anywhere;
+  font-size: 32pt;
+  font-weight: 700;
+  letter-spacing: -.036em;
+  line-height: .94;
+}
+
+.theme-magazine-atelier .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 3mm;
+  margin: 0 0 4mm;
+  color: var(--accent);
+  font-family: "Avenir Next", Avenir, "Segoe UI", "Arial Nova", Arial, sans-serif;
+  font-size: 7.5pt;
+  font-variant-ligatures: no-common-ligatures;
+  font-weight: 700;
+  letter-spacing: .14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.theme-magazine-atelier .eyebrow::before {
+  width: 8mm;
+  height: 2.5pt;
+  background: var(--accent);
+  content: "";
+  flex: 0 0 auto;
+}
+
+.theme-magazine-atelier .role {
+  max-width: 46ch;
+  margin: 3mm 0 0;
+  color: var(--atelier-muted);
+  font-family: "Avenir Next", Avenir, "Segoe UI", "Arial Nova", Arial, sans-serif;
+  font-size: 10.5pt;
+  font-weight: 600;
+  line-height: 1.24;
+  text-wrap: pretty;
+}
+
+.theme-magazine-atelier address {
+  display: grid;
+  align-content: end;
+  gap: 1.2mm;
+  min-width: 0;
+  padding-top: 2.5mm;
+  border-top: .5pt solid var(--atelier-rule);
+  color: var(--atelier-muted);
+  font-family: "Avenir Next", Avenir, "Segoe UI", "Arial Nova", Arial, sans-serif;
+  font-size: 7.75pt;
+  font-style: normal;
+  font-variant-numeric: lining-nums tabular-nums;
+  line-height: 1.28;
+  text-align: left;
+}
+
+.theme-magazine-atelier address::before {
+  margin-bottom: .8mm;
+  color: var(--accent);
+  content: "CONTACT / 01";
+  font-size: 7.5pt;
+  font-variant-ligatures: no-common-ligatures;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.theme-magazine-atelier address a {
+  color: inherit;
+  overflow-wrap: anywhere;
+  text-decoration-color: var(--atelier-rule);
+  text-decoration-thickness: .5pt;
+  text-underline-offset: 1.5pt;
+}
+
+.theme-magazine-atelier .cv-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 45mm;
+  gap: 0;
+  margin-top: 0;
+}
+
+.theme-magazine-atelier .cv-grid > :is(main, aside) {
+  min-width: 0;
+  padding-top: 7mm;
+}
+
+.theme-magazine-atelier main {
+  padding-right: 10mm;
+}
+
+.theme-magazine-atelier aside {
+  padding-left: 6mm;
+  border-left: .5pt solid var(--atelier-rule);
+}
+
+.theme-magazine-atelier :is(main, aside) > section {
+  margin: 0 0 6mm;
+}
+
+.theme-magazine-atelier :is(main, aside) > section:last-child {
+  margin-bottom: 0;
+}
+
+.theme-magazine-atelier h2 {
+  display: grid;
+  grid-template-columns: 9mm minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2mm;
+  margin: 0 0 3mm;
+  color: var(--ink);
+  font-family: "Avenir Next", Avenir, "Segoe UI", "Arial Nova", Arial, sans-serif;
+  font-size: 8pt;
+  font-variant-ligatures: no-common-ligatures;
+  font-weight: 700;
+  letter-spacing: .125em;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.theme-magazine-atelier h2::before {
+  color: var(--accent);
+  content: counter(atelier-section, decimal-leading-zero) "\2014";
+  counter-increment: atelier-section;
+  font-size: 7.5pt;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.theme-magazine-atelier main > section > p,
+.theme-magazine-atelier li {
+  color: var(--ink);
+  font-size: 9.75pt;
+  font-variant-numeric: oldstyle-nums proportional-nums;
+  line-height: 1.36;
+  orphans: 3;
+  text-align: left;
+  text-wrap: pretty;
+  widows: 3;
+}
+
+.theme-magazine-atelier main > section > p {
+  max-width: 72ch;
+  margin: 0;
+}
+
+.theme-magazine-atelier .cv-employer {
+  margin: 0 0 4.5mm;
+  padding: 0 0 4.5mm;
+  border: 0;
+  border-bottom: .5pt solid var(--atelier-rule);
+  background: transparent;
+  box-shadow: none;
+  break-inside: auto;
+}
+
+.theme-magazine-atelier .cv-employer:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.theme-magazine-atelier .cv-employer > h3 {
+  margin: 0 0 1.5mm;
+  color: var(--ink);
+  font-size: 12pt;
+  font-weight: 700;
+  letter-spacing: -.012em;
+  line-height: 1.16;
+}
+
+.theme-magazine-atelier .cv-role {
+  margin: 2.7mm 0 0;
+  break-inside: avoid;
+}
+
+.theme-magazine-atelier .cv-role:first-of-type {
+  margin-top: 0;
+}
+
+.theme-magazine-atelier .cv-occasion-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: 4mm;
+  margin-bottom: 1.1mm;
+}
+
+.theme-magazine-atelier .cv-role h4 {
+  color: var(--accent);
+  font-family: "Avenir Next", Avenir, "Segoe UI", "Arial Nova", Arial, sans-serif;
+  font-size: 9.5pt;
+  font-weight: 700;
+  line-height: 1.22;
+}
+
+.theme-magazine-atelier .cv-period {
+  margin: 0;
+  color: var(--atelier-muted);
+  font-family: "Avenir Next", Avenir, "Segoe UI", "Arial Nova", Arial, sans-serif;
+  font-size: 7.75pt;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.theme-magazine-atelier .cv-role ul {
+  margin: 0;
+  padding-left: 12pt;
+}
+
+.theme-magazine-atelier .cv-role li {
+  margin: 0 0 1pt;
+  padding-left: 1pt;
+}
+
+.theme-magazine-atelier .cv-role li:last-child {
+  margin-bottom: 0;
+}
+
+.theme-magazine-atelier .cv-role li::marker {
+  color: var(--accent);
+  font-size: .72em;
+}
+
+.theme-magazine-atelier aside ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.theme-magazine-atelier aside li {
+  margin: 0;
+  padding: 1.5mm 0;
+  border-top: .35pt solid color-mix(in srgb, var(--atelier-rule) 72%, transparent);
+  color: var(--atelier-muted);
+  font-family: "Avenir Next", Avenir, "Segoe UI", "Arial Nova", Arial, sans-serif;
+  font-size: 8.5pt;
+  font-variant-numeric: lining-nums proportional-nums;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.theme-magazine-atelier aside li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.theme-magazine-atelier :is(h2, h3, h4, .cv-occasion-heading) {
+  break-after: avoid;
+}
+
+.theme-magazine-atelier :is(.cv-role, .cv-achievement, aside section, aside li) {
+  break-inside: avoid;
+}
+
+.theme-magazine-atelier.cv-document--a4 {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 12mm 13mm;
+  background: var(--atelier-paper);
+  color: var(--ink);
+}
+
+@media (max-width: 700px) {
+  .theme-magazine-atelier:not(.cv-document--a4) .cv-hero,
+  .theme-magazine-atelier:not(.cv-document--a4) .cv-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-magazine-atelier:not(.cv-document--a4) .cv-hero {
+    gap: 1.25rem;
+  }
+
+  .theme-magazine-atelier:not(.cv-document--a4) main {
+    padding-right: 0;
+  }
+
+  .theme-magazine-atelier:not(.cv-document--a4) aside {
+    padding: 1.5rem 0 0;
+    border-top: .5pt solid var(--atelier-rule);
+    border-left: 0;
+  }
+}
+
+@media print {
+  .theme-magazine-atelier {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 12mm 13mm;
+    background: var(--atelier-paper);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    color: var(--ink);
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .theme-magazine-atelier :is(h2, h3, h4, .cv-occasion-heading) {
+    break-after: avoid;
+  }
+
+  .theme-magazine-atelier :is(.cv-role, .cv-achievement, aside section, aside li) {
+    break-inside: avoid;
+  }
+}
+
+@media print and (monochrome) {
+  .theme-magazine-atelier {
+    --ink: #000;
+    --accent: #000;
+    --atelier-muted: #333;
+    --atelier-rule: #888;
+    background: #fff;
+  }
+}

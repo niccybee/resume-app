@@ -57,7 +57,7 @@ onMounted(load);
         <p>{{ resolveTheme(cv.themeId).name }} theme</p>
         <footer>
           <NuxtLink :to="`/app/cvs/${cv.id}`">Edit CV</NuxtLink>
-          <NuxtLink :to="`/app/cvs/${cv.id}/preview`">Private preview</NuxtLink>
+          <NuxtLink :to="`/app/cvs/${cv.id}/preview`">A4 print preview</NuxtLink>
           <NuxtLink v-if="cv.status === 'published'" :to="`/cv/${cv.slug}`">Public link</NuxtLink>
         </footer>
       </article>

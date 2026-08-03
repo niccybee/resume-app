@@ -13,7 +13,18 @@ const experiences = Array.from({ length: 30 }, (_, index) => ({
   content: { text: `Delivered measurable outcome ${index}.` },
 }));
 
-describe.each(["editorial", "modern"])("%s print renderer", (themeId) => {
+describe.each([
+  "editorial",
+  "modern",
+  "jsonresume-even",
+  "jsonresume-actual",
+  "jsonresume-class",
+  "magazine-folio",
+  "magazine-basel",
+  "magazine-gallery",
+  "magazine-dispatch",
+  "magazine-atelier",
+])("%s print renderer", (themeId) => {
   it("renders representative multipage content and useful contact links", () => {
     const wrapper = mount(CvDocument, {
       props: {
@@ -36,6 +47,58 @@ it("renders an unknown theme through the editorial fallback without changing con
   const wrapper = mount(CvDocument, { props: { document: { name: "Fallback", themeId: "retired", profile: {}, selections: experiences.slice(0, 1) } } });
   expect(wrapper.get(".cv-document").attributes("data-theme")).toBe("editorial");
   expect(wrapper.text()).toContain("Delivered measurable outcome 0.");
+});
+
+it("renders an exact A4 paper surface when requested", () => {
+  const wrapper = mount(CvDocument, {
+    props: {
+      paperSize: "A4",
+      document: {
+        name: "Print CV",
+        themeId: "editorial",
+        profile: { basics: { name: "Nic Benson" } },
+        selections: experiences.slice(0, 1),
+      },
+    },
+  });
+
+  expect(wrapper.get(".cv-document").classes()).toContain("cv-document--a4");
+  expect(wrapper.get(".cv-document").attributes("data-paper-size")).toBe("A4");
+});
+
+it("uses human-readable labels for supporting sections", () => {
+  const wrapper = mount(CvDocument, {
+    props: {
+      document: {
+        name: "Print CV",
+        themeId: "jsonresume-class",
+        profile: { basics: { name: "Nic Benson" } },
+        selections: [
+          {
+            blockId: "skill-1",
+            versionId: "skill-version-1",
+            section: "skills",
+            order: 0,
+            content: { text: "Product strategy" },
+          },
+          {
+            blockId: "education-1",
+            versionId: "education-version-1",
+            section: "education",
+            order: 1,
+            content: { institution: "RMIT University" },
+          },
+        ],
+      },
+    },
+  });
+
+  expect(wrapper.findAll("aside h2").map((heading) => heading.text())).toEqual([
+    "Skills",
+    "Certifications",
+    "Education",
+    "Interests",
+  ]);
 });
 
 it("groups experience achievements under employer and role headings", () => {

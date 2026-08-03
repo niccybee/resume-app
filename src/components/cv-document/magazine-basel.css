@@ -1,0 +1,350 @@
+/*
+ * Magazine Basel — an original Swiss-modernist A4 composition inspired by
+ * Jacqueline Casey's asymmetric information systems and contemporary art
+ * magazine typography. Colour is a navigational signal; rules retain the
+ * hierarchy when printed in monochrome.
+ */
+.theme-magazine-basel {
+  --ink: #11110f;
+  --accent: #d13a22;
+  --basel-blue: #15529b;
+  --basel-muted: #565653;
+  --basel-rule: #9b9b94;
+  position: relative;
+  width: min(100%, 210mm);
+  min-height: 280mm;
+  padding: 14mm;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none;
+  color: var(--ink);
+  counter-reset: basel-section;
+  font-family: "Arial Nova", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  font-size: 10pt;
+  font-synthesis: none;
+  line-height: 1.32;
+  text-rendering: optimizeLegibility;
+}
+
+.theme-magazine-basel :is(h1, h2, h3, h4) {
+  color: var(--ink);
+  font-family: inherit;
+  font-variant-numeric: lining-nums tabular-nums;
+  hyphens: none;
+  text-wrap: balance;
+}
+
+.theme-magazine-basel .cv-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 49mm;
+  align-items: end;
+  gap: 11mm;
+  padding: 5mm 0 7mm;
+  border-top: 4.5pt solid var(--ink);
+  border-bottom: 1pt solid var(--ink);
+}
+
+.theme-magazine-basel .cv-hero > div {
+  min-width: 0;
+}
+
+.theme-magazine-basel .cv-hero h1 {
+  max-width: 12ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: clamp(2.65rem, 7vw, 4.3rem);
+  font-weight: 800;
+  line-height: .88;
+  letter-spacing: -.052em;
+}
+
+.theme-magazine-basel .eyebrow {
+  width: fit-content;
+  margin: 0 0 4mm;
+  padding-left: 3mm;
+  border-left: 4pt solid var(--accent);
+  color: var(--ink);
+  font-size: 7pt;
+  font-weight: 700;
+  letter-spacing: .18em;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.theme-magazine-basel .role {
+  max-width: 48ch;
+  margin: 3mm 0 0;
+  color: var(--basel-blue);
+  font-size: 11pt;
+  font-weight: 700;
+  line-height: 1.16;
+  text-wrap: pretty;
+}
+
+.theme-magazine-basel address {
+  display: grid;
+  align-content: end;
+  gap: 2pt;
+  min-width: 0;
+  padding-top: 3mm;
+  border-top: .75pt solid var(--ink);
+  color: var(--basel-muted);
+  font-size: 8pt;
+  font-style: normal;
+  font-variant-numeric: lining-nums tabular-nums;
+  line-height: 1.25;
+  text-align: left;
+}
+
+.theme-magazine-basel address a {
+  color: inherit;
+  overflow-wrap: anywhere;
+  text-decoration-color: var(--basel-blue);
+  text-decoration-thickness: .5pt;
+  text-underline-offset: 1.5pt;
+}
+
+.theme-magazine-basel .cv-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 47mm;
+  gap: 0;
+  margin-top: 7mm;
+}
+
+.theme-magazine-basel .cv-grid > :is(main, aside) {
+  min-width: 0;
+}
+
+.theme-magazine-basel main {
+  padding-right: 9mm;
+}
+
+.theme-magazine-basel aside {
+  margin-top: 10mm;
+  padding-left: 6mm;
+  border-left: .75pt solid var(--basel-blue);
+}
+
+.theme-magazine-basel :is(main, aside) > section {
+  margin: 0 0 6mm;
+}
+
+.theme-magazine-basel h2 {
+  display: grid;
+  grid-template-columns: 9mm minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2mm;
+  margin: 0 0 3mm;
+  padding-top: 2mm;
+  border-top: .75pt solid var(--ink);
+  color: var(--ink);
+  font-size: 8pt;
+  font-weight: 800;
+  letter-spacing: .15em;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.theme-magazine-basel h2::before {
+  color: var(--accent);
+  content: counter(basel-section, decimal-leading-zero) "/";
+  counter-increment: basel-section;
+  font-size: 7pt;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.theme-magazine-basel main > section > p {
+  max-width: 76ch;
+  margin: 0;
+  color: var(--ink);
+  font-size: 9.75pt;
+  line-height: 1.35;
+  orphans: 3;
+  text-align: left;
+  text-wrap: pretty;
+  widows: 3;
+}
+
+.theme-magazine-basel .cv-employer {
+  margin: 0 0 4mm;
+  padding: 0 0 1mm 4mm;
+  border: 0;
+  border-left: 1pt solid var(--ink);
+  background: transparent;
+  box-shadow: none;
+  break-inside: auto;
+}
+
+.theme-magazine-basel .cv-employer:last-child {
+  margin-bottom: 0;
+}
+
+.theme-magazine-basel .cv-employer > h3 {
+  margin: 0 0 1.5mm;
+  font-size: 11.5pt;
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -.018em;
+}
+
+.theme-magazine-basel .cv-role {
+  margin: 2.5mm 0 0;
+  break-inside: avoid;
+}
+
+.theme-magazine-basel .cv-role:first-of-type {
+  margin-top: 0;
+}
+
+.theme-magazine-basel .cv-occasion-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28mm;
+  align-items: baseline;
+  gap: 4mm;
+  margin-bottom: 1mm;
+}
+
+.theme-magazine-basel .cv-role h4 {
+  margin: 0;
+  font-size: 9.5pt;
+  font-weight: 700;
+  line-height: 1.22;
+}
+
+.theme-magazine-basel .cv-period {
+  margin: 0;
+  color: var(--basel-blue);
+  font-size: 8pt;
+  font-variant-numeric: lining-nums tabular-nums;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.theme-magazine-basel .cv-role ul {
+  margin: 0;
+  padding-left: 13pt;
+}
+
+.theme-magazine-basel .cv-role li {
+  margin: 0 0 1.25pt;
+  padding-left: 1pt;
+  color: var(--ink);
+  font-size: 9.5pt;
+  line-height: 1.33;
+  orphans: 3;
+  text-wrap: pretty;
+  widows: 3;
+}
+
+.theme-magazine-basel .cv-role li::marker {
+  color: var(--accent);
+  font-size: .72em;
+}
+
+.theme-magazine-basel aside ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.theme-magazine-basel aside li {
+  margin: 0;
+  padding: 1.5mm 0;
+  border-top: .35pt solid var(--basel-rule);
+  color: var(--ink);
+  font-size: 8.5pt;
+  line-height: 1.28;
+  text-wrap: pretty;
+}
+
+.theme-magazine-basel aside li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.theme-magazine-basel :is(h2, h3, h4, .cv-occasion-heading) {
+  break-after: avoid;
+}
+
+.theme-magazine-basel :is(.cv-role, .cv-achievement, aside section, aside li) {
+  break-inside: avoid;
+}
+
+.theme-magazine-basel.cv-document--a4 {
+  width: 210mm;
+  max-width: none;
+  min-height: 297mm;
+  padding: 12mm 13mm 11mm 12mm;
+  background: #fff;
+}
+
+.theme-magazine-basel.cv-document--a4 .cv-hero h1 {
+  font-size: 31pt;
+}
+
+@media (max-width: 700px) {
+  .theme-magazine-basel:not(.cv-document--a4) {
+    min-height: 0;
+    padding: 1.5rem;
+  }
+
+  .theme-magazine-basel:not(.cv-document--a4) :is(.cv-hero, .cv-grid) {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-magazine-basel:not(.cv-document--a4) .cv-hero {
+    gap: 1rem;
+  }
+
+  .theme-magazine-basel:not(.cv-document--a4) aside {
+    margin-top: 0;
+    padding: 1.5rem 0 0;
+    border-top: .75pt solid var(--basel-blue);
+    border-left: 0;
+  }
+}
+
+@media print {
+  .theme-magazine-basel {
+    width: 210mm;
+    max-width: none;
+    min-height: 297mm;
+    margin: 0;
+    padding: 12mm 13mm 11mm 12mm;
+    border: 0;
+    background: #fff;
+    box-shadow: none;
+    color: #000;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .theme-magazine-basel .cv-employer {
+    break-inside: auto;
+  }
+
+  .theme-magazine-basel :is(.cv-grid, main, main > section) {
+    break-inside: auto;
+  }
+
+  .theme-magazine-basel :is(.cv-role, .cv-achievement, aside section, aside li) {
+    break-inside: avoid;
+  }
+}
+
+@media print and (monochrome) {
+  .theme-magazine-basel {
+    --ink: #000;
+    --accent: #000;
+    --basel-blue: #000;
+    --basel-muted: #333;
+    --basel-rule: #777;
+  }
+}

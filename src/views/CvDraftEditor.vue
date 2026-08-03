@@ -810,7 +810,7 @@ function generateTaskProposal(instruction) {
       >
         Review pending Change Proposal
       </UButton>
-      <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">Private preview</NuxtLink>
+      <NuxtLink v-if="draft.id" role="button" class="secondary control-standard" :to="`/app/cvs/${draft.id}/preview`">A4 print preview</NuxtLink>
       <UButton
         v-if="draft.id && draft.status !== 'archived'"
         class="secondary control-standard"

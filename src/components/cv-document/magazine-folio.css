@@ -1,0 +1,329 @@
+.theme-magazine-folio {
+  --ink: #201b19;
+  --accent: #6a2130;
+  --folio-muted: #655b56;
+  --folio-rule: #b8a8a0;
+  background: #fbf6eb;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--ink);
+  font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  font-size: 10pt;
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  line-height: 1.38;
+  text-rendering: optimizeLegibility;
+}
+
+.theme-magazine-folio :is(h1, h2, h3, h4) {
+  margin: 0;
+  color: inherit;
+  font-family: inherit;
+  hyphens: none;
+  text-wrap: balance;
+}
+
+.theme-magazine-folio .cv-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 45mm;
+  align-items: end;
+  gap: 11mm;
+  padding: 0 0 8mm;
+  border: 0;
+  border-bottom: 1.25pt solid var(--accent);
+}
+
+.theme-magazine-folio .cv-hero > div {
+  min-width: 0;
+}
+
+.theme-magazine-folio .cv-hero h1 {
+  max-width: 13ch;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 31pt;
+  font-weight: 700;
+  letter-spacing: -.035em;
+  line-height: .96;
+}
+
+.theme-magazine-folio .eyebrow {
+  margin: 0 0 4mm;
+  color: var(--accent);
+  font-family: "Avenir Next", Avenir, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 10pt;
+  font-variant-ligatures: no-common-ligatures;
+  font-weight: 700;
+  letter-spacing: .11em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.theme-magazine-folio .role {
+  margin: 3.5mm 0 0;
+  color: var(--folio-muted);
+  font-size: 12pt;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.2;
+  text-wrap: pretty;
+}
+
+.theme-magazine-folio address {
+  display: grid;
+  align-content: end;
+  gap: 1.1mm;
+  min-width: 0;
+  color: var(--folio-muted);
+  font-family: "Avenir Next", Avenir, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 10pt;
+  font-style: normal;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.theme-magazine-folio address a {
+  overflow-wrap: anywhere;
+  color: inherit;
+  text-decoration-color: var(--folio-rule);
+  text-decoration-thickness: .5pt;
+  text-underline-offset: .16em;
+}
+
+.theme-magazine-folio .cv-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2.45fr) minmax(40mm, .72fr);
+  gap: 11mm;
+  margin-top: 9mm;
+}
+
+.theme-magazine-folio .cv-grid > :is(main, aside) {
+  min-width: 0;
+}
+
+.theme-magazine-folio .cv-grid > aside {
+  padding-top: .8mm;
+}
+
+.theme-magazine-folio :is(main, aside) > section {
+  margin: 0 0 7mm;
+}
+
+.theme-magazine-folio :is(main, aside) > section:last-child {
+  margin-bottom: 0;
+}
+
+.theme-magazine-folio h2 {
+  margin: 0 0 3.25mm;
+  padding-top: 2mm;
+  border-top: .65pt solid var(--folio-rule);
+  color: var(--accent);
+  font-family: "Avenir Next", Avenir, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 10pt;
+  font-variant-ligatures: no-common-ligatures;
+  font-weight: 700;
+  letter-spacing: .105em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.theme-magazine-folio main > section:first-child h2,
+.theme-magazine-folio aside > section:first-child h2 {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.theme-magazine-folio main > section > p,
+.theme-magazine-folio li {
+  color: var(--ink);
+  font-size: 10pt;
+  font-variant-numeric: oldstyle-nums proportional-nums;
+  line-height: 1.38;
+  orphans: 3;
+  text-align: left;
+  text-wrap: pretty;
+  widows: 3;
+}
+
+.theme-magazine-folio main > section > p {
+  max-width: 68ch;
+  margin: 0;
+}
+
+.theme-magazine-folio .cv-employer {
+  margin: 0 0 5mm;
+  padding: 0 0 5mm;
+  border: 0;
+  border-bottom: .5pt solid var(--folio-rule);
+  background: transparent;
+  box-shadow: none;
+}
+
+.theme-magazine-folio .cv-employer:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.theme-magazine-folio .cv-employer > h3 {
+  margin: 0 0 1.5mm;
+  color: var(--ink);
+  font-size: 12pt;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.18;
+}
+
+.theme-magazine-folio .cv-role {
+  margin: 2.8mm 0 0;
+}
+
+.theme-magazine-folio .cv-role:first-of-type {
+  margin-top: 0;
+}
+
+.theme-magazine-folio .cv-occasion-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 5mm;
+  margin-bottom: 1.25mm;
+}
+
+.theme-magazine-folio .cv-role h4 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 10pt;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.theme-magazine-folio .cv-period {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--folio-muted);
+  font-family: "Avenir Next", Avenir, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 10pt;
+  font-variant-numeric: lining-nums tabular-nums;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.theme-magazine-folio .cv-role ul {
+  margin: 0;
+  padding-left: 1.05em;
+}
+
+.theme-magazine-folio .cv-role li {
+  margin: 0 0 1mm;
+  padding-left: .15em;
+}
+
+.theme-magazine-folio .cv-role li:last-child {
+  margin-bottom: 0;
+}
+
+.theme-magazine-folio .cv-role li::marker {
+  color: var(--accent);
+  font-size: .72em;
+}
+
+.theme-magazine-folio aside ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.theme-magazine-folio aside li {
+  margin: 0;
+  padding: 1.5mm 0;
+  border-bottom: .35pt solid color-mix(in srgb, var(--folio-rule) 72%, transparent);
+  line-height: 1.3;
+}
+
+.theme-magazine-folio aside li:first-child {
+  padding-top: 0;
+}
+
+.theme-magazine-folio aside li:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.theme-magazine-folio :is(h2, h3, h4, .cv-occasion-heading) {
+  break-after: avoid;
+}
+
+.theme-magazine-folio :is(.cv-achievement, aside li) {
+  break-inside: avoid;
+}
+
+.theme-magazine-folio.cv-document--a4 {
+  width: 210mm;
+  max-width: none;
+  min-height: 297mm;
+  padding: 16mm 18mm 15mm;
+  background: #fbf6eb;
+}
+
+@media (max-width: 700px) {
+  .theme-magazine-folio:not(.cv-document--a4) .cv-hero,
+  .theme-magazine-folio:not(.cv-document--a4) .cv-grid {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+
+  .theme-magazine-folio:not(.cv-document--a4) address {
+    text-align: left;
+  }
+}
+
+@media print {
+  .theme-magazine-folio {
+    --ink: #000;
+    --accent: #3f151d;
+    --folio-muted: #333;
+    --folio-rule: #777;
+    width: 210mm;
+    max-width: none;
+    min-height: 297mm;
+    margin: 0;
+    padding: 16mm 18mm 15mm;
+    border: 0;
+    border-radius: 0;
+    background: #fbf6eb;
+    box-shadow: none;
+    color: #000;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+    text-rendering: optimizeSpeed;
+  }
+
+  .theme-magazine-folio :is(main, aside, .cv-grid, main > section, .cv-employer) {
+    break-inside: auto;
+  }
+
+  .theme-magazine-folio :is(h2, h3, h4, .cv-occasion-heading) {
+    break-after: avoid-page;
+  }
+
+  .theme-magazine-folio :is(.cv-role, .cv-achievement, aside li) {
+    break-inside: avoid-page;
+  }
+
+  .theme-magazine-folio a {
+    color: inherit;
+  }
+}
+
+@media print and (monochrome) {
+  .theme-magazine-folio {
+    --accent: #000;
+    --folio-muted: #333;
+    --folio-rule: #777;
+    background: #fff;
+  }
+}

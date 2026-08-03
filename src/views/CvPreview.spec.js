@@ -14,7 +14,10 @@ vi.mock("../services/cvWorkspace", () => ({
 }));
 
 describe("native private CV preview", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(window, "print").mockImplementation(() => {});
+  });
 
   it("renders an owned draft composition without publishing it", async () => {
     cvWorkspace.preview.mockResolvedValue({
@@ -52,6 +55,23 @@ describe("native private CV preview", () => {
     expect(wrapper.get('[data-to="/app/cvs/cv-private"]').text()).toContain(
       "Back to editor",
     );
+    expect(wrapper.text()).toContain("A4 print preview");
+    expect(wrapper.text()).toContain("210 × 297 mm");
+    expect(wrapper.get('.cv-document').attributes('data-paper-size')).toBe("A4");
+
+    const fitButton = wrapper.get('[aria-label="Fit page to preview width"]');
+    const actualSizeButton = wrapper.get('[aria-label="Show page at actual size"]');
+    expect(fitButton.attributes("aria-pressed")).toBe("true");
+    expect(actualSizeButton.attributes("aria-pressed")).toBe("false");
+    expect(wrapper.get(".preview-paper").attributes("data-preview-mode")).toBe("fit");
+
+    await actualSizeButton.trigger("click");
+    expect(fitButton.attributes("aria-pressed")).toBe("false");
+    expect(actualSizeButton.attributes("aria-pressed")).toBe("true");
+    expect(wrapper.get(".preview-paper").attributes("data-preview-mode")).toBe("actual");
+
+    await wrapper.get(".print-action").trigger("click");
+    expect(window.print).toHaveBeenCalledOnce();
     expect(wrapper.text()).not.toContain("Publish");
   });
 });

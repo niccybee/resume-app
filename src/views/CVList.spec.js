@@ -39,7 +39,7 @@ describe("native CV list interactions", () => {
     expect(wrapper.text()).toContain("Google Product Manager CV");
     expect(wrapper.get('[data-to="/app/cvs/cv-product"]').text()).toBe("Edit CV");
     expect(wrapper.get('[data-to="/app/cvs/cv-product/preview"]').text()).toBe(
-      "Private preview",
+      "A4 print preview",
     );
   });
 

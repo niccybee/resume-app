@@ -16,6 +16,8 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@dnd-kit/dom": "^0.5.0",
+    "@dnd-kit/vue": "^0.5.0",
     "@nuxt/ui": "^4.10.0",
     "@pinia/nuxt": "^1.0.1",
     "@supabase/supabase-js": "^2.0.0",

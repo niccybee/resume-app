@@ -36,7 +36,10 @@ watch(
           <span class="workspace-folio" aria-hidden="true">CV / {{ String(route.path.split('/').filter(Boolean).length).padStart(2, '0') }}</span>
         </header>
 
-        <main class="workspace-content">
+        <main
+          class="workspace-content"
+          :class="{ 'workspace-content--flush': route.meta.flushContent }"
+        >
           <slot />
         </main>
       </section>
@@ -110,6 +113,11 @@ watch(
   max-width: 96rem;
   margin: 0 auto;
   padding: clamp(1.25rem, 3vw, 3rem);
+}
+
+.workspace-content--flush {
+  max-width: none;
+  padding: 0;
 }
 
 @media (min-width: 1024px) {

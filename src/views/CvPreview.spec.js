@@ -52,8 +52,8 @@ describe("native private CV preview", () => {
     expect(cvWorkspace.preview).toHaveBeenCalledWith("cv-private");
     expect(wrapper.text()).toContain("A private role-focused summary.");
     expect(wrapper.text()).toContain("Shipped a private product launch.");
-    expect(wrapper.get('[data-to="/app/cvs/cv-private"]').text()).toContain(
-      "Back to editor",
+    expect(wrapper.get('[data-to="/app/cvs/cv-private/edit"]').text()).toContain(
+      "Back to Workbench",
     );
     expect(wrapper.text()).toContain("A4 print preview");
     expect(wrapper.text()).toContain("210 × 297 mm");

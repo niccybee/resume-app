@@ -105,7 +105,7 @@ function printDocument() {
             Actual size
           </button>
         </div>
-        <NuxtLink :to="`/app/cvs/${document.id}`">← Back to editor</NuxtLink>
+        <NuxtLink :to="`/app/cvs/${document.id}/edit`">← Back to Workbench</NuxtLink>
         <button class="secondary print-action" type="button" @click="printDocument">
           Print / save PDF
         </button>

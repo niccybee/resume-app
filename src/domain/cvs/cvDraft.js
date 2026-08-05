@@ -109,6 +109,89 @@ export function groupExperienceSelections(selections = []) {
   }));
 }
 
+export function groupExperienceOccasions(selections = []) {
+  const occasions = new Map();
+  for (const item of selections) {
+    const group =
+      experienceGroup({ ...item, section: "experience" }) ||
+      normalizeEmploymentGroup();
+    if (!occasions.has(group.occasionId)) {
+      occasions.set(group.occasionId, { ...group, items: [] });
+    }
+    occasions.get(group.occasionId).items.push(item);
+  }
+  return [...occasions.values()];
+}
+
+function dateParts(value) {
+  if (!value || String(value).toLowerCase() === "present") return null;
+  const [year = "0", month = "0", day = "0"] = String(value).split("-");
+  return Number(year) * 10_000 + Number(month) * 100 + Number(day);
+}
+
+function compareEmploymentOccasions(left, right, direction) {
+  const leftOngoing = !left.endDate || String(left.endDate).toLowerCase() === "present";
+  const rightOngoing = !right.endDate || String(right.endDate).toLowerCase() === "present";
+  if (leftOngoing !== rightOngoing) {
+    if (direction === "newest") return leftOngoing ? -1 : 1;
+    return leftOngoing ? 1 : -1;
+  }
+
+  const leftStart = dateParts(left.startDate) || 0;
+  const rightStart = dateParts(right.startDate) || 0;
+  const leftEnd = dateParts(left.endDate) || 0;
+  const rightEnd = dateParts(right.endDate) || 0;
+  if (direction === "oldest") {
+    return leftStart - rightStart || leftEnd - rightEnd;
+  }
+  return rightEnd - leftEnd || rightStart - leftStart;
+}
+
+export function sortExperienceByJobDate(draft, direction = "newest") {
+  if (!["newest", "oldest"].includes(direction)) {
+    throw new CvDraftError("invalid-experience-sort", `Unsupported Experience sort: ${direction}`);
+  }
+  const experience = draft.selections.filter((item) => item.section === "experience");
+  const indexed = groupExperienceOccasions(experience).map((occasion, index) => ({
+    ...occasion,
+    originalIndex: index,
+  }));
+  indexed.sort((left, right) => (
+    compareEmploymentOccasions(left, right, direction) ||
+    left.originalIndex - right.originalIndex
+  ));
+  const sortedExperience = indexed.flatMap((occasion) => occasion.items);
+  return normalizeDraft({
+    ...draft,
+    selections: [
+      ...draft.selections.filter((item) => item.section !== "experience"),
+      ...sortedExperience.map((item, order) => ({ ...item, order })),
+    ],
+  });
+}
+
+export function moveExperienceOccasion(draft, occasionId, order) {
+  const experience = draft.selections.filter((item) => item.section === "experience");
+  const occasions = groupExperienceOccasions(experience);
+  const currentIndex = occasions.findIndex((occasion) => occasion.occasionId === occasionId);
+  if (currentIndex < 0) {
+    throw new CvDraftError("occasion-not-found", "Employment Occasion not found.");
+  }
+  const [occasion] = occasions.splice(currentIndex, 1);
+  const boundedOrder = Math.max(0, Math.min(Number(order), occasions.length));
+  occasions.splice(boundedOrder, 0, occasion);
+  return normalizeDraft({
+    ...draft,
+    selections: [
+      ...draft.selections.filter((item) => item.section !== "experience"),
+      ...occasions.flatMap((entry) => entry.items).map((item, index) => ({
+        ...item,
+        order: index,
+      })),
+    ],
+  });
+}
+
 function assertSection(section) {
   if (!CV_SECTIONS.includes(section)) {
     throw new CvDraftError("invalid-section", `Unsupported CV section: ${section}`);

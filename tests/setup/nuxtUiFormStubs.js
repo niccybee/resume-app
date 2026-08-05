@@ -1,6 +1,14 @@
 import { config } from "@vue/test-utils";
 import { defineComponent, h } from "vue";
 
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 function formControlStub(tag) {
   return defineComponent({
     name: `Test${tag}`,

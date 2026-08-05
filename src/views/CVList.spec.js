@@ -37,7 +37,8 @@ describe("native CV list interactions", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Google Product Manager CV");
-    expect(wrapper.get('[data-to="/app/cvs/cv-product"]').text()).toBe("Edit CV");
+    expect(wrapper.get('[data-to="/app/cvs/cv-product"]').text()).toBe("Open overview");
+    expect(wrapper.get('[data-to="/app/cvs/cv-product/edit"]').text()).toBe("Edit CV");
     expect(wrapper.get('[data-to="/app/cvs/cv-product/preview"]').text()).toBe(
       "A4 print preview",
     );
@@ -62,6 +63,6 @@ describe("native CV list interactions", () => {
     await flushPromises();
     expect(wrapper.get("details summary").text()).toContain("Archived CVs (1)");
     expect(wrapper.get('[data-to="/app/cvs/cv-archived"]').text()).toBe("Review archived CV");
-    expect(wrapper.get('[data-to="/app/cvs/cv-active"]').text()).toBe("Edit CV");
+    expect(wrapper.get('[data-to="/app/cvs/cv-active"]').text()).toBe("Open overview");
   });
 });

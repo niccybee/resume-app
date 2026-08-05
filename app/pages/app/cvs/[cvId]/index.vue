@@ -1,12 +1,12 @@
 <script setup>
-import CvDraftEditor from "../../../../../src/views/CvDraftEditor.vue";
+import CvOverview from "../../../../../src/views/CvOverview.vue";
 
 definePageMeta({
   layout: "workspace",
   middleware: "auth",
-  title: "CV editor",
-  description: "Edit content, theme, preview, and publication",
+  title: "CV overview",
+  description: "Review CV Revisions, Editing Sessions, and publication",
 });
 </script>
 
-<template><CvDraftEditor /></template>
+<template><CvOverview /></template>

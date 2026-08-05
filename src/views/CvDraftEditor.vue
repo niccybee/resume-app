@@ -1,10 +1,22 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { DragDropProvider } from "@dnd-kit/vue";
+import { isSortable } from "@dnd-kit/vue/sortable";
+import { Accessibility } from "@dnd-kit/dom";
 import { useRoute, useRouter } from "vue-router";
 import CvDocument from "../components/CvDocument.vue";
 import TaskChat from "../components/TaskChat.vue";
+import SortableCompositionItem from "../components/cv-builder/SortableCompositionItem.vue";
 import { BLOCK_KINDS } from "../domain/blocks/blockLibrary";
-import { addSelection, groupExperienceSelections, moveSelection, normalizeDraft, removeSelection } from "../domain/cvs/cvDraft";
+import {
+  addSelection,
+  groupExperienceOccasions,
+  moveExperienceOccasion,
+  moveSelection,
+  normalizeDraft,
+  removeSelection,
+  sortExperienceByJobDate,
+} from "../domain/cvs/cvDraft";
 import { formatEmploymentPeriod, normalizeEmploymentGroup } from "../domain/employment/occasion";
 import { createTaskBlocks } from "../domain/tasks/createTaskBlocks";
 import { listThemes } from "../domain/themes/themeRegistry";
@@ -24,10 +36,34 @@ const proposingChange = ref(false);
 const copyRoleName = ref("");
 const blockKindFilter = ref("all");
 const selectedJobIds = ref([]);
+const librarySearch = ref("");
 const pendingRequest = ref("");
 const cvDetailsOpen = ref(false);
 const sessionProposalOpen = ref(false);
 const savingCvDetails = ref(false);
+const libraryCollapsed = ref(false);
+const libraryDrawerOpen = ref(false);
+const previewOpen = ref(false);
+const previewWidth = ref(44);
+const generationOpen = ref(false);
+const copyRoleOpen = ref(false);
+const archiveSessionOpen = ref(false);
+const experienceUndoSnapshot = ref(null);
+const autosaveState = ref("idle");
+const autosaveError = ref("");
+const experienceSort = ref("newest");
+const expandedSections = reactive({
+  experience: true,
+  skills: false,
+  certifications: false,
+  education: false,
+  interests: false,
+});
+let autosaveTimer = null;
+let autosaveInFlight = false;
+let autosaveQueued = false;
+let localChangeVersion = 0;
+let previewResizeCleanup = null;
 const selectedVersions = reactive({});
 function normalizeEditorDraft(input) {
   const normalized = normalizeDraft(input);
@@ -79,13 +115,25 @@ const jobFilterItems = computed(() => {
 });
 const filteredBlocks = computed(() => blocks.value.filter((block) => {
   if (blockKindFilter.value !== "all" && block.kind !== blockKindFilter.value) return false;
+  const query = librarySearch.value.trim().toLowerCase();
+  if (query) {
+    const employment = block.kind === "experience" ? employmentForBlock(block) : null;
+    const haystack = [block.title, block.kind, employment?.employer, employment?.role]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (!haystack.includes(query)) return false;
+  }
   if (!selectedJobIds.value.length) return true;
   if (block.kind !== "experience") return false;
   return selectedJobIds.value.includes(employmentForBlock(block).occasionId);
 }));
 const selectedTheme = computed({
   get: () => draft.themeId || defaultThemeValue,
-  set: (value) => { draft.themeId = value === defaultThemeValue ? null : value; },
+  set: (value) => {
+    draft.themeId = value === defaultThemeValue ? null : value;
+    markChanged();
+  },
 });
 
 function plainSnapshot(value) {
@@ -118,6 +166,7 @@ async function saveCvDetails() {
       email: draft.profile.basics.email,
     });
     cvDetailsOpen.value = false;
+    markChanged();
     notice.value = savedDefaults.scope === "developer"
       ? "CV details updated. Developer defaults saved locally."
       : "CV details updated and account defaults saved.";
@@ -153,12 +202,28 @@ function requestIs(key) {
 }
 function selectionFor(block, version, section = sectionFor(block.kind)) { return { blockId:block.id, versionId:version.id, section, block:{ title:block.title, kind:block.kind, contexts:block.contexts, versionNumber:version.number }, content:version.content }; }
 function selectedForBlock(blockId) { return draft.selections.find((item) => item.blockId === blockId); }
-function add(block) { replaceDraft(addSelection(draft, selectionFor(block, selectedVersion(block)))); }
+function markChanged() {
+  if (!activeSession.value) return;
+  localChangeVersion += 1;
+  autosaveState.value = "saving";
+  autosaveError.value = "";
+  if (autosaveInFlight) {
+    autosaveQueued = true;
+    return;
+  }
+  window.clearTimeout(autosaveTimer);
+  autosaveTimer = window.setTimeout(() => autosave(), 450);
+}
+function add(block) {
+  replaceDraft(addSelection(draft, selectionFor(block, selectedVersion(block))));
+  markChanged();
+}
 function replaceVersion(block) {
   const selected = selectedForBlock(block.id);
   if (!selected) return add(block);
   const replacement = { ...selectionFor(block, selectedVersion(block), selected.section), order: selected.order };
   replaceDraft({ ...draft, selections: draft.selections.map((item) => item.blockId === block.id ? replacement : item) });
+  markChanged();
 }
 function selectionVersionNumber(item) {
   if (item.block?.versionNumber) return item.block.versionNumber;
@@ -168,20 +233,217 @@ function alignSelectedVersions() {
   for (const block of blocks.value) selectedVersions[block.id] = block.currentVersion?.id;
   for (const selection of draft.selections) selectedVersions[selection.blockId] = selection.versionId;
 }
-function remove(versionId) { replaceDraft(removeSelection(draft, versionId)); }
-function shift(item, delta) { replaceDraft(moveSelection(draft, item.versionId, item.section, item.order + delta)); }
-function changeSection(item, section) { replaceDraft(moveSelection(draft, item.versionId, section, draft.selections.filter((entry)=>entry.section===section).length)); }
-function clearDraft() { if (window.confirm("Remove every selected Block Version from this CV?")) replaceDraft({ ...draft, selections: [] }); }
+function remove(versionId) { replaceDraft(removeSelection(draft, versionId)); markChanged(); }
+function shift(item, delta) { replaceDraft(moveSelection(draft, item.versionId, item.section, item.order + delta)); markChanged(); }
+function changeSection(item, section) {
+  replaceDraft(moveSelection(draft, item.versionId, section, draft.selections.filter((entry)=>entry.section===section).length));
+  expandedSections[section] = true;
+  markChanged();
+}
+function clearDraft() { if (window.confirm("Remove every selected Block Version from this CV?")) { replaceDraft({ ...draft, selections: [] }); markChanged(); } }
 const selectedBySection = computed(() => Object.groupBy(draft.selections, (item) => item.section));
-const selectedExperienceGroups = computed(() => groupExperienceSelections(selectedBySection.value.experience));
+const selectedExperienceOccasions = computed(() => groupExperienceOccasions(selectedBySection.value.experience));
 const openEditingSessions = computed(() => editingSessions.value.filter((item) => item.status === "open"));
 const archivedEditingSessions = computed(() => editingSessions.value.filter((item) => item.status === "archived"));
 const activeBaseRevisionNumber = computed(() => activeSession.value?.baseRevisionNumber || revisions.value.find((item) => item.id === activeSession.value?.baseRevisionId)?.number || null);
 const publishedRevisionNumber = computed(() => revisions.value.find((item) => item.id === draft.publishedRevisionId)?.number || null);
+const autosaveLabel = computed(() => ({
+  idle: activeSession.value ? "Saved" : "Not created",
+  saving: "Saving…",
+  saved: "Saved",
+  conflict: "Conflict — reload required",
+}[autosaveState.value]));
+const compositionCount = computed(() => draft.selections.length);
+const accessibilityPlugins = (defaults) => defaults.map((plugin) => (
+  plugin === Accessibility
+    ? {
+        plugin: Accessibility,
+        options: {
+          screenReaderInstructions: {
+            draggable: "Press Space or Enter to pick up this CV item. Use the arrow keys to move it, then press Space or Enter to drop. Press Escape to cancel.",
+          },
+          announcements: {
+            dragstart: ({ operation }) => `Picked up ${operation.source?.data?.label || "CV item"}.`,
+            dragover: ({ operation }) => operation.target
+              ? `${operation.source?.data?.label || "CV item"} moved over ${operation.target.data?.label || "a new position"}.`
+              : undefined,
+            dragend: ({ operation, canceled }) => canceled
+              ? `Reordering ${operation.source?.data?.label || "CV item"} was cancelled.`
+              : `${operation.source?.data?.label || "CV item"} was dropped.`,
+          },
+        },
+      }
+    : plugin
+));
+const sessionActionItems = computed(() => activeSession.value ? [[
+  {
+    label: "Copy to New Version",
+    icon: "i-lucide-copy-plus",
+    disabled: Boolean(pendingRequest.value),
+    onSelect: () => copyFrom(activeSession.value, "copy_to_new_version"),
+  },
+  {
+    label: "Copy for New Role",
+    icon: "i-lucide-briefcase-business",
+    disabled: Boolean(pendingRequest.value),
+    onSelect: () => { copyRoleOpen.value = true; },
+  },
+], [
+  {
+    label: "Archive Editing Session",
+    icon: "i-lucide-archive",
+    color: "error",
+    disabled: Boolean(pendingRequest.value),
+    onSelect: () => { archiveSessionOpen.value = true; },
+  },
+]] : []);
 function editingSessionLabel(session) {
   return session.baseRevisionNumber
     ? `Editing Session based on Revision ${session.baseRevisionNumber}`
     : "Initial Editing Session";
+}
+
+function toggleSection(section) {
+  expandedSections[section] = !expandedSections[section];
+  sessionStorage.setItem(
+    `cv-workbench-sections:${activeSession.value?.id || "new"}`,
+    JSON.stringify(expandedSections),
+  );
+}
+
+function restoreSectionState() {
+  const stored = sessionStorage.getItem(`cv-workbench-sections:${activeSession.value?.id || "new"}`);
+  if (!stored) return;
+  try {
+    Object.assign(expandedSections, JSON.parse(stored));
+  } catch {
+    sessionStorage.removeItem(`cv-workbench-sections:${activeSession.value?.id || "new"}`);
+  }
+}
+
+function toggleLibrary() {
+  libraryCollapsed.value = !libraryCollapsed.value;
+  sessionStorage.setItem("cv-workbench-library-collapsed", String(libraryCollapsed.value));
+}
+
+function selectionMenuItems(item) {
+  const siblings = selectedBySection.value[item.section] || [];
+  const index = siblings.findIndex((entry) => entry.versionId === item.versionId);
+  return [[
+    { label: "Move up", icon: "i-lucide-arrow-up", disabled: index <= 0, onSelect: () => shift(item, -1) },
+    { label: "Move down", icon: "i-lucide-arrow-down", disabled: index < 0 || index >= siblings.length - 1, onSelect: () => shift(item, 1) },
+    { label: "Move to top", icon: "i-lucide-chevrons-up", disabled: index <= 0, onSelect: () => { replaceDraft(moveSelection(draft, item.versionId, item.section, 0)); markChanged(); } },
+    { label: "Move to bottom", icon: "i-lucide-chevrons-down", disabled: index < 0 || index >= siblings.length - 1, onSelect: () => { replaceDraft(moveSelection(draft, item.versionId, item.section, siblings.length - 1)); markChanged(); } },
+  ], [{
+    label: "Move to section…",
+    icon: "i-lucide-move-right",
+    children: compositionSectionItems
+      .filter((section) => section !== item.section)
+      .map((section) => ({
+        label: section.charAt(0).toUpperCase() + section.slice(1),
+        onSelect: () => changeSection(item, section),
+      })),
+  }], [{
+    label: "Remove from CV",
+    icon: "i-lucide-trash-2",
+    color: "error",
+    onSelect: () => remove(item.versionId),
+  }]];
+}
+
+function occasionMenuItems(occasion, index) {
+  const last = selectedExperienceOccasions.value.length - 1;
+  const move = (order) => {
+    replaceDraft(moveExperienceOccasion(draft, occasion.occasionId, order));
+    experienceSort.value = "custom";
+    markChanged();
+  };
+  return [[
+    { label: "Move job up", icon: "i-lucide-arrow-up", disabled: index <= 0, onSelect: () => move(index - 1) },
+    { label: "Move job down", icon: "i-lucide-arrow-down", disabled: index >= last, onSelect: () => move(index + 1) },
+    { label: "Move job to top", icon: "i-lucide-chevrons-up", disabled: index <= 0, onSelect: () => move(0) },
+    { label: "Move job to bottom", icon: "i-lucide-chevrons-down", disabled: index >= last, onSelect: () => move(last) },
+  ]];
+}
+
+function onSelectionDragEnd(event, section) {
+  if (event.canceled || !isSortable(event.operation.source)) return;
+  const source = event.operation.source;
+  if (source.initialIndex === source.index) return;
+  const item = selectedBySection.value[section]?.[source.initialIndex];
+  if (!item) return;
+  replaceDraft(moveSelection(draft, item.versionId, section, source.index));
+  markChanged();
+}
+
+function onOccasionDragEnd(event) {
+  if (event.canceled || !isSortable(event.operation.source)) return;
+  const source = event.operation.source;
+  if (source.initialIndex === source.index) return;
+  const occasion = selectedExperienceOccasions.value[source.initialIndex];
+  if (!occasion) return;
+  replaceDraft(moveExperienceOccasion(draft, occasion.occasionId, source.index));
+  experienceSort.value = "custom";
+  markChanged();
+}
+
+function onOccasionItemDragEnd(event, occasion) {
+  if (event.canceled || !isSortable(event.operation.source)) return;
+  const source = event.operation.source;
+  if (source.initialIndex === source.index) return;
+  const item = occasion.items[source.initialIndex];
+  if (!item) return;
+  const targetItem = occasion.items[source.index];
+  const targetOrder = targetItem?.order ?? item.order;
+  replaceDraft(moveSelection(draft, item.versionId, "experience", targetOrder));
+  experienceSort.value = "custom";
+  markChanged();
+}
+
+function sortExperience(direction) {
+  experienceUndoSnapshot.value = plainSnapshot(draft);
+  replaceDraft(sortExperienceByJobDate(draft, direction));
+  experienceSort.value = direction;
+  markChanged();
+  notice.value = `Experience sorted ${direction === "newest" ? "newest first" : "oldest first"}.`;
+}
+
+function undoExperienceSort() {
+  if (!experienceUndoSnapshot.value) return;
+  replaceDraft(experienceUndoSnapshot.value);
+  experienceUndoSnapshot.value = null;
+  experienceSort.value = "custom";
+  markChanged();
+  notice.value = "Experience order restored.";
+}
+
+function applySummaryProposal() {
+  replaceDraft(cvWorkspace.acceptSummary(draft, proposal.value));
+  proposal.value = null;
+  markChanged();
+}
+
+function setPreviewWidth(value) {
+  previewWidth.value = Math.max(34, Math.min(72, Number(value) || 44));
+  document.documentElement.style.setProperty("--cv-preview-width", `${previewWidth.value}vw`);
+  sessionStorage.setItem("cv-preview-width", String(previewWidth.value));
+}
+
+function startPreviewResize(event) {
+  const startX = event.clientX;
+  const startWidth = previewWidth.value;
+  const onMove = (moveEvent) => {
+    const delta = ((startX - moveEvent.clientX) / window.innerWidth) * 100;
+    setPreviewWidth(startWidth + delta);
+  };
+  const onEnd = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onEnd);
+    previewResizeCleanup = null;
+  };
+  previewResizeCleanup = onEnd;
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onEnd);
 }
 
 function activateEditingSession(session, baseRevisionNumber = null) {
@@ -206,6 +468,9 @@ function activateEditingSession(session, baseRevisionNumber = null) {
     selections: session.selections,
   });
   alignSelectedVersions();
+  autosaveState.value = "saved";
+  autosaveError.value = "";
+  restoreSectionState();
 }
 
 async function refreshEditingContext() {
@@ -256,6 +521,10 @@ async function resumeEditingSession(summary) {
 }
 
 onMounted(async () => {
+  libraryCollapsed.value = sessionStorage.getItem("cv-workbench-library-collapsed") === "true";
+  restoreSectionState();
+  const storedPreviewWidth = sessionStorage.getItem("cv-preview-width");
+  setPreviewWidth(storedPreviewWidth || 44);
   try {
     const [catalog, existing, history, sessions, profileDefaults] = await Promise.all([
       blockLibrary.browse(),
@@ -270,6 +539,15 @@ onMounted(async () => {
     if (existing) {
       replaceDraft(existing);
       publishSlug.value = existing.slug || "";
+      const requestedSession = route.query?.session
+        ? sessions.find((session) => session.id === route.query.session && session.status === "open")
+        : null;
+      if (requestedSession) {
+        activateEditingSession(
+          await cvWorkspace.resumeEditingSession(requestedSession.id),
+          requestedSession.baseRevisionNumber,
+        );
+      }
     } else if (profileDefaults) {
       draft.profile.basics.name ||= profileDefaults.name;
       draft.profile.basics.email ||= profileDefaults.email;
@@ -277,6 +555,11 @@ onMounted(async () => {
     alignSelectedVersions();
     status.value = "loaded";
   } catch (reason) { error.value = reason.message; status.value = reason.code === "not-found" ? "missing" : "failed"; }
+});
+
+onBeforeUnmount(() => {
+  window.clearTimeout(autosaveTimer);
+  previewResizeCleanup?.();
 });
 
 async function persistActiveEditingSession({ refresh = true } = {}) {
@@ -292,6 +575,51 @@ async function persistActiveEditingSession({ refresh = true } = {}) {
   activateEditingSession(saved, activeBaseRevisionNumber.value);
   if (refresh) await refreshEditingContext();
   return saved;
+}
+
+async function autosave() {
+  if (autosaveInFlight) {
+    autosaveQueued = true;
+    return;
+  }
+  if (!activeSession.value || saving.value || pendingRequest.value) {
+    if (activeSession.value) autosaveTimer = window.setTimeout(() => autosave(), 450);
+    return;
+  }
+  autosaveInFlight = true;
+  autosaveQueued = false;
+  autosaveState.value = "saving";
+  const changeVersion = localChangeVersion;
+  try {
+    const sessionSnapshot = plainSnapshot(activeSession.value);
+    const draftSnapshot = plainSnapshot(draft);
+    const saved = await cvWorkspace.saveEditingSession({
+      ...sessionSnapshot,
+      ...draftSnapshot,
+      id: activeSession.value.id,
+      cvId: draft.id,
+      optimisticVersion: activeSession.value.optimisticVersion,
+    });
+    activeSession.value = {
+      ...saved,
+      baseRevisionNumber: saved.baseRevisionNumber || activeBaseRevisionNumber.value,
+    };
+    autosaveState.value = changeVersion === localChangeVersion ? "saved" : "saving";
+  } catch (reason) {
+    autosaveState.value = "conflict";
+    autosaveError.value = reason.message;
+  } finally {
+    autosaveInFlight = false;
+    if (autosaveQueued && autosaveState.value !== "conflict") {
+      autosaveTimer = window.setTimeout(() => autosave(), 0);
+    }
+  }
+}
+
+async function recoverAutosaveConflict() {
+  if (!activeSession.value) return;
+  await resumeEditingSession(activeSession.value);
+  autosaveState.value = "saved";
 }
 
 async function save() {
@@ -311,7 +639,7 @@ async function save() {
     replaceDraft({ ...draft, id: session.cvId });
     activateEditingSession(session);
     await refreshEditingContext();
-    await router.replace(`/app/cvs/${session.cvId}`);
+    await router.replace(`/app/cvs/${session.cvId}/edit`);
     notice.value = "CV and initial Editing Session created.";
     return session;
   } catch(reason) {
@@ -442,7 +770,7 @@ async function applySessionChangeProposal() {
     if (["edit_content", "replace_working_state", "start_editing_session", "resume_editing_session", "copy_to_new_version", "copy_for_new_role", "restore_editing_session"].includes(operationType)) {
       const session = await cvWorkspace.resumeEditingSession(applied.result.editingSessionId);
       activateEditingSession(session, activeBaseRevisionNumber.value);
-      if (operationType === "copy_for_new_role") await router.replace(`/app/cvs/${applied.result.cvId}`);
+      if (operationType === "copy_for_new_role") await router.replace(`/app/cvs/${applied.result.cvId}/edit`);
     } else if (["archive_editing_session", "finish_editing_session"].includes(operationType)) {
       activeSession.value = null;
     } else if (["archive_cv", "restore_cv"].includes(operationType)) {
@@ -458,6 +786,9 @@ async function applySessionChangeProposal() {
     notice.value = operationType === "finish_editing_session"
       ? `Editing Session finished as Revision ${applied.result.revisionNumber}.`
       : "Change Proposal applied.";
+    if (operationType === "finish_editing_session") {
+      await router.replace(`/app/cvs/${applied.result.cvId || draft.id}`);
+    }
   } catch (reason) {
     if (reason.code === "stale-proposal" && activeSession.value) {
       const refreshed = await cvWorkspace.resumeEditingSession(activeSession.value.id);
@@ -526,6 +857,7 @@ async function createReviewedTasks(tasks) {
     const catalog = await blockLibrary.browse();
     blocks.value = catalog.blocks;
     alignSelectedVersions();
+    markChanged();
   } catch (reason) {
     error.value = reason.message;
     throw reason;
@@ -541,7 +873,149 @@ function generateTaskProposal(instruction) {
   <p v-if="status === 'loading'" aria-busy="true">Loading CV workspace…</p>
   <section v-else-if="status === 'missing'"><h2>CV not found</h2><NuxtLink to="/app/cvs">Return to saved CVs</NuxtLink></section>
   <div v-else-if="status === 'failed'" role="alert">{{ error }}</div>
-  <div v-else class="editor-layout">
+  <div v-else class="cv-workbench" :class="{ 'cv-workbench--library-collapsed': libraryCollapsed }">
+    <header class="workbench-header">
+      <div class="workbench-identity">
+        <NuxtLink class="workbench-back" to="/app/cvs" aria-label="Back to saved CVs"><UIcon name="i-lucide-arrow-left" /></NuxtLink>
+        <div>
+          <p class="editor-session-eyebrow">CV Workbench · {{ activeSession ? `working version ${activeSession.optimisticVersion}` : "new composition" }}</p>
+          <button type="button" class="workbench-title" @click="openCvDetails">{{ draft.name || "Untitled CV" }} <UIcon name="i-lucide-pencil" /></button>
+          <p class="workbench-subtitle">{{ draft.profile.basics.label || "Add a target role" }}</p>
+        </div>
+      </div>
+      <div class="workbench-actions">
+        <button v-if="activeSession" type="button" class="autosave-status" :class="`autosave-status--${autosaveState}`" :title="autosaveError || autosaveLabel" @click="autosaveState === 'conflict' && recoverAutosaveConflict()">
+          <UIcon :name="autosaveState === 'saving' ? 'i-lucide-loader-circle' : autosaveState === 'conflict' ? 'i-lucide-triangle-alert' : 'i-lucide-cloud-check'" /> {{ autosaveLabel }}
+        </button>
+        <UButton class="mobile-library-button secondary" color="neutral" variant="outline" icon="i-lucide-library" @click="libraryDrawerOpen = true">Blocks</UButton>
+        <UButton color="neutral" variant="outline" icon="i-lucide-panel-right-open" @click="previewOpen = true">Preview</UButton>
+        <UButton v-if="!draft.id" :loading="requestIs('save-session')" :disabled="Boolean(pendingRequest)" @click="save">Create CV</UButton>
+        <UButton v-if="activeSession" :loading="requestIs('finish-session')" :disabled="Boolean(pendingRequest) || autosaveState === 'saving'" @click="finishEditingSession">Finish Revision</UButton>
+        <UDropdownMenu v-if="activeSession" :items="sessionActionItems" :content="{ align: 'end' }">
+          <UButton color="neutral" variant="outline" icon="i-lucide-ellipsis" aria-label="Editing Session actions" />
+        </UDropdownMenu>
+      </div>
+    </header>
+
+    <div v-if="error" class="workbench-message workbench-message--error" role="alert">{{ error }}</div>
+    <p v-if="notice" class="workbench-message" role="status">{{ notice }}</p>
+
+    <div class="workbench-body">
+      <aside class="block-library" :class="{ 'block-library--open': libraryDrawerOpen }" aria-label="CV Block Library">
+        <header class="library-header">
+          <div v-if="!libraryCollapsed"><p class="editor-session-eyebrow">Source material</p><h2>Block Library</h2></div>
+          <UButton class="library-collapse-button secondary" color="neutral" variant="ghost" :icon="libraryCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" :aria-label="libraryCollapsed ? 'Expand Block Library' : 'Collapse Block Library'" @click="toggleLibrary" />
+          <UButton class="library-mobile-close" color="neutral" variant="ghost" icon="i-lucide-x" aria-label="Close Block Library" @click="libraryDrawerOpen = false" />
+        </header>
+        <template v-if="!libraryCollapsed">
+          <UInput v-model="librarySearch" class="library-search" icon="i-lucide-search" placeholder="Search blocks" aria-label="Search CV Blocks" />
+          <div class="block-kind-tabs" role="tablist" aria-label="Filter CV Blocks by type">
+            <UButton v-for="item in blockKindItems" :key="item.value" class="block-kind-tab" color="secondary" :variant="blockKindFilter === item.value ? 'solid' : 'outline'" role="tab" size="xs" :aria-selected="blockKindFilter === item.value" @click="blockKindFilter = item.value">{{ item.label }}</UButton>
+          </div>
+          <div v-if="jobFilterItems.length" class="job-filter">
+            <USelectMenu v-model="selectedJobIds" :items="jobFilterItems" value-key="value" label-key="label" multiple searchable size="sm" class="job-filter-select" placeholder="All jobs" aria-label="Filter CV Blocks by jobs">
+              <template #default="{ modelValue }"><span>{{ modelValue.length ? `${modelValue.length} jobs` : "All jobs" }}</span></template>
+            </USelectMenu>
+            <UButton v-if="selectedJobIds.length" color="neutral" variant="ghost" size="xs" @click="selectedJobIds = []">Clear</UButton>
+          </div>
+          <div class="library-utility-row"><span>{{ filteredBlocks.length }} of {{ blocks.length }} blocks</span><UButton color="neutral" variant="ghost" size="xs" icon="i-lucide-sparkles" @click="generationOpen = true">Draft from notes</UButton></div>
+          <p v-if="!blocks.length" class="library-empty">No CV Blocks available. <NuxtLink to="/app/blocks">Create CV Blocks first.</NuxtLink></p>
+          <p v-else-if="!filteredBlocks.length" class="library-empty">No CV Blocks match these filters.</p>
+          <div class="library-results">
+            <article v-for="block in filteredBlocks" :key="block.id" class="library-card">
+              <div><small>{{ block.kind }}</small><strong>{{ block.title }}</strong><span v-if="experienceParentJob(block)">{{ experienceParentJob(block) }}</span></div>
+              <footer>
+                <USelect v-model="selectedVersions[block.id]" :items="blockVersionItems(block)" size="xs" aria-label="Block Version" />
+                <UButton v-if="!selectedForBlock(block.id)" size="xs" icon="i-lucide-plus" @click="add(block)">Add</UButton>
+                <UButton v-else color="neutral" variant="outline" size="xs" :disabled="selectedForBlock(block.id).versionId === selectedVersions[block.id]" @click="replaceVersion(block)">Replace</UButton>
+              </footer>
+            </article>
+          </div>
+        </template>
+      </aside>
+      <button v-if="libraryDrawerOpen" class="library-scrim" type="button" aria-label="Close Block Library" @click="libraryDrawerOpen = false" />
+
+      <main class="composition-canvas">
+        <section v-if="draft.id && !activeSession" class="session-gate" aria-labelledby="editing-sessions-heading">
+          <p class="editor-session-eyebrow">Editing Session required</p><h1 id="editing-sessions-heading">Choose a working version</h1><p>Resume an open Editing Session or start from an immutable Revision before changing this CV.</p>
+          <article v-for="session in openEditingSessions" :key="session.id" class="session-row"><span>{{ editingSessionLabel(session) }} · working version {{ session.optimisticVersion }}</span><UButton :loading="requestIs(`resume-session:${session.id}`)" :disabled="Boolean(pendingRequest)" @click="resumeEditingSession(session)">Resume</UButton></article>
+          <UButton v-if="!openEditingSessions.length && !revisions.length" :loading="requestIs('start-session:initial')" :disabled="Boolean(pendingRequest)" @click="startEditingSession(null)">Start first Editing Session</UButton>
+          <div v-if="revisions.length" class="revision-start-list"><UButton v-for="revision in revisions" :key="revision.id" color="neutral" variant="outline" :loading="requestIs(`start-session:${revision.id}`)" :disabled="Boolean(pendingRequest)" @click="startEditingSession(revision)">Start from Revision {{ revision.number }}</UButton></div>
+          <details v-if="archivedEditingSessions.length"><summary>Archived Editing Sessions</summary><article v-for="session in archivedEditingSessions" :key="session.id" class="session-row"><span>Working version {{ session.optimisticVersion }}</span><UButton color="neutral" variant="outline" @click="proposeSessionLifecycle(session, 'restore_editing_session')">Restore</UButton></article></details>
+        </section>
+        <template v-else>
+          <header class="composition-header">
+            <div><p class="editor-session-eyebrow">Working Composition</p><h1>Build the story, one block at a time.</h1><p>{{ compositionCount }} selected Block Version{{ compositionCount === 1 ? "" : "s" }}. Drag by the handles to reorder.</p></div>
+            <div class="composition-settings"><UButton class="secondary" color="neutral" variant="outline" icon="i-lucide-file-pen-line" @click="openCvDetails">CV details</UButton><USelect v-model="selectedTheme" :items="themeItems" aria-label="Theme" /></div>
+          </header>
+
+          <div class="composition-toolbar">
+            <UButton v-if="draft.selections.length" class="secondary" color="neutral" variant="ghost" @click="clearDraft">Clear composition…</UButton>
+            <UButton v-if="sessionChangeProposal && !sessionProposalOpen" class="secondary" color="neutral" variant="outline" @click="sessionProposalOpen = true">Review pending Change Proposal</UButton>
+          </div>
+
+          <section class="composition-section" :class="{ 'composition-section--open': expandedSections.experience }">
+            <header class="composition-section-header">
+              <button type="button" class="secondary" @click="toggleSection('experience')"><UIcon :name="expandedSections.experience ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" /><span>Experience</span><small>{{ selectedBySection.experience?.length || 0 }}</small></button>
+              <div class="experience-sort-actions">
+                <UButton v-if="experienceUndoSnapshot" color="neutral" variant="ghost" size="xs" icon="i-lucide-undo-2" @click="undoExperienceSort">Undo sort</UButton>
+                <USelect :model-value="experienceSort" :items="[{ label: 'Newest first', value: 'newest' }, { label: 'Oldest first', value: 'oldest' }, { label: 'Custom order', value: 'custom', disabled: true }]" size="xs" aria-label="Sort Experience by job date" @update:model-value="$event !== 'custom' && sortExperience($event)" />
+              </div>
+            </header>
+            <div v-show="expandedSections.experience" class="composition-section-body">
+              <p v-if="!selectedExperienceOccasions.length" class="composition-empty">Add Experience blocks from the library.</p>
+              <DragDropProvider v-else :plugins="accessibilityPlugins" @drag-end="onOccasionDragEnd">
+                <SortableCompositionItem v-for="(occasion, occasionIndex) in selectedExperienceOccasions" :id="occasion.occasionId" :key="occasion.occasionId" :index="occasionIndex" group="experience-occasions" :label="`${occasion.role} at ${occasion.employer}`" class="occasion-card">
+                  <header class="occasion-header"><div><strong>{{ occasion.role }}</strong><span>{{ occasion.employer }} · {{ formatEmploymentPeriod(occasion.startDate, occasion.endDate) }}</span></div><div class="occasion-actions"><small>{{ occasion.items.length }} block{{ occasion.items.length === 1 ? "" : "s" }}</small><UDropdownMenu :items="occasionMenuItems(occasion, occasionIndex)" :content="{ align: 'end' }"><UButton color="neutral" variant="ghost" icon="i-lucide-ellipsis" aria-label="Job order actions" /></UDropdownMenu></div></header>
+                  <DragDropProvider :plugins="accessibilityPlugins" @drag-end="onOccasionItemDragEnd($event, occasion)">
+                    <SortableCompositionItem v-for="(item, itemIndex) in occasion.items" :id="item.versionId" :key="item.versionId" :index="itemIndex" :group="occasion.occasionId" :label="item.block?.title || item.content?.text || 'Experience block'" class="selection-card">
+                      <div class="selection-copy"><strong>{{ item.block?.title || item.content?.text }}</strong><small>Block Version {{ selectionVersionNumber(item) }}</small></div>
+                      <UDropdownMenu :items="selectionMenuItems(item)" :content="{ align: 'end' }"><UButton class="secondary" color="neutral" variant="ghost" icon="i-lucide-ellipsis" aria-label="Block actions" /></UDropdownMenu>
+                    </SortableCompositionItem>
+                  </DragDropProvider>
+                </SortableCompositionItem>
+              </DragDropProvider>
+            </div>
+          </section>
+
+          <section v-for="section in ['skills','certifications','education','interests']" :key="section" class="composition-section" :class="{ 'composition-section--open': expandedSections[section] }">
+            <header class="composition-section-header"><button type="button" class="secondary" @click="toggleSection(section)"><UIcon :name="expandedSections[section] ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" /><span>{{ section }}</span><small>{{ selectedBySection[section]?.length || 0 }}</small></button></header>
+            <div v-show="expandedSections[section]" class="composition-section-body">
+              <p v-if="!selectedBySection[section]?.length" class="composition-empty">Add {{ section }} blocks from the library.</p>
+              <DragDropProvider v-else :plugins="accessibilityPlugins" @drag-end="onSelectionDragEnd($event, section)">
+                <SortableCompositionItem v-for="(item, itemIndex) in selectedBySection[section]" :id="item.versionId" :key="item.versionId" :index="itemIndex" :group="section" :label="item.block?.title || item.content?.text || item.content?.name || section" class="selection-card">
+                  <div class="selection-copy"><strong>{{ item.block?.title || item.content?.text || item.content?.name }}</strong><small>Block Version {{ selectionVersionNumber(item) }}</small></div>
+                  <UDropdownMenu :items="selectionMenuItems(item)" :content="{ align: 'end' }"><UButton class="secondary" color="neutral" variant="ghost" icon="i-lucide-ellipsis" aria-label="Block actions" /></UDropdownMenu>
+                </SortableCompositionItem>
+              </DragDropProvider>
+            </div>
+          </section>
+        </template>
+      </main>
+    </div>
+
+    <USlideover v-model:open="previewOpen" title="CV preview" description="Live preview of the current Working Composition." :ui="{ content: 'cv-preview-slideover', body: 'cv-preview-body', footer: 'justify-between' }">
+      <template #body><button type="button" class="preview-resize-handle" aria-label="Resize preview" @pointerdown="startPreviewResize" /><div class="preview-paper"><CvDocument :document="draft" /></div></template>
+      <template #footer><span class="preview-width-label">{{ Math.round(previewWidth) }}% wide</span><NuxtLink v-if="draft.id" role="button" class="secondary control-compact" :to="`/app/cvs/${draft.id}/preview`">Open A4 print preview</NuxtLink></template>
+    </USlideover>
+
+    <UModal v-model:open="generationOpen" title="Draft from notes" description="Generate candidates, review them, then add only the Block Versions you approve." scrollable :ui="{ content: 'sm:max-w-4xl' }">
+      <template #body>
+        <section class="summary-generator"><h3>Summary Change Proposal</h3><label>Direction<UInput v-model="instruction" placeholder="Focus on product leadership" /></label><UButton :loading="generatingSummary" :disabled="Boolean(pendingRequest)" @click="generateSummary">Generate Summary Change Proposal</UButton><article v-if="proposal"><label>Edit proposal<UTextarea v-model="proposal.text" aria-label="Edit Summary Change Proposal" /></label><div class="modal-actions"><UButton @click="applySummaryProposal">Apply Change Proposal</UButton><UButton color="neutral" variant="outline" @click="proposal=null">Discard</UButton></div></article></section>
+        <TaskChat :generate-tasks-handler="generateTaskProposal" :create-tasks-handler="createReviewedTasks" />
+      </template>
+    </UModal>
+
+    <UModal v-model:open="copyRoleOpen" title="Copy for New Role" description="Create a separate CV and initial Editing Session for another target role." :ui="{ content: 'sm:max-w-lg', footer: 'justify-end' }">
+      <template #body><UFormField label="New role-focused CV name" required><UInput v-model="copyRoleName" class="w-full" placeholder="Head of Marketing at Acme" /></UFormField></template>
+      <template #footer><UButton color="neutral" variant="outline" @click="copyRoleOpen = false">Cancel</UButton><UButton :disabled="!copyRoleName.trim() || Boolean(pendingRequest)" @click="copyFrom(activeSession, 'copy_for_new_role'); copyRoleOpen = false">Review copy proposal</UButton></template>
+    </UModal>
+
+    <UModal v-model:open="archiveSessionOpen" title="Archive Editing Session?" description="The Working Composition will leave the active workbench. You can restore it later." :ui="{ content: 'sm:max-w-lg', footer: 'justify-end' }">
+      <template #footer><UButton color="neutral" variant="outline" @click="archiveSessionOpen = false">Cancel</UButton><UButton color="error" :disabled="Boolean(pendingRequest)" @click="proposeSessionLifecycle(activeSession, 'archive_editing_session'); archiveSessionOpen = false">Review archive proposal</UButton></template>
+    </UModal>
+
+    <template v-if="false">
     <section
       v-if="draft.id"
       class="editor-session-bar"
@@ -903,6 +1377,7 @@ function generateTaskProposal(instruction) {
       </section>
     </section>
     <aside class="live-preview"><p><strong>Live preview</strong></p><CvDocument :document="draft" /></aside>
+    </template>
 
     <UModal
       v-model:open="cvDetailsOpen"
@@ -1000,6 +1475,115 @@ function generateTaskProposal(instruction) {
 </template>
 
 <style scoped>
+.cv-workbench {
+  --library-width: 19rem;
+  min-height: calc(100vh - 4rem);
+  background:
+    linear-gradient(rgba(25, 24, 22, .035) 1px, transparent 1px),
+    var(--paper);
+  background-size: 100% 2rem;
+}
+.workbench-header {
+  position: sticky;
+  z-index: 30;
+  top: 0;
+  display: flex;
+  min-height: 5.25rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .8rem 1rem;
+  border-bottom: 2px solid var(--ink);
+  background: color-mix(in srgb, var(--paper-light) 94%, transparent);
+  backdrop-filter: blur(12px);
+}
+.workbench-identity, .workbench-actions, .composition-settings, .library-header, .library-utility-row, .occasion-header, .selection-card :deep(.sortable-composition-content) { display: flex; align-items: center; }
+.workbench-identity { min-width: 0; gap: .8rem; }
+.workbench-back { display: grid; width: 2.6rem; height: 2.6rem; flex: 0 0 auto; place-items: center; border: 1px solid var(--ink); color: var(--ink); }
+.workbench-title { display: flex; max-width: 36rem; align-items: center; gap: .45rem; margin: .1rem 0 0; overflow: hidden; border: 0; background: none; color: var(--ink); font-family: var(--font-editorial); font-size: clamp(1.35rem, 2vw, 1.85rem); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.workbench-title .icon { width: .85rem; color: var(--muted); }
+.workbench-subtitle { margin: 0; color: var(--muted); font-size: .78rem; }
+.workbench-actions { flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.autosave-status { display: flex; align-items: center; gap: .35rem; border: 0; background: transparent; color: var(--muted); font-family: var(--font-label); font-size: .7rem; }
+.autosave-status--saving .icon { animation: workbench-spin .8s linear infinite; }
+.autosave-status--conflict { color: #9b2c2c; cursor: pointer; }
+@keyframes workbench-spin { to { transform: rotate(360deg); } }
+.workbench-message { margin: 0; padding: .65rem 1rem; border-bottom: 1px solid var(--ink); background: var(--paper-light); font-size: .8rem; }
+.workbench-message--error { background: #fff0ed; color: #8f221b; }
+.workbench-body { display: grid; grid-template-columns: var(--library-width) minmax(0, 1fr); min-height: calc(100vh - 5.25rem); }
+.cv-workbench--library-collapsed { --library-width: 3.75rem; }
+.block-library { position: sticky; top: 5.25rem; height: calc(100vh - 5.25rem); overflow: hidden; border-right: 1px solid var(--ink); background: var(--paper-light); transition: width 180ms ease; }
+.library-header { min-height: 4.5rem; justify-content: space-between; gap: .5rem; padding: .75rem; border-bottom: 1px solid var(--ink); }
+.library-header h2 { margin: .15rem 0 0; font-family: var(--font-editorial); font-size: 1.25rem; font-weight: 500; }
+.library-collapse-button { margin-left: auto; }
+.cv-workbench--library-collapsed .library-header {
+  justify-content: center;
+  padding: .5rem;
+}
+.cv-workbench--library-collapsed .library-collapse-button {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  aspect-ratio: 1;
+  margin: 0;
+  padding: 0 !important;
+}
+.library-mobile-close, .mobile-library-button { display: none !important; }
+.library-search { width: calc(100% - 1.5rem); margin: .75rem; }
+.block-kind-tabs { display: flex !important; gap: .35rem; padding: 0 .75rem .6rem; overflow-x: auto; }
+.block-kind-tabs .block-kind-tab { flex: 0 0 auto; width: auto; margin: 0; box-shadow: none; }
+.job-filter { display: flex; gap: .35rem; padding: 0 .75rem .6rem; }
+.job-filter-select { min-width: 0; flex: 1; }
+.library-utility-row { justify-content: space-between; gap: .5rem; padding: .55rem .75rem; border-block: 1px solid var(--paper-deep); color: var(--muted); font-size: .7rem; }
+.library-results { height: calc(100vh - 17.5rem); overflow-y: auto; padding: .2rem .75rem 2rem; }
+.library-card { margin: .65rem 0; padding: .7rem !important; border: 1px solid var(--ink) !important; background: var(--paper); box-shadow: 2px 2px 0 var(--paper-deep); }
+.library-card small, .library-card strong, .library-card span { display: block; }
+.library-card small { color: var(--marker-dark); font-family: var(--font-label); font-size: .6rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.library-card strong { margin-top: .15rem; font-family: var(--font-editorial); font-size: .96rem; }
+.library-card span { margin-top: .15rem; color: var(--muted); font-size: .7rem; }
+.library-card footer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; margin-top: .6rem; padding-top: .55rem; border-top: 1px solid var(--paper-deep); }
+.library-empty { padding: 1rem; color: var(--muted); font-size: .8rem; }
+.composition-canvas { width: min(100%, 62rem); min-width: 0; margin: 0 auto; padding: clamp(1rem, 3vw, 3rem); }
+.composition-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 2rem; margin-bottom: 2rem; }
+.composition-header h1, .session-gate h1 { margin: .25rem 0; font-family: var(--font-editorial); font-size: clamp(2rem, 4vw, 3.5rem); font-weight: 400; line-height: .98; }
+.composition-header p { margin: .4rem 0 0; color: var(--muted); }
+.composition-settings { flex: 0 0 auto; gap: .5rem; }
+.composition-section { margin: 0 0 1rem; border: 1px solid var(--ink); background: var(--paper-light); box-shadow: 4px 4px 0 var(--paper-deep); }
+.composition-section--open { box-shadow: 6px 6px 0 color-mix(in srgb, var(--marker) 55%, var(--paper-deep)); }
+.composition-section-header { display: flex; min-height: 3.65rem; align-items: center; justify-content: space-between; gap: .7rem; padding: .55rem .7rem; }
+.composition-section-header > button { display: flex; flex: 1; align-items: center; gap: .65rem; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.composition-section-header span { font-family: var(--font-label); font-size: .75rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.composition-section-header small { display: grid; min-width: 1.5rem; height: 1.5rem; place-items: center; border-radius: 50%; background: var(--paper-deep); font-size: .65rem; }
+.experience-sort-actions, .occasion-actions { display: flex; align-items: center; gap: .35rem; }
+.composition-section-body { display: grid; gap: .75rem; padding: .8rem; border-top: 1px solid var(--ink); }
+.composition-empty { margin: 0; padding: 1.2rem; border: 1px dashed var(--muted); color: var(--muted); text-align: center; }
+.occasion-card { margin-bottom: .85rem; }
+.occasion-card :deep(> .sortable-composition-content) { padding: .8rem; }
+.occasion-header { justify-content: space-between; gap: .8rem; margin-bottom: .65rem; }
+.occasion-header strong, .occasion-header span { display: block; }
+.occasion-header strong { font-family: var(--font-editorial); font-size: 1.12rem; }
+.occasion-header span, .occasion-header small { color: var(--muted); font-size: .72rem; }
+.selection-card { margin: .45rem 0; box-shadow: none; }
+.selection-card :deep(> .sortable-composition-content) { display: flex; min-height: 3.2rem; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .6rem; }
+.selection-copy { min-width: 0; }
+.selection-copy strong, .selection-copy small { display: block; }
+.selection-copy strong { overflow: hidden; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.selection-copy small { margin-top: .1rem; color: var(--muted); font-size: .65rem; }
+.composition-toolbar { display: flex; justify-content: flex-end; gap: .75rem; margin: -1rem 0 1rem; }
+.session-gate { max-width: 46rem; margin: 4rem auto; padding: 2rem; border: 1px solid var(--ink); background: var(--paper-light); box-shadow: 7px 7px 0 var(--marker); }
+.revision-start-list { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.library-scrim { display: none; }
+.preview-paper { min-width: 38rem; padding: 1.5rem; }
+.preview-resize-handle { position: absolute; z-index: 10; top: 0; bottom: 0; left: -.3rem; width: .6rem; border: 0; background: transparent; cursor: ew-resize; touch-action: none; }
+.preview-resize-handle::after { position: absolute; top: 45%; bottom: 45%; left: .25rem; width: 2px; background: var(--marker); content: ""; }
+.preview-width-label { color: var(--muted); font-family: var(--font-label); font-size: .7rem; }
+.summary-generator { display: grid; gap: .75rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--ink); }
+.summary-generator h3 { margin: 0; font-family: var(--font-editorial); font-size: 1.5rem; }
+.modal-actions { display: flex; gap: .5rem; margin-top: .65rem; }
+:global(.cv-preview-slideover) { width: var(--cv-preview-width, 44vw) !important; max-width: none !important; }
+:global(.cv-preview-body) { position: relative; overflow: auto; padding: 0 !important; background: var(--paper-deep); }
+
 .editor-layout { display: grid; grid-template-columns: minmax(23rem, .9fr) minmax(34rem, 1.1fr); gap: clamp(1.5rem, 3vw, 3rem); align-items: start; }
 .editor-controls { min-width: 0; }
 .editor-controls > h2, .editor-controls > section > h2 { margin-top: 2.5rem; padding-bottom: .55rem; border-bottom: 2px solid var(--ink); font-size: 1.8rem; font-weight: 400; }
@@ -1044,4 +1628,39 @@ function generateTaskProposal(instruction) {
 @media (max-width: 650px) { .selection, .session-row, .editor-session-bar-heading, .cv-details-summary { align-items: stretch; flex-direction: column; } .library-row-footer, .job-filter { align-items: stretch; flex-direction: column; } .library-version-select, .job-filter-select { width: 100%; max-width: none; } .selection .selection-section { width: 100%; margin: .4rem 0; } }
 @media (min-width: 1500px) { .block-kind-tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media print { .editor-controls, .editor-session-bar { display: none; } .editor-layout { display: block; } }
+
+@media (max-width: 900px) {
+  .workbench-header { align-items: flex-start; flex-direction: column; }
+  .workbench-actions { width: 100%; justify-content: flex-start; }
+  .mobile-library-button, .library-mobile-close { display: inline-flex !important; }
+  .library-collapse-button { display: none !important; }
+  .workbench-body { display: block; }
+  .block-library { position: fixed; z-index: 60; top: 0; bottom: 0; left: 0; width: min(90vw, 24rem); height: 100vh; transform: translateX(-105%); transition: transform 180ms ease; }
+  .block-library--open { transform: translateX(0); }
+  .block-library--open > template { display: block; }
+  .library-results { height: calc(100vh - 17.5rem); }
+  .library-scrim { position: fixed; z-index: 55; inset: 0; display: block; border: 0; background: rgba(25, 24, 22, .45); }
+  .composition-header { align-items: stretch; flex-direction: column; }
+  .composition-settings { flex-wrap: wrap; }
+  :global(.cv-preview-slideover) { width: 100vw !important; }
+  .preview-resize-handle, .preview-width-label { display: none; }
+}
+
+@media (max-width: 560px) {
+  .workbench-header { position: static; }
+  .workbench-identity { align-items: flex-start; }
+  .workbench-title { max-width: 72vw; }
+  .autosave-status { width: 100%; }
+  .composition-canvas { padding: 1rem .75rem 2rem; }
+  .composition-header h1 { font-size: 2.15rem; }
+  .composition-section-header { align-items: stretch; flex-direction: column; }
+  .composition-section-header > div, .composition-section-header > button { min-height: 2.5rem; }
+  .selection-card :deep(> .sortable-composition-content) { align-items: stretch; flex-direction: column; }
+  .composition-toolbar { align-items: stretch; flex-direction: column; margin-top: 0; }
+  .preview-paper { min-width: 44rem; padding: .75rem; transform-origin: top left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block-library, .autosave-status .icon { animation: none; transition: none; }
+}
 </style>

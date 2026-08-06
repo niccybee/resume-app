@@ -1662,19 +1662,19 @@ describe("Nuxt runtime", async () => {
       await page.getByRole("heading", { name: "No saved CVs yet" }).waitFor();
       await page.getByRole("button", { name: "Create the first CV" }).click();
       await page.waitForURL("**/app/cvs/new");
-      await page.getByRole("button", { name: "Add CV details" }).click();
+      await page.getByRole("button", { name: "CV details", exact: true }).click();
       const cvName = page.getByLabel("CV name");
       await cvName.waitFor();
       expect(await cvName.isVisible()).toBe(true);
       await page.getByRole("button", { name: "Cancel" }).click();
-      const cvBlockLibrary = page.getByRole("heading", { name: "CV Block Library" });
+      const cvBlockLibrary = page.getByRole("heading", { name: "Block Library", exact: true });
       await cvBlockLibrary.waitFor();
       expect(await cvBlockLibrary.isVisible()).toBe(true);
 
       await page.goto(url("/app/cvs/cv-native/preview"));
       await page.getByText("A saved private CV rendered through Nuxt.").waitFor();
       expect(await page.getByText("Shipped a saved composition through native Nuxt pages.").isVisible()).toBe(true);
-      expect(await page.getByRole("link", { name: "Back to editor" }).isVisible()).toBe(true);
+      expect(await page.getByRole("link", { name: "Back to Workbench" }).isVisible()).toBe(true);
 
       await page.getByRole("link", { name: "CV Blocks", exact: true }).click();
       await page.waitForURL("**/app/blocks");
